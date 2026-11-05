@@ -16,7 +16,7 @@ const pull = {
     number: 12, title: 'Ajoute la recherche', author: 'dev', source_branch: 'feature', target_branch: 'main',
     head_sha: 'abcdef0123456789', state: 'open', tag: 'pr-12-abcdef0',
   },
-  jobs: [{ id: 3, kind: 'core/build', label: 'Construction', state: 'succeeded', requested_by: 'system:plan', requested_at: '2026-11-02T10:00:00Z' }],
+  jobs: [{ id: 3, kind: 'docker/build', label: 'Construction', state: 'succeeded', requested_by: 'system:plan', requested_at: '2026-11-02T10:00:00Z' }],
   plan_runs: [],
 }
 
@@ -24,7 +24,7 @@ const queue = {
   queues: [],
   kinds: [
     {
-      kind: 'core/build', label: 'Construction',
+      kind: 'docker/build', label: 'Construction',
       inputs: [
         { name: 'revision', required: true, suggest: 'git-ref' },
         { name: 'tag-name', required: true, suggest: 'release-tag' },
@@ -41,7 +41,7 @@ function arm() {
   return mockFetch([
     { path: '/me', body: { subject: 's', username: 'admin', role: 'admin', projects: [{ slug: 'shop', label: 'Shop' }] } },
     { path: '/pulls/12/tests', body: { results: [], score: { value: 0, measured: false, health: 'na', signals: [], redistributed: [] } } },
-    { path: '/pulls/12/launch', method: 'POST', status: 202, body: { id: 4, kind: 'core/build', params: {} } },
+    { path: '/pulls/12/launch', method: 'POST', status: 202, body: { id: 4, kind: 'docker/build', params: {} } },
     { path: '/pulls/12', body: pull },
     { path: '/queue', body: queue },
   ])
@@ -78,6 +78,6 @@ describe("la page d'une pull request", () => {
     await userEvent.click(screen.getByRole('button', { name: 'Lancer' }))
 
     const sent = calls.find((call) => call.method === 'POST' && call.url.includes('/pulls/12/launch'))
-    expect(sent?.body).toEqual({ kind: 'core/build', params: { 'image-name': 'portal' } })
+    expect(sent?.body).toEqual({ kind: 'docker/build', params: { 'image-name': 'portal' } })
   })
 })

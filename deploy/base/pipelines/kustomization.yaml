@@ -1,24 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# The pipeline core: what the dashboard **owns**.
-#
-# Building an image and setting an extra tag are not infrastructure that operations chooses:
-# they are the dashboard's mechanisms. It knows their parameters, expects their results, and its
-# state machine concludes on their outcome. Leaving them to each deployment would guarantee
-# divergent implementations of what it believes it drives.
-#
-# They lived in `mse-tekton`, whose name stated the coupling: a second project would have had to
-# fork it. They are now shipped with the binary that uses them, and their version follows its own
-# — like the migration Job, which is a resource of this same deployment and yet runs the
-# dashboard's code.
-#
-# What is **not** here, and has no business being: the pipelines specific to a deployment —
-# environment deployment, in-house E2E campaign, security audit. They stay with their owner, and
-# the catalogue references them without the dashboard owning them.
-#
-# The contract these pipelines honour is written in the results documentation. It is normative:
-# these are implementations of it, not the definition.
+# What every plugin's pipelines share and no plugin can ship: a plugin cannot ship a Task another
+# plugin ships too. The dashboard installs the rest with each plugin, the image pipelines with
+# `docker`.
 
 # The namespace is the pipelines', not the dashboard's: that is where Tekton reads the
 # definitions. It is set here rather than at the top of the repository because the base
@@ -45,15 +30,6 @@ resources:
   # appears in no diff.
   - task-git-clone.yaml
 
-  - task-generate-image-tag.yaml
-  - task-buildx-build-image.yaml
-  - task-push-image.yaml
-  - task-tag-image.yaml
-
-  - pipeline-build-image.yaml
-  - pipeline-retag-image.yaml
-
   # The other half of the results contract: a pipeline uploads its reports to the presigned URL
-  # the dashboard hands it. Every plugin's pipelines use it, and a plugin cannot ship a Task
-  # another plugin ships too, so it is the core's.
+  # the dashboard hands it.
   - task-publish-artifact.yaml

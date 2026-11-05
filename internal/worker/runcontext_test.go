@@ -83,7 +83,7 @@ func TestARunReadsItsReleasesVariables(t *testing.T) {
 // The summary lists a plan's pipelines and their state; each step's state is a variable too.
 func TestAPlansSummaryListsItsPipelines(t *testing.T) {
 	progress := plan.Start(plan.Plan{Stages: []plan.Stage{
-		{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "core/build", Label: "portal-dev"}}},
+		{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal-dev"}}},
 		{Gestes: []plan.Geste{
 			{Kind: plan.GestePipeline, Ref: "php/unit-tests"},
 			{Kind: plan.GesteAction, Ref: "gitea.comment"},

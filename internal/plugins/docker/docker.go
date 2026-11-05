@@ -1,37 +1,70 @@
-// Package core brings the pipelines every project uses: building an image and re-tagging one.
+// Package docker brings the pipelines of an image: building one and re-tagging one.
 //
-// Their Tekton definitions arrive with the dashboard's own kustomization, like the migration Job,
-// so the capabilities ship no manifests.
-package core
+// The dashboard needs them to work: its releases are images, and a final release re-tags its
+// pre-release. The plugin therefore cannot be switched off.
+package docker
 
 import (
+	"embed"
+
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 // ID is the plugin's identifier.
-const ID = "core"
+const ID = "docker"
 
-// Plugin describes the core plugin.
+//go:embed manifests
+var manifests embed.FS
+
+// Manifests are the Tekton definitions the plugin ships.
+func Manifests() []capability.Manifest {
+	loaded, err := capability.LoadManifests(manifests, "manifests")
+	if err != nil {
+		// The embedding is fixed at compile time; a test reads it.
+		panic(err)
+	}
+	return loaded
+}
+
+// Plugin describes the Docker plugin.
 func Plugin() capability.Plugin {
+	all := Manifests()
 	return capability.Plugin{
 		ID:         ID,
 		Version:    "1.0.0",
 		APIVersion: sdk.APIVersion,
-		Label:      "Socle",
+		Label:      "Docker",
 		Summary:    "Construction et re-tag des images de chaque projet.",
 		Mandatory:  true,
-		Pipelines:  []capability.Pipeline{build(), retag()},
+		Pipelines: []capability.Pipeline{
+			build(pick(all, "build-image", "generate-image-tag", "buildx-build-image", "push-image")),
+			retag(pick(all, "retag-image", "tag-image")),
+		},
 	}
 }
 
-func build() capability.Pipeline {
+func pick(all []capability.Manifest, names ...string) []capability.Manifest {
+	var picked []capability.Manifest
+	for _, manifest := range all {
+		for _, name := range names {
+			if manifest.Name == name {
+				picked = append(picked, manifest)
+			}
+		}
+	}
+	return picked
+}
+
+func build(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
 		Name:  "build",
 		Label: "Construction d'image",
 		Spec: capability.PipelineSpec{
-			PipelineRef: "build-image",
-			Produces:    []capability.Product{capability.ProductImage},
+			PipelineRef:   "build-image",
+			Manifests:     manifests,
+			ExternalTasks: []string{"git-clone"},
+			Produces:      []capability.Product{capability.ProductImage},
 			Params: map[string]capability.Param{
 				"repo-url":          {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
 				"reg-project":       {Source: capability.ParamBinding, DefaultKey: "registry.project"},
@@ -58,7 +91,7 @@ func build() capability.Pipeline {
 					Placeholder: "portal",
 				},
 				"target": {
-					Source: capability.ParamInput, Required: true, Suggest: "build-target",
+					Source: capability.ParamInput, Suggest: "build-target",
 					Label: "Cible du Dockerfile",
 					Help: "Étape `AS <nom>` qui produit cette image. Sur un Dockerfile sans " +
 						"étapes, la dernière.",
@@ -78,12 +111,13 @@ func build() capability.Pipeline {
 	}
 }
 
-func retag() capability.Pipeline {
+func retag(manifests []capability.Manifest) capability.Pipeline {
 	return capability.Pipeline{
 		Name:  "retag",
 		Label: "Re-tag d'image",
 		Spec: capability.PipelineSpec{
 			PipelineRef: "retag-image",
+			Manifests:   manifests,
 			Produces:    []capability.Product{capability.ProductImage},
 			Exclusive:   true,
 			Params: map[string]capability.Param{

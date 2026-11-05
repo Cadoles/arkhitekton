@@ -1,6 +1,6 @@
 [
   {
-    "kind": "core/build",
+    "kind": "docker/build",
     "pipelineRef": "build-image",
     "label": "Construction d'image",
     "produces": [
@@ -51,7 +51,6 @@
       },
       "target": {
         "source": "input",
-        "required": true,
         "suggest": "build-target",
         "label": "Cible du Dockerfile",
         "help": "Étape `AS \u003cnom\u003e` qui produit cette image. Sur un Dockerfile sans étapes, la dernière.",
@@ -87,12 +86,14 @@
         }
       }
     ],
-    "Capability": "core/build",
+    "Capability": "docker/build",
     "Unavailable": "",
-    "ExternalTasks": null
+    "ExternalTasks": [
+      "git-clone"
+    ]
   },
   {
-    "kind": "core/retag",
+    "kind": "docker/retag",
     "pipelineRef": "retag-image",
     "label": "Re-tag d'image",
     "produces": [
@@ -132,7 +133,7 @@
         }
       }
     ],
-    "Capability": "core/retag",
+    "Capability": "docker/retag",
     "Unavailable": "",
     "ExternalTasks": null
   },

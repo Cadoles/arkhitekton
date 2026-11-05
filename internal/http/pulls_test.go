@@ -49,7 +49,7 @@ func (f *pullFixture) PullRequestByNumber(_ context.Context, projectID, number i
 }
 
 func (f *pullFixture) ListPullRequestJobs(context.Context, int64) ([]store.ReleaseJob, error) {
-	return []store.ReleaseJob{{ID: 3, Kind: "core/build", State: "succeeded", RequestedBy: "system:plan"}}, nil
+	return []store.ReleaseJob{{ID: 3, Kind: "docker/build", State: "succeeded", RequestedBy: "system:plan"}}, nil
 }
 
 func (f *pullFixture) ListPullRequestPlanRuns(context.Context, int64, int) ([]store.PlanRunSummary, error) {
@@ -89,7 +89,7 @@ func pullCatalogue() *catalog.Catalog {
 	portal := input(true, catalog.SuggestImage)
 	portal.Image = "portal"
 	return &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "core/build", PipelineRef: "build-image", Params: map[string]catalog.Param{
+		{Kind: "docker/build", PipelineRef: "build-image", Params: map[string]catalog.Param{
 			"revision": input(true, catalog.SuggestGitRef), "tag-name": input(true, catalog.SuggestReleaseTag),
 			"image-name": input(true, catalog.SuggestImageName),
 		}},
@@ -133,11 +133,11 @@ func TestALaunchOnAPullRequestRunsOnItsHead(t *testing.T) {
 		return recorder
 	}
 
-	if recorder := launch(`{"kind":"core/build","params":{"revision":"main"}}`); recorder.Code != http.StatusBadRequest ||
+	if recorder := launch(`{"kind":"docker/build","params":{"revision":"main"}}`); recorder.Code != http.StatusBadRequest ||
 		!strings.Contains(recorder.Body.String(), "image-name") {
 		t.Errorf("a build without its image name: %d %s", recorder.Code, recorder.Body)
 	}
-	if recorder := launch(`{"kind":"core/build","params":{"revision":"main","image-name":"portal"}}`); recorder.Code != http.StatusAccepted {
+	if recorder := launch(`{"kind":"docker/build","params":{"revision":"main","image-name":"portal"}}`); recorder.Code != http.StatusAccepted {
 		t.Fatalf("build: %d %s", recorder.Code, recorder.Body)
 	}
 	if recorder := launch(`{"kind":"mse/integration-tests"}`); recorder.Code != http.StatusAccepted {
@@ -157,7 +157,7 @@ func TestALaunchOnAPullRequestRunsOnItsHead(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	pullRouter(fixture).ServeHTTP(recorder, asAdmin(httptest.NewRequest(http.MethodPost,
-		"/projects/shop/pulls/13/launch", strings.NewReader(`{"kind":"core/build"}`))))
+		"/projects/shop/pulls/13/launch", strings.NewReader(`{"kind":"docker/build"}`))))
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("an unknown pull request: %d", recorder.Code)
 	}

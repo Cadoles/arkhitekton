@@ -33,10 +33,12 @@ spec:
         `portal-cli`, `portal-dev`. It is what the kustomizations deploy, and the
         parameter exists so that the pipeline does not have to know it.
     - name: target
+      default: ""
       description: >
         The Dockerfile target to build — `web`, `cli`, `dev`. Distinct from the
         image's name: the mapping belongs to the caller, and a renamed target must
-        not force renaming a repository in the registry.
+        not force renaming a repository in the registry. Empty on a Dockerfile with
+        no stages, whose last one is built.
     - name: version
       default: ""
       description: >

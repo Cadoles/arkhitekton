@@ -257,7 +257,7 @@ func PermDeploy(environment string) string { return "deploy:" + environment }
 
 // Kinds and states a plugin names.
 const (
-	KindRetag         = "core/retag"
+	KindRetag         = "docker/retag"
 	ReleaseStateReady = "ready"
 )
 

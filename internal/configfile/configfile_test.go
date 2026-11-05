@@ -33,7 +33,7 @@ spec:
   pipelines: {mse/e2e-tests: false}
   trackerStatuses: {"En cours": doing}
   releaseAutomation:
-    stages: [{role: build, gestes: [{kind: pipeline, ref: core/build}]}]
+    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
   reactions:
     - name: Analyse à chaque push
       event: gitea.push

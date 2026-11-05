@@ -307,9 +307,9 @@ func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "core/retag", PipelineRef: "retag-image"},
+		{Kind: "docker/retag", PipelineRef: "retag-image"},
 		{
-			Kind: "core/build", PipelineRef: "build-image",
+			Kind: "docker/build", PipelineRef: "build-image",
 			Produces: []catalog.Product{catalog.ProductImage},
 			// The kind's real parameters. A release's plan no longer sets the revision and the tag
 			// in the clear: it reads what the catalogue declares it wants. A silent test catalogue
@@ -450,7 +450,7 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	if created.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("image version = %q, expected the RC's", created.ImageVersion)
 	}
-	if created.State != "draft" || len(fake.jobsOfKind("core/retag")) != 0 {
+	if created.State != "draft" || len(fake.jobsOfKind("docker/retag")) != 0 {
 		t.Fatalf("state = %q, jobs = %+v: a draft re-tags nothing", created.State, fake.jobs)
 	}
 
@@ -461,7 +461,7 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 		t.Errorf("state = %q: the image already exists, the release is promotable", launched.State)
 	}
 
-	retags := fake.jobsOfKind("core/retag")
+	retags := fake.jobsOfKind("docker/retag")
 	if len(retags) != len(fixtureProject().Promotable()) {
 		t.Fatalf("%d re-tag job(s), expected %d", len(retags), len(fixtureProject().Promotable()))
 	}
@@ -549,7 +549,7 @@ func TestGetResolvesDigestsForEveryTag(t *testing.T) {
 		ID: 3, Plan: plan.Plan{Stages: []plan.Stage{{
 			Role: plan.RoleBuild,
 			Gestes: []plan.Geste{{
-				Kind: plan.GestePipeline, Ref: "core/build", Label: "portal",
+				Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal",
 			}},
 		}}},
 	}}
@@ -717,7 +717,7 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	// A draft: the note is detected, and nothing else leaves.
-	if len(fake.jobsOfKind("core/build")) != 0 || len(fake.planRuns) != 0 {
+	if len(fake.jobsOfKind("docker/build")) != 0 || len(fake.planRuns) != 0 {
 		t.Fatalf("a draft builds nothing: jobs %+v", fake.jobs)
 	}
 	if fake.releases["3.2.0-rc1"].State != "draft" {
@@ -743,7 +743,7 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 
 	// One run per image: the pipeline builds only one, and it is the dashboard that decides
 	// how many it launches.
-	builds := fake.jobsOfKind("core/build")
+	builds := fake.jobsOfKind("docker/build")
 	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("%d build(s) queued, expected %d", len(builds), len(fixtureProject().Buildable()))
 	}
@@ -811,7 +811,7 @@ func TestAFinalReleaseDoesNotQueueABuild(t *testing.T) {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
 	for _, job := range fake.jobs {
-		if job.Kind == "core/build" {
+		if job.Kind == "docker/build" {
 			t.Error("a final release must not queue a build")
 		}
 	}
@@ -846,7 +846,7 @@ func TestAPreReleaseWithNoReferenceIsCreatedWithAReservation(t *testing.T) {
 		t.Errorf("launching with no reference: code %d, expected 422", recorder.Code)
 	}
 	for _, job := range fake.jobs {
-		if job.Kind == "core/build" {
+		if job.Kind == "docker/build" {
 			t.Error("no build must start without a Git reference")
 		}
 	}
@@ -925,7 +925,7 @@ func TestADraftIsDeleted(t *testing.T) {
 	if _, found := fake.releases["3.2.0-rc1"]; found {
 		t.Error("the draft is still there")
 	}
-	if len(fake.jobsOfKind("core/build")) != 0 {
+	if len(fake.jobsOfKind("docker/build")) != 0 {
 		t.Errorf("a deleted draft built something: %+v", fake.jobs)
 	}
 	if !slices.Contains(fake.audit, store.AuditReleaseDraftDelete+":3.2.0-rc1") {
@@ -961,7 +961,7 @@ func TestAFinalsDraftChecksItsSourceAgainAtLaunch(t *testing.T) {
 	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusConflict {
 		t.Errorf("launching from a cancelled source: code %d, expected 409", recorder.Code)
 	}
-	if fake.releases["1.8.0"].State != "draft" || len(fake.jobsOfKind("core/retag")) != 0 {
+	if fake.releases["1.8.0"].State != "draft" || len(fake.jobsOfKind("docker/retag")) != 0 {
 		t.Errorf("a refused launch changed something: %+v, %+v", fake.releases["1.8.0"], fake.jobs)
 	}
 }
@@ -1038,7 +1038,7 @@ func TestRerunningAFailedBuildReusesTheSameReference(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "core/build" {
+	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "docker/build" {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
@@ -1120,7 +1120,7 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	// The build starts from the commit, not from the tag or the branch: a shallow clone does
 	// not create a tag's local reference, and the checkout the Task then performs would
 	// fail.
-	builds := fake.jobsOfKind("core/build")
+	builds := fake.jobsOfKind("docker/build")
 	if len(builds) != len(fixtureProject().Buildable()) {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
@@ -1155,7 +1155,7 @@ func TestWithoutWriteAccessTheReleaseStaysAnchoredOnItsCommit(t *testing.T) {
 	}
 
 	// The build starts from the commit: immutable, even with no tag.
-	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "abc123def456" {
+	if got := fake.jobsOfKind("docker/build")[0].Params["revision"]; got != "abc123def456" {
 		t.Errorf("revision built %q, expected the resolved commit", got)
 	}
 }
@@ -1171,7 +1171,7 @@ func TestAnUnreachableForgeDoesNotPreventCreation(t *testing.T) {
 	if len(forge.tags) != 0 {
 		t.Error("no tag must be set without a resolved commit")
 	}
-	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "main" {
+	if got := fake.jobsOfKind("docker/build")[0].Params["revision"]; got != "main" {
 		t.Errorf("revision built %q, expected the fallback to the reference typed", got)
 	}
 }
@@ -1308,7 +1308,7 @@ func TestRerunningOneKindAcceptsOnlyVerifications(t *testing.T) {
 		t.Errorf("revision re-run = %q, expected the commit built", got)
 	}
 
-	if recorder := verify("core/build"); recorder.Code != http.StatusBadRequest {
+	if recorder := verify("docker/build"); recorder.Code != http.StatusBadRequest {
 		t.Errorf("re-running `build` must be refused, code = %d", recorder.Code)
 	}
 	if recorder := verify("unknown-kind"); recorder.Code != http.StatusBadRequest {
@@ -1523,7 +1523,7 @@ func TestALaunchCommitsTheVersionFile(t *testing.T) {
 	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@f11e5a" {
 		t.Errorf("tags %v", forge.tags)
 	}
-	if got := fake.jobsOfKind("core/build")[0].Params["revision"]; got != "f11e5a" {
+	if got := fake.jobsOfKind("docker/build")[0].Params["revision"]; got != "f11e5a" {
 		t.Errorf("revision built %q", got)
 	}
 }
