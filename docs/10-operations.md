@@ -166,7 +166,7 @@ spec:
   pipelines: {mse/e2e-tests: false}
   releaseAutomation:
     statuses: true              # each pipeline reported on the release's commit
-    stages: [{role: build, gestes: [{kind: pipeline, ref: core/build}]}]
+    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
   schedules:
     - name: Integration
       cron: "0 8,12,16 * * 1-5"
@@ -185,7 +185,7 @@ its results showing on the pull request's page:
       match: {target_branch: main}
       plan:
         stages:
-          - gestes: [{kind: pipeline, ref: core/build, params: {image-name: portal, target: web}}]
+          - gestes: [{kind: pipeline, ref: docker/build, params: {image-name: portal, target: web}}]
           - gestes: [{kind: pipeline, ref: php/static-tests}, {kind: pipeline, ref: php/unit-tests}]
 ```
 

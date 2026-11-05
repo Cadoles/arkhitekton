@@ -30,7 +30,8 @@ The manifests under `deploy/base` create, in one namespace:
 - two `Deployment`s: `api` (replicated) and `worker` (single active);
 - a `Service` and an `Ingress`;
 - a `ConfigMap` holding the pipeline catalogue, and one holding non-secret configuration;
-- the pipeline definitions of `deploy/base/pipelines`, in the Tekton namespace.
+- the Tasks every plugin shares (`deploy/base/pipelines`), in the Tekton namespace. The dashboard
+  installs each plugin's own definitions when the catalogue binds them.
 
 PostgreSQL and the object store are **not** part of the base: the reference overlay
 (`deploy/overlays/local`) adds throwaway ones for development. A real deployment points

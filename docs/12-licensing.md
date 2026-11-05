@@ -83,7 +83,8 @@ The real risk was elsewhere. **Nobody writes a pipeline from a blank page** — 
 from `task-git-clone.yaml` or `pipeline-build-image.yaml` and adapt. Shipped under the
 AGPL, those files would have carried it into every derived pipeline.
 
-They are therefore under **Apache 2.0** (`deploy/base/pipelines/LICENSE`), the licence of
+They are therefore under **Apache 2.0** (`deploy/base/pipelines/LICENSE`, and
+`internal/plugins/docker/manifests/LICENSE` for the image pipelines), the licence of
 Tekton itself and explicit about patents. `deploy/base/config/catalog.yaml` follows, as a
 catalogue template.
 
@@ -119,7 +120,8 @@ the AGPL. The `rpc` module that uses it stays under the dashboard's licence.
 **No SPDX headers across the source files.** The root `LICENSE`, this document and the
 README section establish the regime; headers everywhere would add noise to every diff
 without resolving any ambiguity. The places where two regimes meet are marked:
-`deploy/base/pipelines/`, `catalog.yaml` and `rpc/examples/`.
+`deploy/base/pipelines/`, `internal/plugins/docker/manifests/`, `catalog.yaml` and
+`rpc/examples/`.
 
 **This document is not legal advice.** The wording of the exception deserves review by a
 lawyer before the first outside publication; it is the only part of the repository whose

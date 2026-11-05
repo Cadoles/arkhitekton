@@ -93,11 +93,22 @@ Each stored result names the plugin version that read it, its shape and its grou
 readable when the plugin changes or goes. A replay reads a run again with the same reading, and
 refuses one another version read unless asked.
 
-The built-in plugins are `core` (build, re-tag), `php` (static analysis, unit tests), `go`
+The built-in plugins are `docker` (build, re-tag, image scan), `php` (static analysis, unit tests), `go`
 (binaries, unit tests, static analysis, vulnerabilities), `security` (the merged security audit),
 `k6` (load campaigns, observed rather than launched), `redmine` (tracker) and `gitea` (forge).
 A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
 the MSE plugin produces the MSE one, from the release's dossier (below).
+
+**The `docker` plugin.** `docker/build` builds one image and pushes it, `docker/retag` sets an extra
+tag on a published one, and the dashboard names both: its releases are images. `docker/scan` runs
+`trivy image` on a published image and reads its report as findings of the `security` group, in
+Trivy's severities, a critical or high one failing the result. The run itself stays green, the
+image being already published, and a run that stopped concludes nothing. It is declared in a plan,
+with the image of an earlier step, and never chained by default:
+
+```yaml
+- {kind: pipeline, ref: docker/scan, label: Scan, params: {image: '{artifacts.portal.image}'}}
+```
 
 **The `go` plugin.** Its four pipelines clone the revision, download the modules, then run one
 tool in `golang:1.27` with `GOTOOLCHAIN=auto`, so that the module's `go.mod` picks the toolchain:
@@ -372,7 +383,7 @@ what is missing — see [04 §4.12](04-configuration.md#412-plugin-seeds).
 A descriptor with `PerProject: true` can be enabled or disabled project by project. A
 plugin without it is instance-wide and does not appear in a project's plugin list.
 
-Every built-in plugin can be switched off on the instance, except `core`, which the
+Every built-in plugin can be switched off on the instance, except `docker`, which the
 dashboard cannot work without. A pipeline plugin switched off has its jobs refused with the
 reason, and a plugin switched off for a project shows none of its sections there.
 
@@ -447,7 +458,7 @@ history.
 The core knows a project's **environments**, declared per project in the catalogue (doc 05
 §5.5) with their rank, namespace, visibility, observability and sensitivity, and the
 `deploy:<environment>` permission they derive (doc 09 §9.3). It does not deploy anything
-itself: re-tagging an image (`core/retag`) is the only promotion it can launch.
+itself: re-tagging an image (`docker/retag`) is the only promotion it can launch.
 
 How a promotion reaches an environment, how the dashboard learns what an environment actually
 runs, and who signs a release off are one way of deploying, brought by an installed plugin
