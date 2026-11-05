@@ -1,0 +1,51 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: docker-scan
+spec:
+  description: >
+    Scans a published image for known vulnerabilities. It builds nothing: it reads what the plan's
+    build pushed, so the verdict bears on the image that will be deployed.
+
+  params:
+    - name: image
+    - name: insecure-registry
+      default: "false"
+    - name: results-upload-url
+
+  workspaces:
+    - name: shared-data
+    - name: dockerconfig
+
+  tasks:
+    - name: run-trivy
+      displayName: Run Trivy
+      taskRef:
+        name: trivy-image
+      workspaces:
+        - name: results
+          workspace: shared-data
+        - name: docker-config
+          workspace: dockerconfig
+      params:
+        - name: image
+          value: $(params.image)
+        - name: insecure
+          value: $(params.insecure-registry)
+
+  finally:
+    # In `finally`: a report left by a tool that then failed says why, and is kept with the run.
+    - name: save-results
+      displayName: Publish
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

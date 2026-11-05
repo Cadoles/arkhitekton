@@ -138,6 +138,57 @@
     "ExternalTasks": null
   },
   {
+    "kind": "docker/scan",
+    "pipelineRef": "docker-scan",
+    "label": "Scan d'image",
+    "produces": [
+      "results"
+    ],
+    "params": {
+      "image": {
+        "source": "input",
+        "required": true,
+        "label": "Image",
+        "help": "L'image à scanner, avec son registre et son tag. Dans un plan, `{artifacts.\u003cétape\u003e.image}` pour celle qu'une étape a construite."
+      },
+      "insecure-registry": {
+        "source": "config",
+        "key": "registry.insecure"
+      }
+    },
+    "uploads": {
+      "results": {
+        "param": "results-upload-url",
+        "artifact": "scan.tar.gz",
+        "group": "security",
+        "format": "archive"
+      }
+    },
+    "workspaces": [
+      {
+        "name": "dockerconfig",
+        "secret": {
+          "configKey": "pipeline.registrySecret"
+        }
+      },
+      {
+        "name": "shared-data",
+        "volumeClaimTemplate": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "storageClassName": "standard",
+          "storage": "1Gi"
+        }
+      }
+    ],
+    "Capability": "docker/scan",
+    "Unavailable": "",
+    "ExternalTasks": [
+      "publish-artifact"
+    ]
+  },
+  {
     "kind": "php/static-tests",
     "pipelineRef": "php-static-tests",
     "label": "Analyse statique",

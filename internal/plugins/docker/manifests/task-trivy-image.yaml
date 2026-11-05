@@ -1,0 +1,60 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trivy-image
+spec:
+  description: >
+    The known vulnerabilities of a published image, as Trivy reports them.
+
+    Trivy exits 0 whatever it finds: the dashboard reads the findings. A non-zero code is a failure
+    of the tool.
+
+  workspaces:
+    - name: results
+    - name: docker-config
+      optional: true
+      description: The registry's credentials, as a dockerconfigjson secret.
+
+  params:
+    - name: image
+      description: The image to scan, with its registry and its tag.
+    - name: insecure
+      default: "false"
+      description: >
+        "true" for a registry served over plain HTTP: a local one only.
+    - name: output-dir
+      default: test-results/trivy
+
+  steps:
+    - name: exec
+      image: docker.io/aquasec/trivy:0.63.0
+      env:
+        - name: TRIVY_CACHE_DIR
+          value: /tmp/.trivy-cache
+      securityContext:
+        allowPrivilegeEscalation: false
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        OUT="$(workspaces.results.path)/$(params.output-dir)"
+        mkdir -p "${OUT}"
+
+        if [ "$(workspaces.docker-config.bound)" = "true" ]; then
+          mkdir -p /tmp/.docker
+          cp "$(workspaces.docker-config.path)/.dockerconfigjson" /tmp/.docker/config.json
+          export DOCKER_CONFIG=/tmp/.docker
+        fi
+
+        INSECURE=""
+        if [ "$(params.insecure)" = "true" ]; then INSECURE="--insecure"; fi
+
+        # shellcheck disable=SC2086
+        trivy image \
+          --scanners vuln \
+          --format json \
+          --output "${OUT}/report.json" \
+          --no-progress \
+          --quiet \
+          ${INSECURE} \
+          "$(params.image)"
