@@ -108,7 +108,7 @@ func stepMeasures(
 			Key: stepKey(ref), Label: step.Name(), Signal: signal,
 			// What produced the measure: the pipeline the replay button relaunches, and the results
 			// the detail opens.
-			Ref: step.Ref, Group: group, Shape: shape,
+			Ref: rerunnable(step.Ref, registry), Group: group, Shape: shape,
 			Weight: results.WeightOf(step.Weight, signal),
 		}
 
@@ -146,6 +146,15 @@ func stepMeasures(
 		measures = append(measures, measure)
 	}
 	return measures, nil
+}
+
+// rerunnable is the pipeline a step's button relaunches: none for a pipeline the API refuses to
+// re-run on its own, which a plan names with what only that plan knows.
+func rerunnable(ref string, registry *catalog.Catalog) string {
+	if registry == nil || registry.IsVerification(ref) {
+		return ref
+	}
+	return ""
 }
 
 // stepKey composes the key of a component carried by a step.
