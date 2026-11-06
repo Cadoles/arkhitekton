@@ -37,7 +37,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.2 // indirect
-	forge.cadoles.com/vcarroy/arkhitekton/rpc v0.5.0
+	forge.cadoles.com/vcarroy/arkhitekton/rpc v0.6.0
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
