@@ -37,6 +37,9 @@ jobs:
     services:
       postgres:
         image: postgres:17-alpine
+        # A throwaway server: durability only slows the tests down, and autovacuum workers make
+        # dropping a test's database wait for them.
+        cmd: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "autovacuum=off"]
         env:
           POSTGRES_PASSWORD: t3st
           POSTGRES_DB: mse

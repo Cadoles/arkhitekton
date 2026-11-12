@@ -38,6 +38,9 @@ CONFIG_STREAM = find $(DIR) -name '*.yaml' | sort | while read -r file; do echo 
 PG_TEST_NAME := pg-arkhitekton-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mse?sslmode=disable
+# A throwaway server, as in CI: durability only slows the tests down, and autovacuum workers make
+# dropping a test's database wait for them.
+PG_TEST_FLAGS := postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c autovacuum=off
 
 MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
@@ -112,7 +115,7 @@ test-live: ## Checks against the real instances (REDMINE_LIVE=1, GITEA_LIVE=1)
 test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 	@docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 || true
 	@docker run -d --name $(PG_TEST_NAME) -e POSTGRES_PASSWORD=t3st -e POSTGRES_DB=mse \
-		-p $(PG_TEST_PORT):5432 postgres:17-alpine >/dev/null
+		-p $(PG_TEST_PORT):5432 postgres:17-alpine $(PG_TEST_FLAGS) >/dev/null
 	@docker run -d --name $(MINIO_TEST_NAME) -p $(MINIO_TEST_PORT):9000 \
 		-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
 		cgr.dev/chainguard/minio:latest server /data >/dev/null
