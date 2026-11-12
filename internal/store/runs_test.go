@@ -6,21 +6,21 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/testdb"
 )
 
-// migrated returns a database at the current schema. Every test in this file works on
-// runs, with no dependency on a reference dataset.
+// migratedBare returns a database of its own at the current schema. Every test in this file
+// works on runs, with no dependency on a reference dataset.
 func migratedBare(t *testing.T) *DB {
 	t.Helper()
 
-	cfg := testDB(t)
-	resetSchema(t, cfg)
+	cfg := testdb.Fresh(t, func(ctx context.Context, cfg config.DatabaseConfig) error {
+		return Migrate(ctx, cfg, discardLogger())
+	})
 
 	ctx := context.Background()
-	if err := Migrate(ctx, cfg, discardLogger()); err != nil {
-		t.Fatalf("migration: %v", err)
-	}
-
 	db, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connection: %v", err)
@@ -509,8 +509,8 @@ const testProjectSlug = "test"
 // projects — bootstrap, repository administration — take [migratedBare], which creates
 // none.
 //
-// The identifier is predictable because `resetSchema` recreates the schema: the sequence
-// restarts at one.
+// The identifier is predictable because each test has a fresh copy of the migrated schema: the
+// sequence starts at one.
 func migrated(t *testing.T) *DB {
 	t.Helper()
 

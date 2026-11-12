@@ -5,10 +5,8 @@ import (
 	"encoding/base64"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
@@ -19,6 +17,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/schedule"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/testdb"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -43,24 +42,10 @@ func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)
 // emptyInstance returns a migrated, empty database, or skips the test without TEST_DATABASE_URL.
 func emptyInstance(t *testing.T) instance {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set: integration test skipped")
-	}
-	cfg := config.DatabaseConfig{DSN: dsn, MaxConns: 4, ConnMaxLifetime: time.Minute}
+	cfg := testdb.Fresh(t, func(ctx context.Context, cfg config.DatabaseConfig) error {
+		return store.Migrate(ctx, cfg, quiet())
+	})
 	ctx := context.Background()
-
-	reset, err := store.Open(ctx, cfg)
-	if err != nil {
-		t.Fatalf("connection: %v", err)
-	}
-	if _, err := reset.Pool().Exec(ctx, "drop schema public cascade; create schema public;"); err != nil {
-		t.Fatalf("resetting the schema: %v", err)
-	}
-	reset.Close()
-	if err := store.Migrate(ctx, cfg, quiet()); err != nil {
-		t.Fatalf("migration: %v", err)
-	}
 	db, err := store.Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connection: %v", err)

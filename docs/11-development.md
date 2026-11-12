@@ -48,7 +48,13 @@ whatever `internal/web/dist` last contained.
 
 `make test-integration` starts `postgres:17-alpine` and MinIO in Docker, waits for a real
 query to succeed rather than for a readiness command that lies, runs the suite with
-`-p 1`, and removes the containers whatever the outcome.
+`-p 1`, and removes the containers whatever the outcome. The PostgreSQL server runs without
+durability or autovacuum, as in CI: it is thrown away, and both only slow the tests down.
+
+The store's and the configuration's tests each get a database of their own, copied
+(`CREATE DATABASE … TEMPLATE`) from one migrated once per test binary (`internal/testdb`): the
+account behind `TEST_DATABASE_URL` must be allowed to create databases. The databases a binary
+leaves behind are dropped by the next one.
 
 **Live tests** run against real instances and are opt-in, never part of `make check`:
 
