@@ -54,13 +54,13 @@ build: ## Build the binary
 
 # What a release attaches: one binary per platform, the interface embedded, and their checksums.
 # The version and revision are compiled in as the image does it.
-RELEASE_VERSION  ?= $(IMAGE_TAG)
-RELEASE_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo inconnue)
-PLATFORMS        ?= amd64 arm64
+RELEASE_VERSION   ?= $(IMAGE_TAG)
+RELEASE_REVISION  ?= $(shell git rev-parse HEAD 2>/dev/null || echo inconnue)
+RELEASE_PLATFORMS ?= amd64 arm64
 
 binaries: web ## Build the release binaries and their SHA256SUMS into dist/
 	rm -rf dist && mkdir -p dist
-	for arch in $(PLATFORMS) ; do \
+	for arch in $(RELEASE_PLATFORMS) ; do \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath \
 			-ldflags='-s -w -X main.version=$(RELEASE_VERSION) -X main.revision=$(RELEASE_REVISION)' \
 			-o dist/arkhitekton-linux-$$arch ./cmd/arkhitekton || exit 1 ; \
