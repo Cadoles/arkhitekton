@@ -8,7 +8,10 @@
 # L'interface est construite dans l'image, et non sur le poste : le binaire
 # embarque la SPA, et un `dist/` périmé traîné depuis un arbre de travail
 # produirait une image dont l'interface et l'API ne correspondent pas.
-FROM node:22-alpine AS web
+# Both build stages run on the builder's platform, whatever the target: Go cross-compiles and the
+# interface is the same for every architecture. No stage executes target code, so a multi-platform
+# image needs no emulator.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 
 # L'arborescence du dépôt est reproduite : la sortie de Vite est configurée en
 # relatif (`../../internal/web/dist`), et un WORKDIR à plat la ferait atterrir
@@ -22,7 +25,7 @@ RUN npm ci --no-audit --no-fund
 COPY apps/web/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 
 WORKDIR /src
 
@@ -66,11 +69,13 @@ COPY --from=web /src/internal/web/dist ./internal/web/dist
 
 ARG VERSION=dev
 ARG REVISION=inconnue
+ARG TARGETOS
+ARG TARGETARCH
 
 # CGO désactivé : le binaire doit tourner dans une image sans libc. `-trimpath`
 # ôte les chemins de la machine de build, qui n'apprennent rien et varient d'un
 # build à l'autre.
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
       -trimpath \
       -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" \
       -o /out/arkhitekton ./cmd/arkhitekton
