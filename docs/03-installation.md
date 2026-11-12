@@ -35,7 +35,7 @@ The manifests under `deploy/base` create, in one namespace:
 
 PostgreSQL and the object store are **not** part of the base: the reference overlay
 (`deploy/overlays/local`) adds throwaway ones for development. A real deployment points
-`DATABASE_URL` and `MINIO_ENDPOINT` at managed services.
+`DATABASE_DSN` and `MINIO_ENDPOINT` at managed services.
 
 ## 3.3 Deploying
 
@@ -51,15 +51,15 @@ committed:
     cp deploy/overlays/mysite/secrets/dashboard.env.example \
        deploy/overlays/mysite/secrets/dashboard.env
 
-Fill in at least `DATABASE_URL`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`,
+Fill in at least `DATABASE_DSN`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`,
 `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` and `BOOTSTRAP_ADMINS`. Add `SECRETS_KEY` if
 plugin settings will hold secret values — generate it with `openssl rand -base64 32` and
 store it outside the database, since a database backup is worthless without it and
 unreadable if it is lost.
 
 **3. Adjust non-secret configuration** in the overlay's `configMapGenerator`:
-`PUBLIC_URL`, `OIDC_REDIRECT_URL` (it must be `<PUBLIC_URL>/api/v1/auth/callback`),
-`MINIO_ENDPOINT`, and, in `deploy/base/kustomization.yaml`, `TEKTON_NAMESPACE`, whose default
+`PUBLIC_URL`, which also gives the OIDC callback (`<PUBLIC_URL>/api/v1/auth/callback`, the address
+to declare on the provider), `MINIO_ENDPOINT`, and, in `deploy/base/kustomization.yaml`, `TEKTON_NAMESPACE`, whose default
 comes from the reference deployment. Every variable is listed in
 [04 — Configuration](04-configuration.md).
 

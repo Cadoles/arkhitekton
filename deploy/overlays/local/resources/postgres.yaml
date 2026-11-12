@@ -5,7 +5,7 @@
 # and the operator would add a generated secret whose password would have to be extracted before
 # a DSN could be built.
 #
-# Here the password comes from the same environment file as DATABASE_URL, which makes the two
+# Here the password comes from the same environment file as DATABASE_DSN, which makes the two
 # consistent by construction.
 apiVersion: v1
 kind: PersistentVolumeClaim

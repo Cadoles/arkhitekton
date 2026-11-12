@@ -60,7 +60,7 @@ cp deploy/overlays/mysite/secrets/dashboard.env.example \
 
 Fill in `dashboard.env` — at least the database DSN, the object store keys, the OIDC
 client, and `BOOTSTRAP_ADMINS` with the account that will hold the first administrator
-role. Adjust `PUBLIC_URL`, `OIDC_REDIRECT_URL` and `TEKTON_NAMESPACE` in the overlay,
+role. Adjust `PUBLIC_URL` and `TEKTON_NAMESPACE` in the overlay,
 declare your pipelines in `deploy/base/config/catalog.yaml`, then:
 
 ```bash

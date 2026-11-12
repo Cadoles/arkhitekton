@@ -44,7 +44,7 @@ spec:
         - name: migrate
           image: reg.cadoles.com/vcarroy/arkhitekton:latest
           args: ["migrate"]
-          # The `migrate` role validates neither OIDC nor MinIO: DATABASE_URL is enough for it. The
+          # The `migrate` role validates neither OIDC nor MinIO: DATABASE_DSN is enough for it. The
           # complete ConfigMap and Secret are mounted anyway — an identical set of variables for the three
           # roles avoids a renamed variable being fixed in two places out of three.
           envFrom:

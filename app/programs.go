@@ -50,7 +50,8 @@ type programs struct {
 
 // newPrograms prepares a role's programs. The environment a program gets is explicit: the
 // database it keeps its tables in and, in the worker, the cluster it may read. Not the dashboard's
-// keys nor its credentials.
+// keys nor its credentials. `DATABASE_URL` is the name `rpc/extension` reads, the plugins' contract:
+// it does not follow the dashboard's own variable.
 func newPrograms(cfg config.Config, role string, logger *slog.Logger) *programs {
 	env := []string{"DATABASE_URL=" + cfg.Database.DSN}
 	if role == "worker" {
