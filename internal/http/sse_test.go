@@ -1,9 +1,12 @@
 package http
 
 import (
+	"bufio"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A multi-line payload must be split into as many `data:` lines: a raw newline would
@@ -66,5 +69,40 @@ func TestHeartbeatIsAComment(t *testing.T) {
 	}
 	if strings.Contains(body, "data:") || strings.Contains(body, "event:") {
 		t.Errorf("the heartbeat carries an event: %q", body)
+	}
+}
+
+// A stream outlives the server's write timeout. Run against a real server: a recorder has no
+// deadline, and the cut only shows on a connection.
+func TestStreamOutlivesTheServerWriteTimeout(t *testing.T) {
+	const writeTimeout = 100 * time.Millisecond
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		stream, ok := newSSEWriter(w)
+		if !ok {
+			t.Error("streaming not supported")
+			return
+		}
+		time.Sleep(3 * writeTimeout)
+		if err := stream.comment("heartbeat"); err != nil {
+			t.Errorf("heartbeat past the write timeout: %v", err)
+		}
+	}))
+	server.Config.WriteTimeout = writeTimeout
+	server.Start()
+	defer server.Close()
+
+	response, err := server.Client().Get(server.URL)
+	if err != nil {
+		t.Fatalf("opening the stream: %v", err)
+	}
+	defer response.Body.Close()
+
+	line, err := bufio.NewReader(response.Body).ReadString('\n')
+	if err != nil {
+		t.Fatalf("the stream was cut: %v", err)
+	}
+	if line != ": heartbeat\n" {
+		t.Errorf("read %q", line)
 	}
 }
