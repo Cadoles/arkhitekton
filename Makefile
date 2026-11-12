@@ -44,13 +44,28 @@ MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
 .PHONY: config-export config-diff config-apply help build example-plugin providers-demo proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
-        web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
+        binaries web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
 
 build: ## Build the binary
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o $(BINARY) ./cmd/arkhitekton
+
+# What a release attaches: one binary per platform, the interface embedded, and their checksums.
+# The version and revision are compiled in as the image does it.
+RELEASE_VERSION  ?= $(IMAGE_TAG)
+RELEASE_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo inconnue)
+PLATFORMS        ?= amd64 arm64
+
+binaries: web ## Build the release binaries and their SHA256SUMS into dist/
+	rm -rf dist && mkdir -p dist
+	for arch in $(PLATFORMS) ; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath \
+			-ldflags='-s -w -X main.version=$(RELEASE_VERSION) -X main.revision=$(RELEASE_REVISION)' \
+			-o dist/arkhitekton-linux-$$arch ./cmd/arkhitekton || exit 1 ; \
+	done
+	cd dist && sha256sum arkhitekton-linux-* > SHA256SUMS
 
 example-plugin: ## Build the example plugin's program for each platform, ready for publish-plugin
 	cd rpc && for arch in amd64 arm64 ; do \
