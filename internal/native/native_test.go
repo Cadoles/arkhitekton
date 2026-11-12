@@ -115,7 +115,12 @@ func TestAPluginRunsWithItsOwnEnvironment(t *testing.T) {
 }
 
 func TestAPluginThatDiesIsLaunchedAgain(t *testing.T) {
-	process := launcher(t).Process(spec(program))
+	// The backoff counts from the launch: it must outlast launching, crashing and seeing the
+	// process gone on a slow runner, or the plugin is already launched again when the test looks.
+	backoff := 2 * time.Second
+	plugins := launcher(t)
+	plugins.config.Backoff = backoff
+	process := plugins.Process(spec(program))
 	if _, err := get(context.Background(), process, "crash"); err == nil {
 		t.Fatal("a crashing call answered")
 	}
@@ -131,10 +136,14 @@ func TestAPluginThatDiesIsLaunchedAgain(t *testing.T) {
 	if !errors.Is(err, ErrRestarting) {
 		t.Fatalf("within the backoff: %v", err)
 	}
-	time.Sleep(250 * time.Millisecond)
-	if _, err := get(context.Background(), process, "hello"); err != nil {
-		t.Fatalf("after the backoff: %v", err)
+	deadline = time.Now().Add(backoff + 5*time.Second)
+	for time.Now().Before(deadline) {
+		if _, err = get(context.Background(), process, "hello"); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatalf("after the backoff: %v", err)
 }
 
 func TestAPluginOfAnotherProtocolIsRefused(t *testing.T) {
