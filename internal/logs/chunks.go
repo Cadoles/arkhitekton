@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
@@ -25,6 +26,8 @@ type chunkWriter struct {
 	// lexicographic order of the chunks is the order of the log.
 	index int
 
+	// mu serialises the read loop's writes and the periodic flush, which run in two goroutines.
+	mu       sync.Mutex
 	limit    int
 	buffer   bytes.Buffer
 	sequence int
@@ -92,6 +95,9 @@ func (w *chunkWriter) accept(line Line) bool {
 
 // append adds a line to the buffer, and writes a chunk when the threshold is met.
 func (w *chunkWriter) append(ctx context.Context, raw string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if !strings.HasSuffix(raw, "\n") {
 		raw += "\n"
 	}
@@ -103,13 +109,19 @@ func (w *chunkWriter) append(ctx context.Context, raw string) error {
 	}
 
 	if w.buffer.Len() >= w.limit {
-		return w.flush(ctx)
+		return w.flushLocked(ctx)
 	}
 	return nil
 }
 
 // flush writes the buffer as a new chunk. With no content, it does nothing.
 func (w *chunkWriter) flush(ctx context.Context) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.flushLocked(ctx)
+}
+
+func (w *chunkWriter) flushLocked(ctx context.Context) error {
 	if w.buffer.Len() == 0 {
 		return nil
 	}

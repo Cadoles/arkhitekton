@@ -326,9 +326,16 @@ func (c *Collector) consume(
 	// The periodic flush is carried by a goroutine: reading blocks, and a pipeline
 	// silent for two minutes must not delay the durability of what came before by as
 	// much.
+	// Returning waits for it: a chunk it was still writing would land after the sealing's
+	// listing, missing from the log and left behind.
 	flushDone := make(chan struct{})
-	defer func() { close(flushDone) }()
+	flusherGone := make(chan struct{})
+	defer func() {
+		close(flushDone)
+		<-flusherGone
+	}()
 	go func() {
+		defer close(flusherGone)
 		for {
 			select {
 			case <-flushDone:

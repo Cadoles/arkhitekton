@@ -528,3 +528,59 @@ func waitFor(t *testing.T, condition func() bool, what string) {
 	}
 	t.Fatalf("condition never reached: %s", what)
 }
+
+// tricklePods serves a container's lines one at a time, as a running step does.
+type tricklePods struct {
+	lines []string
+	pause time.Duration
+}
+
+func (p tricklePods) Stream(context.Context, string, string, *time.Time) (io.ReadCloser, error) {
+	reader, writer := io.Pipe()
+	go func() {
+		for _, line := range p.lines {
+			time.Sleep(p.pause)
+			if _, err := io.WriteString(writer, line); err != nil {
+				return
+			}
+		}
+		_ = writer.Close()
+	}()
+	return reader, nil
+}
+
+// The periodic flush runs while the stream is read, and may still be writing a chunk when the
+// stream ends. The sealing must find every chunk: one written after it would be missing from the
+// log and left behind.
+func TestPeriodicFlushesAllReachTheSealedLog(t *testing.T) {
+	storage := testStorage(t)
+	ctx := context.Background()
+
+	target := uniqueTarget(t, Step{Name: "phpunit", Container: "step-phpunit"})
+	cleanup(t, storage, target)
+
+	var lines []string
+	for i := range 15 {
+		lines = append(lines, stamp(time.Duration(i)*time.Second, fmt.Sprintf("line %d", i)))
+	}
+	collector := newCollector(storage, tricklePods{lines: lines, pause: 15 * time.Millisecond}, newFakeStore(), nil)
+	collector.flushInterval = 5 * time.Millisecond
+	collector.flushSize = 1 << 20
+
+	collector.Start(ctx, target)
+	if err := collector.Finish(ctx, target); err != nil {
+		t.Fatalf("sealing: %v", err)
+	}
+
+	partsPrefix, _ := storage.Keys.TaskLogPartsPrefix(target.RunName, target.TaskName)
+	if remaining, err := storage.List(ctx, partsPrefix); err != nil || len(remaining) != 0 {
+		t.Errorf("%d chunk(s) remain after sealing (%v)", len(remaining), err)
+	}
+	object, _ := storage.Keys.TaskLogObject(target.RunName, target.TaskName)
+	sealed := readObject(t, storage, object)
+	for _, line := range lines {
+		if strings.Count(sealed, line) != 1 {
+			t.Errorf("%q appears %d time(s) in the sealed log", strings.TrimSpace(line), strings.Count(sealed, line))
+		}
+	}
+}
