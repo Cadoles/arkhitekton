@@ -28,7 +28,8 @@ navigation, not a cross-site request issued by a script, which is what the token
 Permissions and roles are described in [09 — Security](09-security.md).
 
 **Streaming.** Routes ending in `/events` or `/stream` are Server-Sent Events. They are
-exempt from the write timeout.
+exempt from `HTTP_WRITE_TIMEOUT`: each write has 30 seconds of its own, which lets a client that
+stopped reading go, and a comment every 20 seconds keeps an idle stream open.
 
 ## 7.2 Session
 

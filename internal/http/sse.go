@@ -1,8 +1,12 @@
 package http
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -36,17 +40,22 @@ import (
 // SSE comment triggers no event on the client side.
 const sseHeartbeat = 20 * time.Second
 
+// sseWriteTimeout bounds one write to a stream.
+//
+// The server's write timeout counts from the request and would cut every stream once it has run
+// out. Renewed at each write, this deadline lets a stream last while a stalled client still goes.
+const sseWriteTimeout = 30 * time.Second
+
 // sseWriter encapsulates the protocol.
 type sseWriter struct {
 	w       http.ResponseWriter
-	flusher http.Flusher
+	control *http.ResponseController
 }
 
 // newSSEWriter prepares the response. Returns false if the client cannot be served as a
 // stream — the case of a buffering intermediary.
 func newSSEWriter(w http.ResponseWriter) (*sseWriter, bool) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		return nil, false
 	}
 
@@ -57,10 +66,11 @@ func newSSEWriter(w http.ResponseWriter) (*sseWriter, bool) {
 	// Without that header, nginx accumulates the events and delivers them in a block: the
 	// interface shows a frozen run, then jumps to its final state.
 	header.Set("X-Accel-Buffering", "no")
+	stream := &sseWriter{w: w, control: http.NewResponseController(w)}
 	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	return &sseWriter{w: w, flusher: flusher}, true
+	// A failed flush shows at the next write: the status is already sent.
+	_ = stream.send("")
+	return stream, true
 }
 
 // event emits a named event, with its resume identifier.
@@ -79,18 +89,30 @@ func (s *sseWriter) event(name, id, data string) error {
 	}
 	builder.WriteString("\n")
 
-	if _, err := s.w.Write([]byte(builder.String())); err != nil {
-		return err
-	}
-	s.flusher.Flush()
-	return nil
+	return s.send(builder.String())
 }
 
 // comment emits a heartbeat, invisible to the client.
 func (s *sseWriter) comment(text string) error {
-	if _, err := fmt.Fprintf(s.w, ": %s\n\n", text); err != nil {
+	return s.send(fmt.Sprintf(": %s\n\n", text))
+}
+
+// send writes and flushes under a fresh deadline. A client that left is the ordinary end of a
+// stream; one that stays connected without reading is worth a line in the logs.
+func (s *sseWriter) send(payload string) error {
+	err := s.control.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+	if err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
-	s.flusher.Flush()
-	return nil
+	if _, err := io.WriteString(s.w, payload); err != nil {
+		return streamFailure(err)
+	}
+	return streamFailure(s.control.Flush())
+}
+
+func streamFailure(err error) error {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		slog.Default().Warn("an event stream stalled: its client stopped reading", "error", err)
+	}
+	return err
 }
