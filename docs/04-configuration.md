@@ -25,7 +25,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
-| `DATABASE_URL` | — | **all but check-tracker** | PostgreSQL DSN. Carries a password: it is redacted in logs and errors |
+| `DATABASE_DSN` | — | **all but check-tracker** | PostgreSQL DSN. Carries a password: it is redacted in logs and errors |
 | `DATABASE_MAX_CONNS` | `10` | | Pool size, must be ≥ 1 |
 | `DATABASE_CONN_MAX_LIFETIME` | `1h` | | Connection recycling |
 
@@ -48,7 +48,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `OIDC_ISSUER_URL` | — | **api** | Must match the `iss` claim exactly, trailing slash included |
 | `OIDC_CLIENT_ID` | — | **api** | |
 | `OIDC_CLIENT_SECRET` | — | **api** | |
-| `OIDC_REDIRECT_URL` | — | **api** | `<PUBLIC_URL>/api/v1/auth/callback` |
+| `OIDC_REDIRECT_URL` | `<PUBLIC_URL>/api/v1/auth/callback` | | To set only if the provider must call back another address. The provider's client declares this URL |
 | `OIDC_SCOPES` | `openid,profile,email` | | Comma-separated |
 | `SESSION_TTL` | `12h` | | Session lifetime |
 | `BOOTSTRAP_ADMINS` | — | | Subjects or usernames promoted to administrator at first sign-in |
@@ -174,6 +174,7 @@ deployment running with a setting it believes it applied.
 | `GITEA_URL`, `GITEA_TOKEN`, `GITEA_REPO`, `GITEA_TIMEOUT` | `FORGE_*` |
 | `REDMINE_URL`, `REDMINE_API_KEY`, `REDMINE_PROJECT`, `REDMINE_TIMEOUT`, `REDMINE_REVIEW_STATUSES` | `TRACKER_*` |
 | `FORGE_MSE_REPO_URL`, `MSE_DOCKERFILE`, `MSE_BUILD_CONTEXT` | `FORGE_REPO_URL`, `PROJECT_DOCKERFILE`, `PROJECT_BUILD_CONTEXT` |
+| `DATABASE_URL` | `DATABASE_DSN`. Plugins still read `DATABASE_URL`, which the dashboard sets for them |
 | `PIPELINE_GIT_PUBLIC_KEY` | Removed: the shared deploy key no longer exists, each project has its own |
 
 ## 4.14 Installed plugins (role `worker`)

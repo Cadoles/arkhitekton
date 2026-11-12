@@ -289,7 +289,7 @@ func Load(role Role) (Config, error) {
 			ShutdownTimeout: durationOr("HTTP_SHUTDOWN_TIMEOUT", 20*time.Second),
 		},
 		Database: DatabaseConfig{
-			DSN:             os.Getenv("DATABASE_URL"),
+			DSN:             os.Getenv("DATABASE_DSN"),
 			MaxConns:        intOr("DATABASE_MAX_CONNS", 10),
 			ConnMaxLifetime: durationOr("DATABASE_CONN_MAX_LIFETIME", time.Hour),
 		},
@@ -306,7 +306,7 @@ func Load(role Role) (Config, error) {
 			IssuerURL:       os.Getenv("OIDC_ISSUER_URL"),
 			ClientID:        os.Getenv("OIDC_CLIENT_ID"),
 			ClientSecret:    os.Getenv("OIDC_CLIENT_SECRET"),
-			RedirectURL:     os.Getenv("OIDC_REDIRECT_URL"),
+			RedirectURL:     redirectURL(os.Getenv("PUBLIC_URL")),
 			Scopes:          listOr("OIDC_SCOPES", []string{"openid", "profile", "email"}),
 			BootstrapAdmins: listOr("BOOTSTRAP_ADMINS", nil),
 			BootstrapUsers:  parseGrants(os.Getenv("BOOTSTRAP_USERS")),
@@ -369,6 +369,17 @@ func Load(role Role) (Config, error) {
 	return cfg, cfg.validate()
 }
 
+// oidcCallbackPath is where the provider sends the browser back: the route is the dashboard's own.
+const oidcCallbackPath = "/api/v1/auth/callback"
+
+// redirectURL is the callback's public address, unless the deployment names another.
+func redirectURL(publicURL string) string {
+	if explicit := os.Getenv("OIDC_REDIRECT_URL"); explicit != "" {
+		return explicit
+	}
+	return strings.TrimRight(strings.TrimSpace(publicURL), "/") + oidcCallbackPath
+}
+
 // renamedVariables maps each retired environment variable to its replacement.
 //
 // The configuration used to name products — GITEA_TOKEN, REDMINE_API_KEY. It now
@@ -392,6 +403,7 @@ var renamedVariables = map[string]string{
 	"FORGE_MSE_REPO_URL":      "FORGE_REPO_URL",
 	"MSE_DOCKERFILE":          "PROJECT_DOCKERFILE",
 	"MSE_BUILD_CONTEXT":       "PROJECT_BUILD_CONTEXT",
+	"DATABASE_URL":            "DATABASE_DSN",
 }
 
 // removedVariables maps each deleted variable to why it went. Distinct from the
@@ -420,8 +432,7 @@ func checkRenamed() []error {
 	problems := make([]error, 0, len(legacy))
 	for _, name := range legacy {
 		problems = append(problems, fmt.Errorf(
-			"%s no longer exists, use %s — the configuration no longer names the "+
-				"products but the boundaries", name, renamedVariables[name]))
+			"%s no longer exists, use %s", name, renamedVariables[name]))
 	}
 
 	removed := make([]string, 0, len(removedVariables))
@@ -448,7 +459,7 @@ func (c Config) validate() error {
 	// neither the database nor the cluster.
 	if c.Role != RoleCheckTracker {
 		if strings.TrimSpace(c.Database.DSN) == "" {
-			problems = append(problems, errors.New("DATABASE_URL is required"))
+			problems = append(problems, errors.New("DATABASE_DSN is required"))
 		}
 		if c.Database.MaxConns < 1 {
 			problems = append(problems, fmt.Errorf("DATABASE_MAX_CONNS must be >= 1, it is %d", c.Database.MaxConns))
@@ -511,7 +522,6 @@ func (c Config) validateOIDC() []error {
 		"OIDC_ISSUER_URL":    c.OIDC.IssuerURL,
 		"OIDC_CLIENT_ID":     c.OIDC.ClientID,
 		"OIDC_CLIENT_SECRET": c.OIDC.ClientSecret,
-		"OIDC_REDIRECT_URL":  c.OIDC.RedirectURL,
 	} {
 		if strings.TrimSpace(value) == "" {
 			problems = append(problems, fmt.Errorf("%s is required", name))

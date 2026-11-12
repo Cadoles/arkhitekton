@@ -16,12 +16,11 @@ func setEnv(t *testing.T, values map[string]string) {
 
 func validAPIEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_URL":       "postgres://u:p@db:5432/mse",
+		"DATABASE_DSN":       "postgres://u:p@db:5432/mse",
 		"PUBLIC_URL":         "https://dashboard.example.fr",
 		"OIDC_ISSUER_URL":    "https://forge.cadoles.com/",
 		"OIDC_CLIENT_ID":     "id",
 		"OIDC_CLIENT_SECRET": "secret",
-		"OIDC_REDIRECT_URL":  "https://dashboard.example.fr/api/v1/auth/callback",
 		"BOOTSTRAP_ADMINS":   "vcarroy",
 		"MINIO_ENDPOINT":     "nuo-s3.nuonet.fr",
 		"MINIO_ACCESS_KEY":   "ak",
@@ -47,14 +46,14 @@ func TestLoadAPISucceedsWithCompleteEnvironment(t *testing.T) {
 // The error must list every missing variable at once: fixing a configuration at
 // one restart per variable is avoidable waste.
 func TestLoadReportsEveryMissingVariableAtOnce(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_URL": ""})
+	setEnv(t, map[string]string{"DATABASE_DSN": ""})
 
 	_, err := Load(RoleAPI)
 	if err == nil {
 		t.Fatal("an empty configuration must be refused")
 	}
 	for _, expected := range []string{
-		"DATABASE_URL", "PUBLIC_URL", "OIDC_ISSUER_URL",
+		"DATABASE_DSN", "PUBLIC_URL", "OIDC_ISSUER_URL",
 		"OIDC_CLIENT_ID", "BOOTSTRAP_ADMINS", "MINIO_ENDPOINT",
 	} {
 		if !strings.Contains(err.Error(), expected) {
@@ -89,19 +88,55 @@ func TestLoadRejectsPresignTTLShorterThanLongestPipeline(t *testing.T) {
 	}
 }
 
+// The callback's route is the dashboard's own: the public address is enough to name it.
+func TestRedirectURLFollowsThePublicURL(t *testing.T) {
+	for name, env := range map[string]struct{ public, explicit, expected string }{
+		"derived":         {"https://dashboard.example.fr", "", "https://dashboard.example.fr/api/v1/auth/callback"},
+		"trailing slash":  {"https://dashboard.example.fr/", "", "https://dashboard.example.fr/api/v1/auth/callback"},
+		"named elsewhere": {"https://dashboard.example.fr", "https://sso.example.fr/cb", "https://sso.example.fr/cb"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			values := validAPIEnv()
+			values["PUBLIC_URL"] = env.public
+			values["OIDC_REDIRECT_URL"] = env.explicit
+			setEnv(t, values)
+
+			cfg, err := Load(RoleAPI)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.OIDC.RedirectURL != env.expected {
+				t.Errorf("redirect %q, expected %q", cfg.OIDC.RedirectURL, env.expected)
+			}
+		})
+	}
+}
+
+// A deployment left on the old name stops with the new one in its error.
+func TestTheOldDatabaseVariableIsRefused(t *testing.T) {
+	values := validAPIEnv()
+	values["DATABASE_URL"] = "postgres://u:p@db:5432/mse"
+	setEnv(t, values)
+
+	_, err := Load(RoleAPI)
+	if err == nil || !strings.Contains(err.Error(), "use DATABASE_DSN") {
+		t.Fatalf("expected the rename in the error: %v", err)
+	}
+}
+
 // `migrate` needs neither object store nor OIDC: requiring either would stop a
 // minimal init Job from applying the schema.
 func TestLoadMigrateRequiresOnlyDatabase(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_URL": "postgres://u:p@db:5432/mse"})
+	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/mse"})
 
 	if _, err := Load(RoleMigrate); err != nil {
-		t.Fatalf("migrate should require only DATABASE_URL: %v", err)
+		t.Fatalf("migrate should require only DATABASE_DSN: %v", err)
 	}
 }
 
 func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_URL":     "postgres://u:p@db:5432/mse",
+		"DATABASE_DSN":     "postgres://u:p@db:5432/mse",
 		"MINIO_ENDPOINT":   "nuo-s3.nuonet.fr",
 		"MINIO_ACCESS_KEY": "ak",
 		"MINIO_SECRET_KEY": "sk",
@@ -116,7 +151,7 @@ func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 // The namespace has no default: one named after a deployment would send another's runs there.
 func TestLoadWorkerRequiresTheTektonNamespace(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_URL":     "postgres://u:p@db:5432/mse",
+		"DATABASE_DSN":     "postgres://u:p@db:5432/mse",
 		"MINIO_ENDPOINT":   "nuo-s3.nuonet.fr",
 		"MINIO_ACCESS_KEY": "ak",
 		"MINIO_SECRET_KEY": "sk",
@@ -129,7 +164,7 @@ func TestLoadWorkerRequiresTheTektonNamespace(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownRole(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_URL": "postgres://u:p@db:5432/mse"})
+	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/mse"})
 
 	if _, err := Load(Role("frontend")); err == nil {
 		t.Fatal("an unknown role must be refused")
