@@ -26,8 +26,16 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
 | `DATABASE_DSN` | — | **all but check-tracker** | PostgreSQL DSN. Carries a password: it is redacted in logs and errors |
-| `DATABASE_MAX_CONNS` | `10` | | Pool size, must be ≥ 1 |
+| `DATABASE_MAX_CONNS` | `10` | | Pool size **per process**, must be ≥ 1 |
 | `DATABASE_CONN_MAX_LIFETIME` | `1h` | | Connection recycling |
+
+Nothing shares `DATABASE_MAX_CONNS` between processes: each `api` replica and the worker open their
+own pool. A plugin that keeps tables opens one more in each of these processes, outside this
+variable; the MSE plugin bounds its own to 4. The reference deployment can therefore hold
+`(2 api + 1 worker) × (10 + 4) = 42` connections, a pod more during a rolling update, plus what the
+short-lived roles (`migrate`, `config`, `reprocess`) open. Keep that total under PostgreSQL's
+`max_connections`, less its reserved connections. `10` is a starting value, not a measured one: the
+pool only needs to grow if requests wait for a connection.
 
 ## 4.3 Object store (roles `api`, `worker`, `reprocess`, `config`)
 
@@ -66,22 +74,17 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `PIPELINE_GIT_SECRET` | — | | Secret holding the deployment's git credentials, for the repositories that are not a project's own (the end-to-end campaign's). A project's repository is cloned with its own deploy key |
 | `PIPELINE_REGISTRY_SECRET` | — | | Secret holding registry credentials for pipelines |
 | `PIPELINE_IMAGE_PULL_SECRET` | — | | Pull secret added to pipeline pods |
-| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty |
-| `PIPELINE_MINIO_BUCKET` | — | | Bucket pipelines write to (`minio.pipelineBucket`), likewise |
+| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty. Today, `mse/integration-tests` and `mse/security-audit`, from the MSE plugin; the other pipelines publish through the dashboard and need neither variable |
+| `PIPELINE_MINIO_BUCKET` | — | | Bucket those pipelines write to (`minio.pipelineBucket`), likewise. It is not `MINIO_BUCKET`: the dashboard neither reads nor purges it, and its retention is the store's lifecycle rules |
 | `FORGE_TEKTON_REPO_URL` | — | | Repository the security audit clones its rules from (`forge.tekton.repoUrl`), likewise |
 | `FORGE_SSH_PORT` | forge default | | SSH port used to build a project's clone URL. It cannot be derived from an HTTPS forge URL |
 
-## 4.6 Results
-
-| Variable | Default | Meaning |
-|---|---|---|
-
-## 4.7 Issue tracker (Redmine)
+## 4.6 Issue tracker (Redmine)
 
 Read-only, enforced in the transport: any method other than GET or HEAD is refused
 before the request leaves the process.
 
-These variables **seed** the tracker plugin's settings at first start-up (§4.12); the
+These variables **seed** the tracker plugin's settings at first start-up (§4.11); the
 dashboard then reads the plugin's settings, edited under Administration → Plugins. Only the
 timeout stays a deployment value.
 
@@ -96,7 +99,7 @@ timeout stays a deployment value.
 `check-tracker` requires `TRACKER_URL` and `TRACKER_API_KEY` and nothing else: it exists
 to test a key without waiting for a screen to use it.
 
-## 4.8 Forge (Gitea)
+## 4.7 Forge (Gitea)
 
 Like the tracker's, these variables seed the forge plugin's settings; the timeout stays a
 deployment value. A project's repository is its own, declared with the project.
@@ -108,9 +111,13 @@ deployment value. A project's repository is its own, declared with the project.
 | `FORGE_REPO` | — | `owner/name` |
 | `FORGE_TIMEOUT` | `10s` | |
 
-## 4.9 Registry
+## 4.8 Registry
 
-Read-only. Arkhitekton never pushes an image.
+The dashboard's processes only read the registry: digests, published images, plugins. A read-only
+account is enough for the variables below.
+
+Images are pushed by the pipelines, `docker/build` and `docker/retag`, with the credentials bound to
+their `registry-push` need: `PIPELINE_REGISTRY_SECRET` (§4.5) unless a binding names another Secret.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -123,16 +130,24 @@ Read-only. Arkhitekton never pushes an image.
 `PUBLIC_URL` (§4.1) is also read by the worker: it is the base of the links a commit status
 carries back to the dashboard.
 
-## 4.10 Probes and webhooks
+## 4.9 Probes and webhooks
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PROBE_INTERVAL` | `5m` | Polling period of the tracker and forge probes. A floor is applied when building the loop: declaring ten seconds does not obtain them |
-| `WEBHOOK_ALLOW_PRIVATE` | `false` | Allows private and loopback targets. A local deployment needs it; a production one does not. Link-local is never reopened |
+| `WEBHOOK_ALLOW_PRIVATE` | `false` | Allows private and loopback targets, below. Leave it off unless an HTTP action must reach an internal service |
 | `WEBHOOK_ALLOW_INSECURE` | `false` | Allows `http://`. The payload carries a release tag and the token that authenticates it |
 | `WEBHOOK_TIMEOUT` | `15s` | |
 
-## 4.11 Secrets at rest
+The `WEBHOOK_*` variables bound the URLs typed into an HTTP action, issued from inside the cluster.
+A plugin's steps (Gitea, Rocket.Chat) are not concerned: their target is the plugin's configuration.
+
+`WEBHOOK_ALLOW_PRIVATE` reopens the loopback, the private ranges (`10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, `fc00::/7`) and `100.64.0.0/10`, hence the cluster's services and its API. It never
+reopens link-local (`169.254.0.0/16`, `fe80::/10`), where `169.254.169.254` serves cloud instance
+metadata, nor multicast.
+
+## 4.10 Secrets at rest
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -147,7 +162,7 @@ that has nothing to protect yet.
 backup says nothing without it, and everything with it, so it must be backed up
 elsewhere.
 
-## 4.12 Plugin seeds
+## 4.11 Plugin seeds
 
 Plugin settings live in the database and are edited from the interface. These variables
 seed them at first start-up, and **only what is missing**: a value changed from the
@@ -164,7 +179,7 @@ the first project's build settings, which the project then owns. Its repository 
 from `FORGE_URL` and `FORGE_REPO`, or given whole by `FORGE_REPO_URL`; with neither, no
 project is seeded.
 
-## 4.13 Renamed and removed variables
+## 4.12 Renamed and removed variables
 
 Start-up fails, naming the replacement, if a retired name is set. Silence would leave a
 deployment running with a setting it believes it applied.
@@ -177,7 +192,7 @@ deployment running with a setting it believes it applied.
 | `DATABASE_URL` | `DATABASE_DSN`. Plugins still read `DATABASE_URL`, which the dashboard sets for them |
 | `PIPELINE_GIT_PUBLIC_KEY` | Removed: the shared deploy key no longer exists, each project has its own |
 
-## 4.14 Installed plugins (role `worker`)
+## 4.13 Installed plugins (role `worker`)
 
 The worker pulls the plugins an administrator installs (§6.12). What it trusts, and how it
 reaches private registries, are files the operator mounts: the administration screen can change
