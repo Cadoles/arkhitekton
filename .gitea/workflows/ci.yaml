@@ -25,7 +25,7 @@ env:
   KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
   BUILDKIT_IMAGE: moby/buildkit:v0.23.2
   IMAGE: reg.cadoles.com/vcarroy/arkhitekton
-  PLATFORMS: linux/amd64,linux/arm64
+  IMAGE_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   go:
@@ -269,7 +269,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ env.PLATFORMS }}
+          platforms: ${{ env.IMAGE_PLATFORMS }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
@@ -284,7 +284,7 @@ jobs:
           previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           range="${previous:+${previous}..}${GITHUB_REF_NAME}"
           {
-            echo "Image: \`${IMAGE}:${GITHUB_REF_NAME}\` (${PLATFORMS})"
+            echo "Image: \`${IMAGE}:${GITHUB_REF_NAME}\` (${IMAGE_PLATFORMS})"
             echo
             echo "Digest: \`${DIGEST}\`"
             echo
