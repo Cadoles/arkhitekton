@@ -264,7 +264,9 @@ explicit: `DATABASE_URL`, and in the worker the cluster's address; not the dashb
 key, object store credentials, OIDC secret or forge and tracker tokens. A program that dies is
 launched again after a few seconds; meanwhile its hooks are left out and its routes answer 503.
 A version that leaves the capabilities in force is stopped. Each api replica runs its own
-processes; a module runs only in the elected worker.
+processes; a module runs only in the elected worker. A program that opens a database pool should
+bound it: it counts against PostgreSQL's connections once per process
+([04 §4.2](04-configuration.md#42-database-all-roles-but-check-tracker)).
 
 **Checking a reading.** `arkhitekton check-reading --plugin <dir>` launches the program built for
 the machine and reads recorded cases with it (`app/testdata/readings/gotest/`).
@@ -376,7 +378,7 @@ row means inheritance, which is what makes a new project work without being conf
 
 Settings are edited under **Administration → Plugins** (instance) and in each project's
 **Plugins** tab. Environment variables may *seed* them at first start-up, filling only
-what is missing — see [04 §4.12](04-configuration.md#412-plugin-seeds).
+what is missing — see [04 §4.11](04-configuration.md#411-plugin-seeds).
 
 ## 6.7 Per-project activation
 
@@ -623,7 +625,7 @@ instead. Whatever was named, what is installed is a digest: the worker resolves 
 tag to one before pulling, since it holds the registries' credentials and the api does not, and
 the tag's version must be the version the manifest carries. The request becomes a
 `plugin-install` job: the worker pulls the artifact,
-checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.14) before fetching the layer, or lets it
+checks its signature against `PLUGIN_TRUSTED_KEYS` (§4.13) before fetching the layer, or lets it
 in unsigned if `PLUGIN_ALLOW_UNSIGNED` names it, checks the plugin as above, checks that the
 capabilities still build with it, applies its migrations, stores the layer under
 `plugins/<id>/<version>/`, and records the key that signed it (or `unsigned`). A failure is read
@@ -663,7 +665,7 @@ operator's catalogue file, or its runs are refused with the reason. The catalogu
 binding, when it has one, wins and is shown read-only (§5.2).
 
 **Updates.** The worker reads the repository of every installed plugin each
-`PLUGIN_UPDATE_INTERVAL` (§4.14), or within seconds when *Vérifier maintenant* asks: its tags,
+`PLUGIN_UPDATE_INTERVAL` (§4.13), or within seconds when *Vérifier maintenant* asks: its tags,
 the SemVer versions among them, stable only unless the active version is a pre-release, and the
 highest above the active one. Nothing but tags and manifests is fetched. A plugin following its
 repository shows *Mettre à jour* when a newer version is there, with a warning across a major
