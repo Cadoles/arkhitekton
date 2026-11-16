@@ -19,6 +19,9 @@ import {
   useSaveReaction,
   useSaveSchedule,
   useSchedules,
+  useSwitchAutomation,
+  useSwitchReaction,
+  useSwitchSchedule,
   type Automation,
   type Catalogue,
   type Geste,
@@ -172,6 +175,33 @@ function SchedulesCard({ slug, catalogue }: { slug: string; catalogue: Catalogue
   )
 }
 
+/** Allume ou éteint une automatisation sans ouvrir son formulaire. */
+function SwitchButton({
+  enabled,
+  pending,
+  error,
+  onSwitch,
+}: {
+  enabled: boolean
+  pending: boolean
+  error: Error | null
+  onSwitch: (enabled: boolean) => void
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onSwitch(!enabled)}
+        className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
+      >
+        {enabled ? 'Éteindre' : 'Allumer'}
+      </button>
+      {error && <span className="text-xs text-critical-700">{error.message}</span>}
+    </>
+  )
+}
+
 function ScheduleRow({
   schedule,
   catalogue,
@@ -184,6 +214,7 @@ function ScheduleRow({
   onEdit: () => void
 }) {
   const remove = useDeleteSchedule(slug)
+  const toggle = useSwitchSchedule(slug)
   const [confirming, setConfirming] = useState(false)
   const gestes = schedule.plan.stages.flatMap((stage) => stage.gestes)
 
@@ -198,7 +229,13 @@ function ScheduleRow({
             éteinte
           </span>
         )}
-        <span className="ml-auto flex gap-2">
+        <span className="ml-auto flex items-baseline gap-2">
+          <SwitchButton
+            enabled={schedule.enabled}
+            pending={toggle.isPending}
+            error={toggle.error as Error | null}
+            onSwitch={(enabled) => toggle.mutate({ target: schedule.id, enabled })}
+          />
           <button
             type="button"
             onClick={onEdit}
@@ -391,6 +428,7 @@ function ReleaseAutomationCard({
 }) {
   const [draft, setDraft] = useState<Plan | null>(null)
   const save = useSaveAutomation(slug)
+  const toggle = useSwitchAutomation(slug)
 
   const stages = automation.plan.stages
 
@@ -419,13 +457,30 @@ function ReleaseAutomationCard({
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setDraft(automation.plan.stages.length > 0 ? automation.plan : emptyPlan())}
-            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-          >
-            Modifier
-          </button>
+          <div className="flex items-baseline gap-2">
+            {!automation.enabled && (
+              <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
+                éteinte
+              </span>
+            )}
+            {/* Rien à basculer tant que rien n'est déclaré : enregistrer une
+                automatisation, même vide, empêcherait le worker de la composer. */}
+            {automation.declared && (
+              <SwitchButton
+                enabled={automation.enabled}
+                pending={toggle.isPending}
+                error={toggle.error as Error | null}
+                onSwitch={(enabled) => toggle.mutate({ target: null, enabled })}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setDraft(automation.plan.stages.length > 0 ? automation.plan : emptyPlan())}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              Modifier
+            </button>
+          </div>
         )
       }
     >
@@ -456,6 +511,11 @@ function ReleaseAutomationCard({
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-2">
+          {!automation.enabled && (
+            <p className="text-xs text-zinc-600">
+              Les releases déclarées ne lancent aucun pipeline tant que l'automatisation est éteinte.
+            </p>
+          )}
           {stages.map((stage, index) => {
             const role = catalogue.roles.find((choice) => choice.role === stage.role)
             return (
@@ -497,6 +557,7 @@ function ReactionRow({
   onEdit: () => void
 }) {
   const remove = useDeleteReaction(slug)
+  const toggle = useSwitchReaction(slug)
   const [confirming, setConfirming] = useState(false)
 
   const event = catalogue?.events.find((choice) => choice.type === reaction.event_type)
@@ -524,7 +585,13 @@ function ReactionRow({
           </span>
         )}
 
-        <span className="ml-auto flex gap-2">
+        <span className="ml-auto flex items-baseline gap-2">
+          <SwitchButton
+            enabled={reaction.enabled}
+            pending={toggle.isPending}
+            error={toggle.error as Error | null}
+            onSwitch={(enabled) => toggle.mutate({ target: reaction.id, enabled })}
+          />
           <button
             type="button"
             onClick={onEdit}

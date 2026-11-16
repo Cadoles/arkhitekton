@@ -153,7 +153,7 @@ func configured(t *testing.T) instance {
 	}
 	if err := s.Automations.SaveReleaseAutomation(ctx, actor, project, plan.Plan{Stages: []plan.Stage{{
 		Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build"}},
-	}}}); err != nil {
+	}}}, true); err != nil {
 		t.Fatalf("automation: %v", err)
 	}
 	if _, err := s.Automations.SaveReaction(ctx, actor, project, reaction.Reaction{

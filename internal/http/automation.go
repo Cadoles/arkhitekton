@@ -38,7 +38,10 @@ type automationPayload struct {
 	// will be recomposed from the project's targets at the worker's next start-up. Saying so
 	// avoids announcing "this project no longer builds" to someone whose automation is simply
 	// awaiting the catch-up.
-	Declared  bool   `json:"declared"`
+	Declared bool `json:"declared"`
+	// Enabled off keeps the plan and opens nothing for a declared release. True while nothing is
+	// declared: the catch-up composes an automation switched on.
+	Enabled   bool   `json:"enabled"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
@@ -54,7 +57,7 @@ func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) 
 	case errors.Is(err, store.ErrNoAutomation):
 		// An empty plan and `declared: false`. This is not a 404: the project exists, and the
 		// question "what does it build?" has an answer — "nothing declared for now".
-		writeJSON(w, http.StatusOK, automationPayload{Plan: plan.Plan{}, Declared: false})
+		writeJSON(w, http.StatusOK, automationPayload{Plan: plan.Plan{}, Declared: false, Enabled: true})
 		return
 	case err != nil:
 		h.logger.Error("reading the automation", "project", project.Slug, "error", err)
@@ -63,7 +66,7 @@ func (h *AutomationsHandler) Automation(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, automationPayload{
-		Plan: entry.Plan, Declared: true, UpdatedBy: entry.UpdatedBy,
+		Plan: entry.Plan, Declared: true, Enabled: entry.Enabled, UpdatedBy: entry.UpdatedBy,
 	})
 }
 
@@ -84,11 +87,20 @@ func (h *AutomationsHandler) SaveAutomation(w http.ResponseWriter, r *http.Reque
 	}
 
 	identity, _ := IdentityFrom(r.Context())
-	if err := h.service().SaveReleaseAutomation(r.Context(), identity.Subject, project, request.Plan); err != nil {
+	// Created switched on; a replaced plan keeps its switch.
+	if err := h.service().SaveReleaseAutomation(r.Context(), identity.Subject, project, request.Plan, true); err != nil {
 		writeRefusal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, automationPayload{Plan: request.Plan, Declared: true})
+	saved, err := h.store.ReleaseAutomation(r.Context(), project.ID)
+	if err != nil {
+		h.logger.Error("reading the automation", "project", project.Slug, "error", err)
+		writeProblem(w, http.StatusInternalServerError, "Cannot read", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, automationPayload{
+		Plan: saved.Plan, Declared: true, Enabled: saved.Enabled, UpdatedBy: saved.UpdatedBy,
+	})
 }
 
 // service is the plans' rules, built from what this handler was given.

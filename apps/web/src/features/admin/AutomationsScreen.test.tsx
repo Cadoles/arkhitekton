@@ -106,6 +106,7 @@ const automatisation = {
     ],
   },
   declared: true,
+  enabled: true,
   updated_by: 'system:reprise',
 }
 
@@ -262,14 +263,14 @@ describe("le plan d'une release", () => {
     // Jamais déclarée : le worker la composera depuis les cibles. Le dire évite
     // d'annoncer « ce projet ne construit plus » à qui attend simplement la
     // reprise.
-    armer([], { plan: { stages: [] }, declared: false })
+    armer([], { plan: { stages: [] }, declared: false, enabled: true })
     render(<AutomationsScreen />)
 
     expect(await screen.findByText(/composée depuis les cibles du projet/)).toBeInTheDocument()
   })
 
   it('dit qu’un projet vidé ne construit plus', async () => {
-    armer([], { plan: { stages: [] }, declared: true })
+    armer([], { plan: { stages: [] }, declared: true, enabled: true })
     render(<AutomationsScreen />)
 
     expect(await screen.findByText(/ne construit rien/)).toBeInTheDocument()
@@ -394,5 +395,75 @@ describe('les planifications', () => {
       ref: 'main',
       enabled: true,
     })
+  })
+})
+
+/*
+ * L'interrupteur : éteindre une automatisation sans la supprimer, ni rouvrir
+ * son formulaire, qui repasse toute la validation.
+ */
+
+describe("l'interrupteur d'une automatisation", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const reaction = {
+    id: 3,
+    name: 'Vérifier une demande de fusion',
+    event_type: 'gitea.pull_request.opened',
+    enabled: true,
+    match: {},
+    plan: { stages: [{ gestes: [{ kind: 'pipeline', ref: 'unit-tests' }] }] },
+  }
+
+  it("éteint une réaction par son seul interrupteur", async () => {
+    const calls = mockFetch([
+      { path: '/automations/catalogue', body: catalogue },
+      { path: '/automation', body: automatisation },
+      { path: '/reactions', body: { reactions: [reaction], project: 'mstore' } },
+      { path: '/schedules', body: { schedules: [] } },
+      { path: '/reactions/3/enabled', method: 'PUT', body: { id: 3, enabled: false } },
+    ])
+    render(<AutomationsScreen />)
+
+    await screen.findByText(reaction.name)
+    const boutons = screen.getAllByRole('button', { name: 'Éteindre' })
+    // L'automatisation de release, allumée, a aussi le sien : celui de la
+    // réaction est le dernier rendu.
+    const dernier = boutons.at(-1)
+    if (!dernier) throw new Error("aucun bouton d'extinction")
+    await userEvent.click(dernier)
+
+    const sent = calls.find((call) => call.method === 'PUT')
+    expect(sent?.url).toContain('/projects/mstore/reactions/3/enabled')
+    expect(sent?.body).toEqual({ enabled: false })
+  })
+
+  it("dit qu'une automatisation de release éteinte ne lance rien, et la rallume", async () => {
+    const calls = mockFetch([
+      { path: '/automations/catalogue', body: catalogue },
+      { path: '/automation', body: { ...automatisation, enabled: false } },
+      { path: '/reactions', body: { reactions: [], project: 'mstore' } },
+      { path: '/schedules', body: { schedules: [] } },
+      { path: '/automation/enabled', method: 'PUT', body: { enabled: true } },
+    ])
+    render(<AutomationsScreen />)
+
+    expect(await screen.findByText(/ne lancent aucun pipeline/)).toBeInTheDocument()
+    expect(screen.getByText('éteinte')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Allumer' }))
+
+    const sent = calls.find((call) => call.method === 'PUT')
+    expect(sent?.url).toContain('/projects/mstore/automation/enabled')
+    expect(sent?.body).toEqual({ enabled: true })
+  })
+
+  it("n'offre pas d'interrupteur à une automatisation jamais déclarée", async () => {
+    armer([], { plan: { stages: [] }, declared: false, enabled: true })
+    render(<AutomationsScreen />)
+
+    await screen.findByText(/composée depuis les cibles du projet/)
+    expect(screen.queryByRole('button', { name: 'Éteindre' })).not.toBeInTheDocument()
   })
 })

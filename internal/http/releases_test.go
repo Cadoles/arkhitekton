@@ -97,6 +97,7 @@ func (f *fakeReleaseStore) ReleaseAutomation(
 	return store.ReleaseAutomation{
 		ProjectID: projectID,
 		Plan:      worker.DefaultAutomation(f.pipelines, fixtureProject(), nil),
+		Enabled:   true,
 	}, nil
 }
 

@@ -134,6 +134,21 @@ func (db *DB) SaveSchedule(
 	return entry.ID, nil
 }
 
+// SetScheduleEnabled switches a project's schedule on or off with its next firing: nil when off,
+// computed by the caller from now when on.
+func (db *DB) SetScheduleEnabled(ctx context.Context, projectID, id int64, enabled bool, next *time.Time) error {
+	tag, err := db.pool.Exec(ctx, `
+		update schedules set enabled = $3, next_fire_at = $4, updated_at = now()
+		where project_id = $1 and id = $2`, projectID, id, enabled, next)
+	if err != nil {
+		return fmt.Errorf("switching the schedule: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrScheduleNotFound
+	}
+	return nil
+}
+
 // DeleteSchedule removes a project's schedule.
 func (db *DB) DeleteSchedule(ctx context.Context, projectID, id int64) error {
 	tag, err := db.pool.Exec(ctx,

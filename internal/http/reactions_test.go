@@ -139,7 +139,7 @@ func (catalogueStore) ProjectBySlug(context.Context, string) (store.Project, err
 
 func (catalogueStore) ReleaseAutomation(context.Context, int64) (store.ReleaseAutomation, error) {
 	return store.ReleaseAutomation{
-		ProjectID: 7, UpdatedBy: "alice",
+		ProjectID: 7, UpdatedBy: "alice", Enabled: true,
 		Plan: plan.Plan{Stages: []plan.Stage{{Role: plan.RoleBuild, Gestes: []plan.Geste{
 			{Kind: plan.GestePipeline, Ref: "build", Label: "portal"},
 		}}}},

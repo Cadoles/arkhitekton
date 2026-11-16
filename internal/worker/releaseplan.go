@@ -384,12 +384,18 @@ func (p *ReleasePlanner) OpenReleasePlan(
 	// What that removes: the loop over `targets`, the filter on enabled kinds, the `verification`
 	// flag. A project producing a binary or an archive comes in through the same door, without
 	// this file knowing its shape.
-	declared, err := p.declaredPlan(ctx, project)
+	declared, enabled, err := p.declaredPlan(ctx, project)
 	if err != nil {
 		// A failed read opens **nothing**. Composing a fallback would build something other than what
 		// the project declares, under a release's tag — and nobody would know it is not the right one.
 		p.logger.Error("reading the automation",
 			"release", record.Tag, "project", project.Slug, "error", err)
+		return 0
+	}
+	if !enabled {
+		p.logger.Info("no plan for this release",
+			"release", record.Tag, "project", project.Slug,
+			"reason", "the project's automation is switched off")
 		return 0
 	}
 	if declared.Empty() {
@@ -411,26 +417,26 @@ func (p *ReleasePlanner) OpenReleasePlan(
 	})
 }
 
-// declaredPlan returns the plan the project declared.
+// declaredPlan returns the plan the project declared, and whether its automation is switched on.
 //
 // A missing automation returns an empty plan and **no error**: that is the state of a fresh
 // project, which the worker's catch-up will fill at its next start-up. Treating it as an
 // outage would send someone hunting for a defect where there is only a declaration to write.
 func (p *ReleasePlanner) declaredPlan(
 	ctx context.Context, project store.Project,
-) (plan.Plan, error) {
+) (plan.Plan, bool, error) {
 	if p.automations == nil {
-		return plan.Plan{}, nil
+		return plan.Plan{}, true, nil
 	}
 
 	entry, err := p.automations.ReleaseAutomation(ctx, project.ID)
 	if errors.Is(err, store.ErrNoAutomation) {
-		return plan.Plan{}, nil
+		return plan.Plan{}, true, nil
 	}
 	if err != nil {
-		return plan.Plan{}, err
+		return plan.Plan{}, false, err
 	}
-	return entry.Plan, nil
+	return entry.Plan, entry.Enabled, nil
 }
 
 // ProductOf returns the kind of what a catalogue kind leaves behind it.

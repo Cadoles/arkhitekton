@@ -409,16 +409,23 @@ func (p *planner) project(ctx context.Context, desired configfile.Project, curre
 		})
 	}
 
+	// The switch is the file's at creation only: the store keeps a recorded automation's, and a
+	// difference in it alone is no change to apply.
 	if desired.ReleaseAutomation != nil && (current.ReleaseAutomation == nil ||
-		!samePlan(*current.ReleaseAutomation, *desired.ReleaseAutomation)) {
-		automation := *desired.ReleaseAutomation
+		!samePlan(current.ReleaseAutomation.Plan, desired.ReleaseAutomation.Plan)) {
+		automation := desired.ReleaseAutomation.Plan
+		enabled := configfile.IsOn(desired.ReleaseAutomation.Enabled)
+		description := "~ release automation " + slug
+		if current.ReleaseAutomation == nil {
+			description = "+ release automation " + slug + switchedOffNote(enabled)
+		}
 		p.check(p.checks.plan("project "+slug+": release automation", automation))
-		p.add("~ release automation "+slug, func(ctx context.Context) error {
+		p.add(description, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
 				return err
 			}
-			return services.Automations.SaveReleaseAutomation(ctx, actor, project, automation)
+			return services.Automations.SaveReleaseAutomation(ctx, actor, project, automation, enabled)
 		})
 	}
 
@@ -492,19 +499,20 @@ func (p *planner) reactions(ctx context.Context, slug string, find func(context.
 		}
 		existing, found := recorded[key]
 		if found {
-			wanted.ID = existing.ID
+			// The switch is the file's at creation only: afterwards it is the interface's.
+			wanted.ID, wanted.Enabled = existing.ID, existing.Enabled
 			existing.ProjectID, existing.Match = 0, nonEmpty(existing.Match)
 			if reflect.DeepEqual(comparableReaction(existing), comparableReaction(wanted)) {
 				continue
 			}
 		}
-		sign := "+"
-		if found {
-			sign = "~"
+		description := "~ reaction " + slug + "/" + wanted.Name
+		if !found {
+			description = "+ reaction " + slug + "/" + wanted.Name + switchedOffNote(wanted.Enabled)
 		}
 		where := fmt.Sprintf("project %s: reaction %q", slug, wanted.Name)
 		p.check(p.checks.event(where, wanted.EventType), p.checks.plan(where, wanted.Plan))
-		p.add(sign+" reaction "+slug+"/"+wanted.Name, func(ctx context.Context) error {
+		p.add(description, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
 				return err
@@ -556,7 +564,8 @@ func (p *planner) schedules(ctx context.Context, slug string, find func(context.
 		wanted := entry.Schedule(0)
 		existing, found := recorded[key]
 		if found {
-			wanted.ID = existing.ID
+			// The switch is the file's at creation only, as a reaction's.
+			wanted.ID, wanted.Enabled = existing.ID, existing.Enabled
 			was := existing.Schedule
 			was.ProjectID = 0
 			if was.Name == wanted.Name && was.Cron == wanted.Cron && was.Timezone == wanted.Timezone &&
@@ -564,12 +573,12 @@ func (p *planner) schedules(ctx context.Context, slug string, find func(context.
 				continue
 			}
 		}
-		sign := "+"
-		if found {
-			sign = "~"
+		description := "~ schedule " + slug + "/" + wanted.Name
+		if !found {
+			description = "+ schedule " + slug + "/" + wanted.Name + switchedOffNote(wanted.Enabled)
 		}
 		p.check(p.checks.plan(fmt.Sprintf("project %s: schedule %q", slug, wanted.Name), wanted.Plan))
-		p.add(sign+" schedule "+slug+"/"+wanted.Name, func(ctx context.Context) error {
+		p.add(description, func(ctx context.Context) error {
 			project, err := find(ctx)
 			if err != nil {
 				return err
@@ -656,6 +665,15 @@ func changedFields(was, wanted ProjectInput) []string {
 		}
 	}
 	return fields
+}
+
+// switchedOffNote marks a creation that arrives switched off: in a diff, it says that nothing will
+// fire until someone switches it on.
+func switchedOffNote(enabled bool) string {
+	if enabled {
+		return ""
+	}
+	return " (switched off)"
 }
 
 func samePlan(a, b plan.Plan) bool {

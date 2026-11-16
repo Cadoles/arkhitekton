@@ -135,12 +135,34 @@ func openPlan(
 }
 
 // testAutomation returns an already declared plan.
-type testAutomation struct{ plan plan.Plan }
+type testAutomation struct {
+	plan plan.Plan
+	off  bool
+}
 
 func (a testAutomation) ReleaseAutomation(
 	context.Context, int64,
 ) (store.ReleaseAutomation, error) {
-	return store.ReleaseAutomation{Plan: a.plan}, nil
+	return store.ReleaseAutomation{Plan: a.plan, Enabled: !a.off}, nil
+}
+
+// An automation switched off keeps its plan and opens nothing: the release is declared, and no
+// pipeline leaves for it.
+func TestASwitchedOffAutomationOpensNothing(t *testing.T) {
+	fake := &fakeVerificationStore{}
+	pipelines := verificationCatalog()
+	projectRow := store.Project{ID: 1, Slug: "mstore"}
+	planner := NewReleasePlanner(
+		NewEngine(newFakePlanStore(), NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
+		pipelines,
+		testAutomation{plan: DefaultAutomation(pipelines, projectRow, nil), off: true},
+		"reg.cadoles.com/vcarroy", quietLogger())
+
+	launched := planner.OpenReleasePlan(context.Background(), projectRow,
+		store.Release{ID: 7, Tag: "3.2.0"}, "abc123def456")
+	if launched != 0 || len(fake.enqueued) != 0 {
+		t.Errorf("%d step(s) started, %d job(s) queued, expected none", launched, len(fake.enqueued))
+	}
 }
 
 // A successful build chains the verifications on **the commit built**, never on the branch it

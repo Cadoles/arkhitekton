@@ -25,6 +25,8 @@ type ScheduleStore interface {
 	ListSchedules(ctx context.Context, projectID int64) ([]store.RecordedSchedule, error)
 	SaveSchedule(ctx context.Context, entry schedule.Schedule, next *time.Time, actor string) (int64, error)
 	DeleteSchedule(ctx context.Context, projectID, id int64) error
+	GetSchedule(ctx context.Context, projectID, id int64) (store.RecordedSchedule, error)
+	SetScheduleEnabled(ctx context.Context, projectID, id int64, enabled bool, next *time.Time) error
 }
 
 // WithSchedules serves the schedules.

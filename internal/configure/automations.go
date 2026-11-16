@@ -26,6 +26,8 @@ type AutomationStore interface {
 	SaveReaction(ctx context.Context, entry reaction.Reaction, actor string) (int64, error)
 	DeleteReaction(ctx context.Context, projectID, id int64) error
 	SaveReleaseAutomation(ctx context.Context, entry store.ReleaseAutomation, actor string) error
+	SetReactionEnabled(ctx context.Context, projectID, id int64, enabled bool) error
+	SetReleaseAutomationEnabled(ctx context.Context, projectID int64, enabled bool) error
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
 	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
 	Auditor
@@ -35,6 +37,8 @@ type AutomationStore interface {
 type ScheduleStore interface {
 	SaveSchedule(ctx context.Context, entry schedule.Schedule, next *time.Time, actor string) (int64, error)
 	DeleteSchedule(ctx context.Context, projectID, id int64) error
+	GetSchedule(ctx context.Context, projectID, id int64) (store.RecordedSchedule, error)
+	SetScheduleEnabled(ctx context.Context, projectID, id int64, enabled bool, next *time.Time) error
 }
 
 // Automations writes a project's plans: its release automation, its reactions, its schedules.
@@ -93,7 +97,10 @@ func CoreEvents() []CoreEvent {
 // An empty plan is accepted, deliberately: it is how to say "this project no longer builds".
 // plan.Validate would refuse it (a reaction with no stage reacts to nothing), so it is only
 // checked when it carries something.
-func (s Automations) SaveReleaseAutomation(ctx context.Context, actor string, project store.Project, entry plan.Plan) error {
+//
+// enabled applies when the automation is created only: replacing a plan leaves its switch where it
+// is, and [Automations.SwitchReleaseAutomation] moves it.
+func (s Automations) SaveReleaseAutomation(ctx context.Context, actor string, project store.Project, entry plan.Plan, enabled bool) error {
 	logger := loggerOr(s.Logger)
 	if len(entry.Stages) > 0 {
 		if err := entry.Validate(); err != nil {
@@ -107,7 +114,9 @@ func (s Automations) SaveReleaseAutomation(ctx context.Context, actor string, pr
 		}
 	}
 
-	err := s.Store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{ProjectID: project.ID, Plan: entry}, actor)
+	err := s.Store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
+		ProjectID: project.ID, Plan: entry, Enabled: enabled,
+	}, actor)
 	if err != nil {
 		return failure(logger, "Cannot save", err, "project", project.Slug)
 	}
@@ -119,6 +128,30 @@ func (s Automations) SaveReleaseAutomation(ctx context.Context, actor string, pr
 		"stages": len(entry.Stages), "steps": stepCount(entry),
 	})
 	return nil
+}
+
+// SwitchReleaseAutomation switches a project's automation on or off, its plan untouched. An
+// automation never declared is refused: recording an empty one to switch it would stop the
+// worker's catch-up from composing it.
+func (s Automations) SwitchReleaseAutomation(ctx context.Context, actor string, project store.Project, enabled bool) error {
+	logger := loggerOr(s.Logger)
+	err := s.Store.SetReleaseAutomationEnabled(ctx, project.ID, enabled)
+	switch {
+	case errors.Is(err, store.ErrNoAutomation):
+		return refuse(http.StatusConflict, "No automation declared",
+			"this project has no automation to switch yet")
+	case err != nil:
+		return failure(logger, "Cannot switch", err, "project", project.Slug)
+	}
+	audit(ctx, logger, s.Store, actor, switchAction("automation", enabled), project.Slug, nil)
+	return nil
+}
+
+func switchAction(owner string, enabled bool) string {
+	if enabled {
+		return owner + ".enable"
+	}
+	return owner + ".disable"
 }
 
 func stepCount(p plan.Plan) int {
@@ -171,6 +204,21 @@ func (s Automations) DeleteReaction(ctx context.Context, actor string, project s
 		return failure(logger, "Cannot delete", err, "project", project.Slug, "reaction", id)
 	}
 	audit(ctx, logger, s.Store, actor, "reaction.delete", project.Slug+"/"+strconv.FormatInt(id, 10), nil)
+	return nil
+}
+
+// SwitchReaction switches a reaction on or off. The reaction is not validated again: switching off
+// one whose fact is no longer produced must stay possible.
+func (s Automations) SwitchReaction(ctx context.Context, actor string, project store.Project, id int64, enabled bool) error {
+	logger := loggerOr(s.Logger)
+	if err := s.Store.SetReactionEnabled(ctx, project.ID, id, enabled); err != nil {
+		if errors.Is(err, store.ErrReactionNotFound) {
+			return refuse(http.StatusNotFound, "Reaction not found", "")
+		}
+		return failure(logger, "Cannot switch", err, "project", project.Slug, "reaction", id)
+	}
+	audit(ctx, logger, s.Store, actor, switchAction("reaction", enabled),
+		project.Slug+"/"+strconv.FormatInt(id, 10), nil)
 	return nil
 }
 
@@ -234,6 +282,39 @@ func (s Automations) DeleteSchedule(ctx context.Context, actor string, project s
 	}
 	audit(ctx, logger, s.Store, actor, "schedule.delete", project.Slug+"/"+strconv.FormatInt(id, 10), nil)
 	return nil
+}
+
+// SwitchSchedule switches a schedule on or off. Switched on, its next firing is computed from now,
+// as when it is saved: the ticks it slept through are not fired.
+func (s Automations) SwitchSchedule(ctx context.Context, actor string, project store.Project, id int64, enabled bool) (*time.Time, error) {
+	logger := loggerOr(s.Logger)
+	if s.Schedules == nil {
+		return nil, refuse(http.StatusNotFound, "Schedules unavailable", "")
+	}
+	recorded, err := s.Schedules.GetSchedule(ctx, project.ID, id)
+	switch {
+	case errors.Is(err, store.ErrScheduleNotFound):
+		return nil, refuse(http.StatusNotFound, "Schedule not found", "")
+	case err != nil:
+		return nil, failure(logger, "Cannot switch", err, "project", project.Slug, "schedule", id)
+	}
+
+	var next *time.Time
+	if enabled {
+		at, err := recorded.Next(s.now())
+		if err != nil {
+			return nil, invalid("Invalid schedule", err)
+		}
+		next = &at
+	}
+	if err := s.Schedules.SetScheduleEnabled(ctx, project.ID, id, enabled, next); err != nil {
+		if errors.Is(err, store.ErrScheduleNotFound) {
+			return nil, refuse(http.StatusNotFound, "Schedule not found", "")
+		}
+		return nil, failure(logger, "Cannot switch", err, "project", project.Slug, "schedule", id)
+	}
+	audit(ctx, logger, s.Store, actor, switchAction("schedule", enabled), project.Slug+"/"+recorded.Name, nil)
+	return next, nil
 }
 
 func (s Automations) now() time.Time {

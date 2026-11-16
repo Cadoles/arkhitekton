@@ -58,6 +58,9 @@ export type Automation = {
    *  dit « ce projet ne construit plus » : seul le premier sera repris depuis les
    *  cibles du projet au prochain démarrage du worker. */
   declared: boolean
+  /** Éteinte, elle garde son plan et une release déclarée ne lance rien. Vrai
+   *  tant que rien n'est déclaré : le rattrapage la compose allumée. */
+  enabled: boolean
   updated_by?: string
 }
 
@@ -267,6 +270,38 @@ export function useSaveAutomation(slug: string) {
       void queryClient.invalidateQueries({ queryKey: ['automation', slug] })
     },
   })
+}
+
+/** L'interrupteur d'une automatisation, à part de son plan.
+ *
+ *  Le formulaire d'édition repasse toute la validation : une réaction dont le
+ *  fait n'est plus produit ne s'y enregistre plus, alors que c'est précisément
+ *  celle qu'on veut faire taire. La bascule ne touche qu'à l'interrupteur. */
+function useSwitch<T>(queryKey: string, slug: string, path: (target: T) => string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ target, enabled }: { target: T; enabled: boolean }) =>
+      request<{ enabled: boolean }>(`/projects/${encodeURIComponent(slug)}${path(target)}/enabled`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [queryKey, slug] })
+    },
+  })
+}
+
+export function useSwitchReaction(slug: string) {
+  return useSwitch<number>('reactions', slug, (id) => `/reactions/${id}`)
+}
+
+export function useSwitchSchedule(slug: string) {
+  return useSwitch<number>('schedules', slug, (id) => `/schedules/${id}`)
+}
+
+export function useSwitchAutomation(slug: string) {
+  return useSwitch<null>('automation', slug, () => '/automation')
 }
 
 /** Les gestes qu'une étape de ce rôle accepte.

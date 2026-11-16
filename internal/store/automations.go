@@ -37,6 +37,8 @@ var ErrNoAutomation = errors.New("no automation declared")
 type ReleaseAutomation struct {
 	ProjectID int64
 	Plan      plan.Plan
+	// Enabled off keeps the plan and opens nothing for a declared release.
+	Enabled   bool
 	UpdatedBy string
 }
 
@@ -46,13 +48,13 @@ type ReleaseAutomation struct {
 // only one.
 func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAutomation, error) {
 	const query = `
-		select project_id, plan, updated_by
+		select project_id, plan, enabled, updated_by
 		from release_automations where project_id = $1`
 
 	var entry ReleaseAutomation
 	var encoded []byte
 	err := db.pool.QueryRow(ctx, query, projectID).
-		Scan(&entry.ProjectID, &encoded, &entry.UpdatedBy)
+		Scan(&entry.ProjectID, &encoded, &entry.Enabled, &entry.UpdatedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReleaseAutomation{}, ErrNoAutomation
 	}
@@ -69,6 +71,9 @@ func (db *DB) ReleaseAutomation(ctx context.Context, projectID int64) (ReleaseAu
 //
 // A replacement and never a distinct creation: the key is the project, and telling the two
 // apart would force the caller to know whether a row exists in order to choose its verb.
+//
+// Enabled is written when the row is created and only then: saving a plan neither switches the
+// automation on nor off. [DB.SetReleaseAutomationEnabled] is the switch.
 func (db *DB) SaveReleaseAutomation(
 	ctx context.Context, entry ReleaseAutomation, actor string,
 ) error {
@@ -78,15 +83,33 @@ func (db *DB) SaveReleaseAutomation(
 	}
 
 	const upsert = `
-		insert into release_automations (project_id, plan, updated_by)
-		values ($1, $2, $3)
+		insert into release_automations (project_id, plan, enabled, updated_by)
+		values ($1, $2, $3, $4)
 		on conflict (project_id) do update set
 		    plan = excluded.plan,
 		    updated_by = excluded.updated_by,
 		    updated_at = now()`
 
-	if _, err := db.pool.Exec(ctx, upsert, entry.ProjectID, encoded, actor); err != nil {
+	if _, err := db.pool.Exec(ctx, upsert, entry.ProjectID, encoded, entry.Enabled, actor); err != nil {
 		return fmt.Errorf("recording the automation: %w", err)
+	}
+	return nil
+}
+
+// SetReleaseAutomationEnabled switches a project's automation on or off, its plan untouched.
+//
+// Returns [ErrNoAutomation] when none was ever recorded: creating an empty one to switch it would
+// stop the worker's catch-up from composing it. `updated_by` keeps naming who wrote the plan; the
+// audit log names who switched it.
+func (db *DB) SetReleaseAutomationEnabled(ctx context.Context, projectID int64, enabled bool) error {
+	tag, err := db.pool.Exec(ctx, `
+		update release_automations set enabled = $2, updated_at = now()
+		where project_id = $1`, projectID, enabled)
+	if err != nil {
+		return fmt.Errorf("switching the automation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoAutomation
 	}
 	return nil
 }
