@@ -199,17 +199,8 @@ web-check: ## Typage, analyse statique et tests de l'interface
 
 # --- Image and deployment -----------------------------------------------------
 
-# The Git secret is mounted as Skaffold does it, and for the same reason: the
-# `pipelines-manager` module lives in a private repository, and `go mod download` cannot
-# authenticate without it. Its absence here made this target — hence `make deploy`, the only
-# deployment path without Skaffold — unusable: it failed on "could not read Username for
-# forge.cadoles.com".
-#
-# A BuildKit secret leaves no trace in the image's layers, unlike a `COPY`, which would engrave
-# them there for good.
 image: ## Builds the image, tagged by commit and `dev`
 	DOCKER_BUILDKIT=1 docker build \
-		--secret id=git-credentials,src=$(HOME)/.git-credentials \
 		--build-arg VERSION=$(IMAGE_TAG) \
 		--build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo inconnue) \
 		-t $(IMAGE) -t $(LOCAL_IMAGE) .
