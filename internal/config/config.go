@@ -299,7 +299,7 @@ func Load(role Role) (Config, error) {
 			AccessKey:  os.Getenv("MINIO_ACCESS_KEY"),
 			SecretKey:  os.Getenv("MINIO_SECRET_KEY"),
 			Region:     envOr("MINIO_REGION", "NUO-Region"),
-			PresignTTL: durationOr("MINIO_PRESIGN_TTL", 2*time.Hour),
+			PresignTTL: durationOr("MINIO_PRESIGN_TTL", 6*time.Hour),
 			UseSSL:     boolOr("MINIO_USE_SSL", true),
 		},
 		OIDC: OIDCConfig{

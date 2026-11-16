@@ -63,13 +63,6 @@ type Presigner interface {
 	PresignPut(ctx context.Context, key string, ttl time.Duration) (*url.URL, error)
 }
 
-// uploadTTL bounds the validity of a write URL.
-//
-// It must outlive the longest pipeline — an E2E campaign exceeds the hour — without becoming a
-// lasting write permission. Six hours: beyond that, a leaked URL would stay usable after the
-// end of the run that justified it.
-const uploadTTL = 6 * time.Hour
-
 // Scheduler turns the queued jobs into PipelineRuns.
 type Scheduler struct {
 	// version gives a plugin's version in force, the one a run is launched with.
@@ -437,7 +430,8 @@ func (s *Scheduler) addUploadURLs(
 			return fmt.Errorf("artefact %q: %w", name, err)
 		}
 
-		signed, err := s.uploads.PresignPut(ctx, key, uploadTTL)
+		// No duration: the store's own, MINIO_PRESIGN_TTL.
+		signed, err := s.uploads.PresignPut(ctx, key, 0)
 		if err != nil {
 			return fmt.Errorf("artefact %q: %w", name, err)
 		}
