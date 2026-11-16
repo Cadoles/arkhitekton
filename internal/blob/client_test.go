@@ -303,3 +303,17 @@ func TestListReturnsObjectsUnderPrefix(t *testing.T) {
 		t.Errorf("%d object(s) listed, expected 2: %+v", len(objects), objects)
 	}
 }
+
+// A URL asked for with no duration lasts MINIO_PRESIGN_TTL: it is how the scheduler mints the
+// pipelines' write URLs.
+func TestAPresignedPutWithNoDurationLastsTheConfiguredOne(t *testing.T) {
+	client := testClient(t)
+
+	presigned, err := client.PresignPut(context.Background(), "raw/run/objet.txt", 0)
+	if err != nil {
+		t.Fatalf("PresignPut: %v", err)
+	}
+	if expires := presigned.Query().Get("X-Amz-Expires"); expires != "7200" {
+		t.Errorf("X-Amz-Expires = %q, expected the configured 2h (7200)", expires)
+	}
+}
