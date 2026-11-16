@@ -353,8 +353,4 @@ pipeline-credentials: ## Prepares the credentials the pipelines will use (local)
 	sed 's/^/     /' $(SECRETS_DIR)/pipeline-ssh-key.pub.txt; \
 	echo; \
 	echo '  2. Give the registry account write access on the target project'; \
-	echo '     (Harbor -> project -> Members -> Developer role).'; \
-	echo; \
-	echo 'Then enable these secrets in dashboard.env:'; \
-	echo '     PIPELINE_GIT_SECRET=arkhitekton-pipeline-git'; \
-	echo '     PIPELINE_REGISTRY_SECRET=arkhitekton-pipeline-registry'
+	echo '     (Harbor -> project -> Members -> Developer role).'
