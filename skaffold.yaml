@@ -29,15 +29,6 @@ build:
     - image: reg.cadoles.com/vcarroy/arkhitekton
       docker:
         dockerfile: Dockerfile
-        # The forge's credentials, mounted for the duration of `go mod download`. The dashboard depends
-        # on a private module, fetched by a git clone: without them, the build fails on an
-        # authentication error.
-        #
-        # A BuildKit secret leaves no trace in the image's layers, unlike a `COPY`, which would engrave
-        # them there for good.
-        secrets:
-          - id: git-credentials
-            src: ~/.git-credentials
         buildArgs:
           VERSION: dev-skaffold
           # Skaffold does not substitute shell commands in buildArgs: the exact revision stays `make
