@@ -109,7 +109,7 @@ the run and a step cannot change it, and an `image` one is filled only when the 
 | `pipeline.registrySecret` | Name of the secret holding registry credentials |
 | `pipeline.imagePullSecret` | Name of the pull secret |
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
-| `forge.tekton.repoUrl` | Repository a pipeline clones its rules from (`FORGE_TEKTON_REPO_URL`) |
+| `forge.tekton.repoUrl` | Repository of the pipelines' definitions (`FORGE_TEKTON_REPO_URL`), for a pipeline that clones it; none shipped does |
 | `tekton.namespace` | Namespace the PipelineRuns are created in |
 
 An installed plugin adds its own keys, resolved per project, and documents them. A `binding`

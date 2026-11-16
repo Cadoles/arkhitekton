@@ -836,8 +836,8 @@ func schedulerConfig(cfg config.Config) map[string]string {
 		"project.repoUrl": appRepositoryURL(cfg),
 		// What a plugin's pipelines read comes from its settings, where a project
 		// overrides them.
-		// The security audit reads its Semgrep rules and its policies in a repository it clones,
-		// just like the application.
+		// The pipelines' repository, for a pipeline that clones it. The security audit no longer
+		// does: its rules and policies are ConfigMaps its catalogue entry mounts.
 		"forge.tekton.repoUrl": os.Getenv("FORGE_TEKTON_REPO_URL"),
 		"registry.project":     cfg.Registry.Project,
 		"registry.insecure":    strconv.FormatBool(cfg.Registry.Insecure),
@@ -1141,7 +1141,7 @@ func projectsHandler(
 }
 
 // configuredProjects returns the repositories the configuration names: the application, which is
-// built, and the pipelines' repository, which the security audit clones to read its rules.
+// built, and the pipelines' repository, followed with no image.
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
 	project := projectSeedDefaults(cfg)
