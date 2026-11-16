@@ -15,7 +15,7 @@ GO_DIRS := app cmd host internal sdk rpc
 IMAGE_REPO ?= reg.cadoles.com/vcarroy/arkhitekton
 # The tag carries the commit: republishing under the same tag would not be enough to make the
 # cluster take the image again, the pods setting no `imagePullPolicy`.
-IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo inconnue)
+IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 IMAGE      := $(IMAGE_REPO):$(IMAGE_TAG)
 
 # The tag the local overlay consumes. Distinct from IMAGE_TAG: locally the image is injected
@@ -46,7 +46,7 @@ MINIO_TEST_NAME   := minio-arkhitekton-test
 MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
-.PHONY: config-export config-diff config-apply help build example-plugin providers-demo proto test test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
+.PHONY: config-export config-diff config-apply help build example-plugin providers-demo proto test test-live test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
         binaries web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
 
 help: ## Show this help
@@ -58,7 +58,7 @@ build: ## Build the binary
 # What a release attaches: one binary per platform, the interface embedded, and their checksums.
 # The version and revision are compiled in as the image does it.
 RELEASE_VERSION   ?= $(IMAGE_TAG)
-RELEASE_REVISION  ?= $(shell git rev-parse HEAD 2>/dev/null || echo inconnue)
+RELEASE_REVISION  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 RELEASE_PLATFORMS ?= amd64 arm64
 
 binaries: web ## Build the release binaries and their SHA256SUMS into dist/
@@ -138,7 +138,7 @@ test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 test-ci: ## Integration tests against services already started
 	$(GO) test -p 1 -count=1 $(GO_PKGS)
 
-fmt: ## Reformate le code
+fmt: ## Formats the code
 	$(GO) fmt $(GO_PKGS)
 
 # `go fmt` rewrites the files, so it always succeeds: using it in continuous integration would
@@ -174,8 +174,8 @@ vuln: ## Looks for vulnerabilities in the dependencies
 # modifies the working tree.
 check: lint test web-check ## What CI checks
 
-clean: ## Supprime les artefacts de build
-	rm -rf bin/
+clean: ## Removes the build artefacts
+	rm -rf bin/ dist/
 
 # --- Interface ----------------------------------------------------------------
 
@@ -186,13 +186,13 @@ web-install: ## Installs the interface's dependencies
 
 # Vite writes straight into internal/web/dist, where `//go:embed` reads it: there is no copy
 # step, hence no way of forgetting it.
-web: ## Construit l'interface dans internal/web/dist
+web: ## Builds the interface into internal/web/dist
 	npm --prefix $(WEB) run build
 
 web-dev: ## Serves the interface in development, API proxied to :8080
 	npm --prefix $(WEB) run dev
 
-web-check: ## Typage, analyse statique et tests de l'interface
+web-check: ## Type checks, lints and tests the interface
 	npm --prefix $(WEB) run typecheck
 	npm --prefix $(WEB) run lint
 	npm --prefix $(WEB) run test
@@ -202,40 +202,21 @@ web-check: ## Typage, analyse statique et tests de l'interface
 image: ## Builds the image, tagged by commit and `dev`
 	DOCKER_BUILDKIT=1 docker build \
 		--build-arg VERSION=$(IMAGE_TAG) \
-		--build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo inconnue) \
+		--build-arg REVISION=$$(git rev-parse HEAD 2>/dev/null || echo unknown) \
 		-t $(IMAGE) -t $(LOCAL_IMAGE) .
 
-image-push: image ## Pousse l'image sur le registre
+image-push: image ## Pushes the image to the registry
 	docker push $(IMAGE)
 
 # Injected straight into the kind nodes: avoids the round trip through the registry, which
 # largely dominates the time of a local iteration.
-kind-load: image ## Charge l'image dans le cluster kind
+kind-load: image ## Loads the image into the kind cluster
 	kind load docker-image $(LOCAL_IMAGE) --name $(KIND_CLUSTER)
 
-manifests: ## Rend et analyse les manifests de l'overlay
+manifests: ## Renders and lints the overlay's manifests
 	@kustomize build $(OVERLAY) > /dev/null
 	@kustomize build $(OVERLAY) | kube-linter lint -
 
-# The Jobs are deleted before applying: a Job's `spec.template` is immutable, and a plain
-# `apply` would fail on "field is immutable" as soon as the image tag or a configuration
-# variable changes.
-# Kept for a one-off deployment without Skaffold. Prefer `make dev`: the `dev` tag being
-# mutable, this target must force a restart, and forgetting that restart gives a cluster
-# running old code while displaying up-to-date manifests.
-# A one-off repair of the deploy keys written before the fix.
-#
-# They carried only `ssh-privatekey`, the name the `kubernetes.io/ssh-auth` type imposes and
-# which SSH does not read: the `ssh-directory` workspace is copied into `~/.ssh`, where only
-# `id_ed25519` is loaded. Every build failed with "Permission denied (publickey)".
-#
-# Why on the operator's side and not in the dashboard: the dashboard has no `get` on Secrets
-# (docs/09-security.md), so it cannot read a key back in order to copy it under a second name.
-# Its only possible recovery would be a **rotation**, which would mean pasting as many public
-# keys as there are projects. `kubectl`, for its part, reads — and the key does not change.
-#
-# Without effect on a secret already repaired, and without effect on the projects created after
-# the fix.
 config-export: ## Writes the instance's configuration into DIR, one file per project
 	@test -n "$(DIR)" || { echo "usage: make config-export DIR=<directory>" >&2; exit 1; }
 	@$(CONFIG) export | $(GO) run ./cmd/arkhitekton config split -o $(DIR)
@@ -248,20 +229,9 @@ config-apply: ## Applies DIR to the instance (ARGS=--prune to remove what it no 
 	@test -n "$(DIR)" || { echo "usage: make config-apply DIR=<directory>" >&2; exit 1; }
 	@$(CONFIG_STREAM) | $(CONFIG) apply -f - $(ARGS)
 
-deploy-keys-repair: ## Adds id_ed25519 to the deploy keys written before the fix
-	@for secret in $$(kubectl -n $(TEKTON_NAMESPACE) get secrets \
-	    -l app.kubernetes.io/managed-by=arkhitekton -o name); do \
-	  if kubectl -n $(TEKTON_NAMESPACE) get $$secret \
-	      -o jsonpath='{.data.id_ed25519}' | grep -q .; then \
-	    echo "$$secret: already repaired"; \
-	    continue; \
-	  fi; \
-	  key=$$(kubectl -n $(TEKTON_NAMESPACE) get $$secret -o jsonpath='{.data.ssh-privatekey}'); \
-	  if [ -z "$$key" ]; then echo "$$secret: no private key, skipped"; continue; fi; \
-	  kubectl -n $(TEKTON_NAMESPACE) patch $$secret --type merge \
-	    -p "{\"data\":{\"id_ed25519\":\"$$key\"}}" >/dev/null && echo "$$secret: repaired"; \
-	done
-
+# Kept for a one-off deployment without Skaffold. Prefer `make dev`: the `dev` tag being
+# mutable, this target must force a restart, and forgetting that restart gives a cluster
+# running old code while displaying up-to-date manifests.
 deploy: kind-load manifests ## Deploys on kind (local overlay, without Skaffold)
 	@# A Job is immutable: the `apply` that follows fails on "field is immutable"
 	@# as long as the previous one has not disappeared. `--wait` alone was not
@@ -283,7 +253,7 @@ deploy: kind-load manifests ## Deploys on kind (local overlay, without Skaffold)
 undeploy: ## Deletes the deployment (the namespace takes the PVCs with it)
 	kustomize build $(OVERLAY) | kubectl delete --ignore-not-found -f -
 
-logs: ## Suit les journaux de l'api
+logs: ## Follows the API logs
 	kubectl logs -n arkhitekton -l app.kubernetes.io/component=api --tail=100 -f
 
 # --- Development loop ---------------------------------------------------------
