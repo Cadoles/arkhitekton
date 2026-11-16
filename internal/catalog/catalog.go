@@ -55,9 +55,9 @@ type Catalog struct {
 	// trigger, and separating them would mean two mounts and two loads for one
 	// intent.
 	Projects map[string]ProjectDeclaration `json:"projects,omitempty"`
-	// ScoreWeights carries the quality score weighting. Empty applies the default:
-	// missing configuration must not make the score incomputable.
-	Score map[string]float64 `json:"score,omitempty"`
+	// RetiredScore is the former score weighting, which a plan step's `weight` replaced. Kept to
+	// refuse it with what replaced it, rather than as an unknown key.
+	RetiredScore any `json:"score,omitempty"`
 	// MaxConcurrentRuns protects the cluster: pipelines ask for volumes and build
 	// pods, and nothing mechanically prevents launching twenty.
 	MaxConcurrentRuns int `json:"maxConcurrentRuns"`
@@ -490,6 +490,9 @@ func (c *Catalog) validate() error {
 
 	if c.MaxConcurrentRuns < 1 {
 		problems = append(problems, fmt.Errorf("maxConcurrentRuns must be >= 1, got %d", c.MaxConcurrentRuns))
+	}
+	if c.RetiredScore != nil {
+		problems = append(problems, errors.New("score no longer exists: a plan step's weight sets the release score"))
 	}
 	if len(c.Pipelines) == 0 {
 		problems = append(problems, errors.New("the catalogue declares no pipeline"))
@@ -1000,22 +1003,6 @@ func (c *Catalog) SuggestedImages() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// ScoreWeights returns the score weighting in the shape the computation expects.
-//
-// Converted here rather than at load time: the catalogue is generic YAML, and
-// teaching it another package's type would tie it to an implementation it need
-// not know.
-func (c *Catalog) ScoreWeights() map[string]float64 {
-	if len(c.Score) == 0 {
-		return nil
-	}
-	weights := make(map[string]float64, len(c.Score))
-	for signal, weight := range c.Score {
-		weights[signal] = weight
-	}
-	return weights
 }
 
 // ResolveNames returns a copy of the pipeline with the names it defers to configuration
