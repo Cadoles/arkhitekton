@@ -34,7 +34,7 @@ build:
           # Skaffold does not substitute shell commands in buildArgs: the exact revision stays `make
           # image`'s business, which serves to produce the published images. Here, only the iteration
           # counts.
-          REVISION: developpement-local
+          REVISION: local-dev
 
 manifests:
   kustomize:

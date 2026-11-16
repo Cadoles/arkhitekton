@@ -46,7 +46,7 @@ COPY . .
 COPY --from=web /src/internal/web/dist ./internal/web/dist
 
 ARG VERSION=dev
-ARG REVISION=inconnue
+ARG REVISION=unknown
 ARG TARGETOS
 ARG TARGETARCH
 
