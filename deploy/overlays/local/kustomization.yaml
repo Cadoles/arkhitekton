@@ -9,14 +9,10 @@ resources:
   - resources/minio.yaml
   - resources/minio-bucket.yaml
 
-# The pipelines' credentials, to exercise the chain on a test repository.
-#
-# Optional, and that is the point: `mstore-pipelines`'s `git-credentials` and `regcred` defaults suit
-# whoever works on the real application, and the overlay must render with no secret file
-# existing at all. Making these generators unconditional would fail `skaffold run` for everyone.
+# The pipelines' credentials, to exercise the chain on a test repository rather than with
+# `mstore-pipelines`'s, which target the real application. Their files are not versioned:
 #
 #   make pipeline-credentials     # builds the three files
-#   then uncomment the line below
 components:
   - components/pipeline-credentials
 
@@ -38,6 +34,9 @@ configMapGenerator:
     behavior: merge
     literals:
       - TEKTON_NAMESPACE=mstore-pipelines
+      # The Secrets `components/pipeline-credentials` creates.
+      - PIPELINE_GIT_SECRET=arkhitekton-pipeline-git
+      - PIPELINE_REGISTRY_SECRET=arkhitekton-pipeline-registry
       # The bucket `mstore-pipelines`'s MinIO carries on the kind cluster, and the rules the audit clones.
       - PIPELINE_MINIO_BUCKET=mstore-pipeline
       - FORGE_TEKTON_REPO_URL=ssh://git@forge.cadoles.com:2222/team/mstore-pipelines.git
