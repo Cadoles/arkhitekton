@@ -256,6 +256,6 @@ func (o *Observer) reconcile(ctx context.Context) error {
 		vanished++
 	}
 
-	o.logger.Info("reconciliation finished", "en_cours", len(unfinished), "conclus", vanished)
+	o.logger.Info("reconciliation finished", "unfinished", len(unfinished), "concluded", vanished)
 	return nil
 }
