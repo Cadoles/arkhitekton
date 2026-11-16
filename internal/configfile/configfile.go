@@ -107,9 +107,9 @@ type Project struct {
 	TrackerStatuses map[string]string `json:"trackerStatuses,omitempty"`
 	// ReleaseAutomation absent leaves the automation as it is; with no stage, the project no
 	// longer builds.
-	ReleaseAutomation *plan.Plan `json:"releaseAutomation,omitempty"`
-	Reactions         []Reaction `json:"reactions,omitempty"`
-	Schedules         []Schedule `json:"schedules,omitempty"`
+	ReleaseAutomation *ReleaseAutomation `json:"releaseAutomation,omitempty"`
+	Reactions         []Reaction         `json:"reactions,omitempty"`
+	Schedules         []Schedule         `json:"schedules,omitempty"`
 }
 
 // Target is one image a project builds.
@@ -128,7 +128,18 @@ type ProjectPlugin struct {
 	Config  map[string]Value `json:"config,omitempty"`
 }
 
+// ReleaseAutomation is the plan a project runs for a release, and its switch.
+//
+// Enabled, like a reaction's or a schedule's, applies when the automation is created: afterwards
+// the switch is the interface's, and an apply leaves it where it is.
+type ReleaseAutomation struct {
+	Enabled *bool `json:"enabled,omitempty"`
+	plan.Plan
+}
+
 // Reaction opens a plan when a fact is recorded. Its name identifies it within its project.
+//
+// Enabled applies when the reaction is created; an apply leaves an existing one's switch alone.
 type Reaction struct {
 	Name    string            `json:"name"`
 	Event   string            `json:"event"`
@@ -139,6 +150,8 @@ type Reaction struct {
 
 // Schedule opens a plan at the times a cron expression names. Its name identifies it within its
 // project.
+//
+// Enabled applies when the schedule is created; an apply leaves an existing one's switch alone.
 type Schedule struct {
 	Name     string    `json:"name"`
 	Cron     string    `json:"cron"`

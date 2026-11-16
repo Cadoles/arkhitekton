@@ -33,6 +33,7 @@ spec:
   pipelines: {mse/e2e-tests: false}
   trackerStatuses: {"En cours": doing}
   releaseAutomation:
+    enabled: false
     stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
   reactions:
     - name: Analyse à chaque push
@@ -75,6 +76,10 @@ func TestAConfigurationIsReadWithItsDefaults(t *testing.T) {
 	}
 	if !IsOn(project.Reactions[0].Enabled) || IsOn(project.Schedules[0].Enabled) {
 		t.Errorf("switches: reaction %v, schedule %v", project.Reactions[0].Enabled, project.Schedules[0].Enabled)
+	}
+	automation := project.ReleaseAutomation
+	if automation == nil || IsOn(automation.Enabled) || len(automation.Stages) != 1 {
+		t.Errorf("release automation = %+v, want its stage, switched off", automation)
 	}
 }
 
@@ -156,6 +161,11 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec:\n  repository: a/b\n  schedules:\n" +
 				"    - {name: Nightly, cron: 'not cron', plan: {stages: [{gestes: [{kind: pipeline, ref: a/b}]}]}}\n",
 			want: "spec.schedules[0]",
+		},
+		"misspelled key beside a release automation's plan": {
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec:\n  repository: a/b\n" +
+				"  releaseAutomation: {enable: false, stages: []}\n",
+			want: "enable",
 		},
 		"bad slug": {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: My_Project}\nspec: {repository: a/b}\n",

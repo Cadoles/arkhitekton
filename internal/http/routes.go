@@ -272,6 +272,8 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	mux.Handle("DELETE /projects/{project}/reactions/{reaction}", Chain(http.HandlerFunc(reactions.Delete),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/reactions/{reaction}/enabled", Chain(http.HandlerFunc(reactions.SwitchReaction),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
 	// Declared schedules: plans a clock opens. `admin` for the reactions' reason, the plan
 	// launching pipelines in the instance's name.
@@ -283,6 +285,8 @@ func NewAPIRouter(
 		mux.Handle("PUT /projects/{project}/schedules/{schedule}", Chain(http.HandlerFunc(reactions.SaveSchedule),
 			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 		mux.Handle("DELETE /projects/{project}/schedules/{schedule}", Chain(http.HandlerFunc(reactions.DeleteSchedule),
+			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+		mux.Handle("PUT /projects/{project}/schedules/{schedule}/enabled", Chain(http.HandlerFunc(reactions.SwitchSchedule),
 			middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	}
 
@@ -297,6 +301,8 @@ func NewAPIRouter(
 	mux.Handle("GET /projects/{project}/automation", Chain(http.HandlerFunc(reactions.Automation),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 	mux.Handle("PUT /projects/{project}/automation", Chain(http.HandlerFunc(reactions.SaveAutomation),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /projects/{project}/automation/enabled", Chain(http.HandlerFunc(reactions.SwitchAutomation),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 
 	// What this version can do: the facts that can be listened for, the steps available, the

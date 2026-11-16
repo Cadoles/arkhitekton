@@ -235,9 +235,92 @@ func TestOnlyWhatIsWrittenIsChecked(t *testing.T) {
 		t.Errorf("an unchanged configuration writes:\n%s", descriptions(ops))
 	}
 
-	set.Projects[0].Reactions[0].Enabled = configfile.On(false)
+	set.Projects[0].Reactions[0].Match = map[string]string{"branch": "develop"}
 	_, _, err := i.applier(nil).Plan(context.Background(), set, false)
 	if err == nil || !strings.Contains(err.Error(), `"php/static-tests" is missing from the catalogue`) {
 		t.Errorf("error = %v, want the changed reaction's lost kind named", err)
+	}
+}
+
+// A switch is the file's when the automation is created, and the interface's afterwards: an apply
+// neither switches back on what was switched off by hand, nor off what was switched on.
+func TestASwitchIsTheFilesAtCreationOnly(t *testing.T) {
+	ctx := context.Background()
+	i := configured(t)
+	exported := read(t, i.export(t))
+	project, err := i.db.ProjectBySlug(ctx, "portal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reactions, err := i.db.ListReactions(ctx, project.ID)
+	if err != nil || len(reactions) == 0 {
+		t.Fatalf("reactions: %v (%v)", reactions, err)
+	}
+	if err := i.db.SetReactionEnabled(ctx, project.ID, reactions[0].ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := i.db.SetReleaseAutomationEnabled(ctx, project.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if ops, _ := planOps(t, i.applier(nil), exported, false); len(ops) != 0 {
+		t.Errorf("an apply switches back on what was switched off by hand:\n%s", descriptions(ops))
+	}
+
+	off := false
+	set := read(t, i.export(t))
+	declared := &set.Projects[0]
+	for index := range declared.Reactions {
+		declared.Reactions[index].Enabled = nil
+	}
+	for index := range declared.Schedules {
+		declared.Schedules[index].Enabled = &off
+	}
+	declared.ReleaseAutomation.Enabled = nil
+	if ops, _ := planOps(t, i.applier(nil), set, false); len(ops) != 0 {
+		t.Errorf("only switches differ, and the apply writes:\n%s", descriptions(ops))
+	}
+
+	added := declared.Reactions[0]
+	added.Name, added.Enabled = "Analyse livrée éteinte", &off
+	declared.Reactions = append(declared.Reactions, added)
+	applier := i.applier(nil)
+	ops, _ := planOps(t, applier, set, false)
+	if got := descriptions(ops); got != "+ reaction portal/Analyse livrée éteinte (switched off)" {
+		t.Errorf("plan:\n%s", got)
+	}
+	if err := applier.Execute(ctx, ops); err != nil {
+		t.Fatal(err)
+	}
+	reactions, _ = i.db.ListReactions(ctx, project.ID)
+	for _, entry := range reactions {
+		if entry.Name == added.Name && entry.Enabled {
+			t.Errorf("%q created switched on", entry.Name)
+		}
+	}
+}
+
+// A release automation declared switched off is created switched off.
+func TestAReleaseAutomationDeclaredOffIsCreatedOff(t *testing.T) {
+	ctx := context.Background()
+	set := read(t, configured(t).export(t))
+	off := false
+	set.Projects[0].ReleaseAutomation.Enabled = &off
+
+	fresh := emptyInstance(t)
+	applier := fresh.applier(secretValues)
+	ops, _ := planOps(t, applier, set, false)
+	if got := descriptions(ops); !strings.Contains(got, "+ release automation portal (switched off)") {
+		t.Errorf("plan:\n%s", got)
+	}
+	if err := applier.Execute(ctx, ops); err != nil {
+		t.Fatal(err)
+	}
+	project, err := fresh.db.ProjectBySlug(ctx, "portal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	automation, err := fresh.db.ReleaseAutomation(ctx, project.ID)
+	if err != nil || automation.Enabled || len(automation.Plan.Stages) == 0 {
+		t.Errorf("automation = %+v (%v), expected its plan, switched off", automation, err)
 	}
 }

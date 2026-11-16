@@ -49,6 +49,8 @@ type AutomationStore interface {
 	DeleteReaction(ctx context.Context, projectID, id int64) error
 	ReleaseAutomation(ctx context.Context, projectID int64) (store.ReleaseAutomation, error)
 	SaveReleaseAutomation(ctx context.Context, entry store.ReleaseAutomation, actor string) error
+	SetReactionEnabled(ctx context.Context, projectID, id int64, enabled bool) error
+	SetReleaseAutomationEnabled(ctx context.Context, projectID int64, enabled bool) error
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	PluginSettingsAll(ctx context.Context) (map[string]store.PluginSettings, error)
 	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)

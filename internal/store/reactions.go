@@ -173,6 +173,20 @@ func (db *DB) SaveReaction(
 	return entry.ID, nil
 }
 
+// SetReactionEnabled switches a project's reaction on or off, nothing else touched.
+func (db *DB) SetReactionEnabled(ctx context.Context, projectID, id int64, enabled bool) error {
+	tag, err := db.pool.Exec(ctx, `
+		update reactions set enabled = $3, updated_at = now()
+		where project_id = $1 and id = $2`, projectID, id, enabled)
+	if err != nil {
+		return fmt.Errorf("switching the reaction: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrReactionNotFound
+	}
+	return nil
+}
+
 // DeleteReaction removes a project's reaction.
 func (db *DB) DeleteReaction(ctx context.Context, projectID, id int64) error {
 	tag, err := db.pool.Exec(ctx,

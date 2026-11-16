@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/schedule"
 )
 
 /*
@@ -121,5 +124,85 @@ func TestThePlanCrossesAndTheSecondSaveReplaces(t *testing.T) {
 	entry, _ = db.ReleaseAutomation(ctx, testProjectID)
 	if len(entry.Plan.Stages) != 0 || entry.UpdatedBy != "other" {
 		t.Errorf("after replacement: %+v", entry)
+	}
+}
+
+// The switch is written with the row and kept by every later save of the plan: replacing a plan
+// neither switches an automation on nor off.
+func TestSavingAPlanKeepsTheSwitch(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if err := db.SetReleaseAutomationEnabled(ctx, testProjectID, false); !errors.Is(err, ErrNoAutomation) {
+		t.Fatalf("switching an undeclared automation: %v, expected ErrNoAutomation", err)
+	}
+	if _, err := db.ReleaseAutomation(ctx, testProjectID); !errors.Is(err, ErrNoAutomation) {
+		t.Fatalf("the switch created a row: %v", err)
+	}
+
+	if err := db.SaveReleaseAutomation(ctx,
+		ReleaseAutomation{ProjectID: testProjectID, Plan: buildPlan(), Enabled: false}, "vcarroy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveReleaseAutomation(ctx,
+		ReleaseAutomation{ProjectID: testProjectID, Plan: buildPlan(), Enabled: true}, "other"); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := db.ReleaseAutomation(ctx, testProjectID)
+	if err != nil || entry.Enabled {
+		t.Fatalf("after a second save: %+v (%v), expected still switched off", entry, err)
+	}
+
+	if err := db.SetReleaseAutomationEnabled(ctx, testProjectID, true); err != nil {
+		t.Fatal(err)
+	}
+	entry, _ = db.ReleaseAutomation(ctx, testProjectID)
+	if !entry.Enabled || len(entry.Plan.Stages) != 1 || entry.UpdatedBy != "other" {
+		t.Errorf("after switching on: %+v, expected the plan and its author kept", entry)
+	}
+}
+
+// A reaction and a schedule switch alone: their plan stays, a switched-off reaction is no longer
+// matched and a switched-off schedule no longer due.
+func TestReactionsAndSchedulesSwitchAlone(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	reactionID, err := db.SaveReaction(ctx, reaction.Reaction{
+		ProjectID: testProjectID, Name: "Push", EventType: "gitea.push", Enabled: true, Plan: buildPlan(),
+	}, "vcarroy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetReactionEnabled(ctx, testProjectID, reactionID, false); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := db.GetReaction(ctx, testProjectID, reactionID)
+	if err != nil || entry.Enabled || len(entry.Plan.Stages) != 1 {
+		t.Errorf("reaction = %+v (%v), expected its plan, switched off", entry, err)
+	}
+	if err := db.SetReactionEnabled(ctx, testProjectID, reactionID+1, true); !errors.Is(err, ErrReactionNotFound) {
+		t.Errorf("unknown reaction: %v", err)
+	}
+
+	past := time.Now().Add(-time.Minute)
+	scheduleID, err := db.SaveSchedule(ctx, schedule.Schedule{
+		ProjectID: testProjectID, Name: "Nightly", Cron: "0 2 * * *", Timezone: "UTC", Enabled: true,
+		Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "build"}}}}},
+	}, &past, "vcarroy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetScheduleEnabled(ctx, testProjectID, scheduleID, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if due, _ := db.DueSchedules(ctx, time.Now()); len(due) != 0 {
+		t.Errorf("a switched-off schedule is due: %+v", due)
+	}
+	if err := db.SetScheduleEnabled(ctx, testProjectID, scheduleID, true, &past); err != nil {
+		t.Fatal(err)
+	}
+	if due, _ := db.DueSchedules(ctx, time.Now()); len(due) != 1 {
+		t.Errorf("%d schedule(s) due, expected the one switched back on", len(due))
 	}
 }

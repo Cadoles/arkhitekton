@@ -250,7 +250,9 @@ func (e Exporter) project(
 	case err != nil:
 		return declared, err
 	default:
-		declared.ReleaseAutomation = &automation.Plan
+		declared.ReleaseAutomation = &configfile.ReleaseAutomation{
+			Enabled: configfile.On(automation.Enabled), Plan: automation.Plan,
+		}
 	}
 
 	reactions, err := e.Store.ListReactions(ctx, project.ID)

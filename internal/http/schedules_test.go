@@ -16,8 +16,9 @@ import (
 // scheduleStore keeps what is saved, with its next firing.
 type scheduleStore struct {
 	catalogueStore
-	saved []schedule.Schedule
-	next  []*time.Time
+	saved    []schedule.Schedule
+	switched []bool
+	next     []*time.Time
 }
 
 func (s *scheduleStore) Audit(context.Context, string, string, string, map[string]any) error {
@@ -34,6 +35,20 @@ func (s *scheduleStore) SaveSchedule(_ context.Context, entry schedule.Schedule,
 }
 
 func (s *scheduleStore) DeleteSchedule(context.Context, int64, int64) error { return nil }
+
+func (s *scheduleStore) GetSchedule(_ context.Context, projectID, id int64) (store.RecordedSchedule, error) {
+	if id != 4 {
+		return store.RecordedSchedule{}, store.ErrScheduleNotFound
+	}
+	return store.RecordedSchedule{Schedule: schedule.Schedule{
+		ID: id, ProjectID: projectID, Name: "Intégration", Cron: "0 8 * * *", Timezone: "Europe/Paris",
+	}}, nil
+}
+
+func (s *scheduleStore) SetScheduleEnabled(_ context.Context, _, _ int64, enabled bool, next *time.Time) error {
+	s.switched, s.next = append(s.switched, enabled), append(s.next, next)
+	return nil
+}
 
 func saveSchedule(t *testing.T, body string) (*scheduleStore, *httptest.ResponseRecorder) {
 	t.Helper()

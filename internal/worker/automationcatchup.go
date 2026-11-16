@@ -111,7 +111,7 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 		plan := DefaultAutomation(r.catalog, project, r.enabled(ctx, project))
 
 		if err := r.store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
-			ProjectID: project.ID, Plan: plan,
+			ProjectID: project.ID, Plan: plan, Enabled: true,
 		}, catchUpActor); err != nil {
 			// A project that could not be caught up does not stop the others: it will be seen again at
 			// the next start-up, since it still has no row.
