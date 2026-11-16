@@ -23,17 +23,18 @@ release note, promote an image — without leaving the page.
 - **Several projects per instance.** Each with its own repository, deploy key, registry,
   pipelines and permissions.
 - **Roles per project.** A user may be an operator on one project and a viewer on another.
-- **Declarative pipelines.** What a pipeline needs and produces is declared in a YAML
-  catalogue, not in Arkhitekton's code.
-- **Everything domain-specific is a plugin.** Deployment environments, GitOps promotion and
-  sign-offs come from a plugin that can be switched off per project.
+- **Pipelines from plugins.** Plugins bring the pipelines; a YAML catalogue says how this
+  instance runs them: which Secret fills a need, which account deploys, timeouts, volumes.
+- **Everything domain-specific is a plugin.** Tracker, forge, language stacks and notifications
+  are built-in plugins (Redmine, Gitea, Docker, PHP, Go, k6, Rocket.Chat). Deployment observation,
+  GitOps promotion and sign-offs come from a plugin installed at runtime, switched on per project.
 
 ## How it fits together
 
-One binary, three long-running shapes of it: `api` (replicated, serves the interface and
-the API), `worker` (single active instance, runs the loops), `migrate` (applies the
-schema, exits). State lives in PostgreSQL; logs and reports live in an S3-compatible
-store. See [docs/02 — Architecture](docs/02-architecture.md).
+One binary, two long-running roles: `api` (replicated, serves the interface and the API) and
+`worker` (single active instance, runs the loops). `migrate` applies the schema and exits;
+`config`, `reprocess` and `check-tracker` are one-off tools. State lives in PostgreSQL; logs and
+reports live in an S3-compatible store. See [docs/02, Architecture](docs/02-architecture.md).
 
 ## Requirements
 
@@ -58,33 +59,32 @@ cp deploy/overlays/mysite/secrets/dashboard.env.example \
    deploy/overlays/mysite/secrets/dashboard.env
 ```
 
-Fill in `dashboard.env` — at least the database DSN, the object store keys, the OIDC
-client, and `BOOTSTRAP_ADMINS` with the account that will hold the first administrator
-role. Adjust `PUBLIC_URL` and `TEKTON_NAMESPACE` in the overlay,
-declare your pipelines in `deploy/base/config/catalog.yaml`, then:
+Fill in `dashboard.env`: at least the database DSN, the object store keys, the OIDC client,
+`SECRETS_KEY`, and `BOOTSTRAP_ADMINS` with the account that will hold the first administrator
+role. Remove from the overlay what only serves the local kind cluster, set `PUBLIC_URL` and the
+Tekton namespace, bind your pipelines in `deploy/base/config/catalog.yaml`, point `images:` at a
+released tag of `reg.cadoles.com/vcarroy/arkhitekton`, then:
 
 ```bash
-make image
-make image-push
 kubectl apply -k deploy/overlays/mysite
 ```
 
 The migration Job runs first; the deployments wait for the schema it applies. Sign in,
 create a project, and install the deploy key Arkhitekton generates for it on your forge.
 
-Full walkthrough: [docs/03 — Installation](docs/03-installation.md). Every environment
-variable: [docs/04 — Configuration](docs/04-configuration.md).
+Full walkthrough, the overlay's local parts included: [docs/03, Installation](docs/03-installation.md).
+Every environment variable: [docs/04, Configuration](docs/04-configuration.md).
 
 ## Developing
 
 ```bash
 make help              # every available target
-make check             # what CI runs
+make check             # lint, unit tests, interface checks (a part of CI)
 make test-integration  # tests against throwaway PostgreSQL and MinIO
 make dev               # Skaffold loop on a local kind cluster
 ```
 
-See [docs/11 — Development](docs/11-development.md).
+See [docs/11, Development](docs/11-development.md).
 
 ## Documentation
 
@@ -105,7 +105,8 @@ Two boundaries are carved out of that reciprocity:
 - **Pipelines, catalogues and examples.** Pipelines and catalogues are data read by Tekton
   and Arkhitekton, not linked code: writing one creates no derivative work. The shipped
   examples (`deploy/base/pipelines/`, `internal/plugins/docker/manifests/`,
-  `deploy/base/config/catalog.yaml`, the example plugins under `rpc/examples/`) are under **Apache 2.0**, so they can be copied and adapted freely.
+  `deploy/base/config/catalog.yaml`, the example plugins under `rpc/examples/`) are under
+  **Apache 2.0**, so they can be copied and adapted freely.
 
 The reasoning is in [docs/12, Licensing](docs/12-licensing.md).
 

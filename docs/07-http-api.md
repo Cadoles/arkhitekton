@@ -5,14 +5,16 @@
 **Base path.** Application routes are served under `/api/v1`. Everything else is the web
 interface. `/healthz` and `/readyz` sit outside the prefix.
 
-**Content type.** JSON in, JSON out. Errors are `application/problem+json` (RFC 7807):
+**Content type.** JSON in, JSON out. Errors are `application/problem+json` (RFC 9457), with a
+`title`, a `status` and a `detail`:
 
 ```json
-{ "title": "Unknown run kind", "status": 400, "detail": "unit-test" }
+{ "title": "Unknown kind", "status": 400, "detail": "unit-test" }
 ```
 
-Titles and details are human-readable English strings — the interface displays them as
-they arrive.
+Titles and details are human-readable English strings: the interface displays them as they
+arrive. `401` means no session or an expired one; `403`, no role granted, a missing permission or
+a missing CSRF token.
 
 **Authentication.** OIDC authorization code flow. A session cookie (`mstore_session`,
 HttpOnly, SameSite=Lax) carries the session; a second cookie (`mstore_csrf`) carries a token
@@ -27,9 +29,16 @@ navigation, not a cross-site request issued by a script, which is what the token
 
 Permissions and roles are described in [09 — Security](09-security.md).
 
-**Streaming.** Routes ending in `/events` or `/stream` are Server-Sent Events. They are
-exempt from `HTTP_WRITE_TIMEOUT`: each write has 30 seconds of its own, which lets a client that
-stopped reading go, and a comment every 20 seconds keeps an idle stream open.
+**Lists.** There is no cursor. Lists take an optional `limit` (`/runs` and `/admin/audit`
+default to 100), a log is read by `offset` and `length`, a group's test cases by `offset` and
+`q`. `?download=1` serves a log or an attachment as a file.
+
+**Streaming.** `GET /runs/events` (event `run`) and `GET /runs/{run}/tasks/{task}/log/stream`
+(events `log` and `sealed`, the id being the byte offset) are Server-Sent Events, resumed from
+`Last-Event-ID`; a failure ends the stream with an `error` event. They are exempt from
+`HTTP_WRITE_TIMEOUT`: each write has 30 seconds of its own, which lets a client that stopped
+reading go, and a comment every 20 seconds keeps an idle stream open. `GET
+/projects/{project}/events` is a plain JSON list.
 
 ## 7.2 Session
 
@@ -38,7 +47,7 @@ stopped reading go, and a comment every 20 seconds keeps an idle stream open.
 | `GET /auth/login` | public | Starts the OIDC flow |
 | `GET /auth/callback` | public | Completes it, creates the session |
 | `POST /auth/logout` | CSRF | Revokes the session |
-| `GET /me` | authenticated | Identity, instance role, per-project roles |
+| `GET /me` | authenticated | Identity and instance role, the projects (slug, label, modules switched on), the active modules and the plugins' interfaces |
 | `GET /ui?project={slug}` | authenticated | The screens, menus and widgets of the core and of the plugins switched on for the project, filtered for the caller's role (doc 06 §6.14); `ETag`, answers 304 to `If-None-Match` |
 
 ## 7.3 Runs and logs
@@ -179,7 +188,7 @@ role, for the reason a reaction's does not: it aims at no release.
 | `GET /admin/roles` · `POST /admin/roles` · `DELETE /admin/roles/{subject}` | `admin` |
 | `GET /admin/audit` | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
-| `GET /admin/capabilities` · `PUT`/`DELETE /admin/capabilities/{plugin}/{name}/binding` | `admin` |
+| `GET /admin/capabilities` · `PUT /admin/capabilities/{plugin}/{name}/binding` (an entry of doc 05 §5.2, YAML or JSON; `400` when invalid or naming a service account, `404` for an unknown capability, `409` when the catalogue file binds it) · `DELETE …/binding` | `admin` |
 | `GET /admin/plugins/installations` (the installations, and under `plugins` each plugin's source: repository, pinned, latest version found, `update_available`, `major`) · `POST /admin/plugins/installations` (`{"reference": "registry/repository"}`, followed, or with a tag or `@sha256:…`, pinned; queues the job, `202`; `409` when a plugin is installed from that repository, unless `"mode"` is `"install"`, beside it, or `"update"`, in its place) | `admin` |
 | `POST /admin/plugins/{plugin}/update` (installs the newer version found in place of the active one, `202`; `409` when the plugin is pinned or up to date) · `POST /admin/plugins/{plugin}/check` (checks its repository within seconds, `202`) · `PUT /admin/plugins/{plugin}/source` (`{"pinned": true\|false}`) | `admin` |
 | `POST /admin/plugins/installations/{id}/activate` (`409` when the capabilities would not build with it) | `admin` |
@@ -202,7 +211,8 @@ An installed plugin's program serves the routes its manifest declares (doc 06 §
 | `GET /plugin-interfaces/{plugin}/{version}/…` | signed in: the active version's interface files, cached for good |
 
 `503` says the program is restarting, `504` that it did not answer in 30 seconds, `502` that it
-failed; its error is logged, never returned. The plugin documents its routes.
+failed; its error is logged, never returned. `403` names the missing permission, `413` refuses a
+body above 4 MiB. The plugin documents its routes.
 
 ## 7.11 Outside the API prefix
 

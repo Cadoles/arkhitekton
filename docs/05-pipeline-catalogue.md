@@ -17,23 +17,27 @@ misbehaving in production.
 ## 5.1 Top level
 
 ```yaml
-maxConcurrentRuns: 10        # instance-wide ceiling on running pipelines
+maxConcurrentRuns: 10        # instance-wide ceiling on running pipelines; default 10, at least 1
 capabilities: []             # see 5.2
 projects: {}                 # see 5.5
-score: {}                    # optional weights, per kind, for the release score
-podTemplate: {}              # optional defaults applied to every pipeline pod
+podTemplate: {}              # optional, the pull secrets of every pipeline pod
 ```
 
 There is no other way to declare a pipeline: a pipeline enters the dashboard only through a
-plugin.
+plugin. A catalogue that binds no available capability stops start-up. The former `score:` key is
+refused: a plan step's `weight` sets the release score.
+
+`podTemplate` is `{ imagePullSecrets: [name] }` or `{ imagePullSecretsConfigKey:
+pipeline.imagePullSecret }`. An entry's own `podTemplate` replaces it entirely, with no merge; a
+config key that resolves to nothing fails the run when it is created.
 
 ## 5.2 Binding a capability
 
 ```yaml
 - ref: php/unit-tests       # plugin/capability
   verification: true         # (optional) overrides the capability's default
-  maxConcurrent: 1           # (optional) overrides the capability's default ceiling
-  timeout: 45m               # (optional)
+  maxConcurrent: 1           # (optional) default 1 for an exclusive capability, 5 otherwise
+  timeout: 45m               # (optional) a Go duration, Tekton's default when absent; an invalid one fails the run, not start-up
   params: {}                 # see 5.3
   needs: {}                  # see 5.4
   volumes: {}                # see 5.4
@@ -54,10 +58,11 @@ binds what only it can bind, a service account, before the plugin is installed. 
 a capability its plugin does not bring, or a parameter, a need or a volume the capability does
 not declare, stops start-up.
 
-**Bindings recorded from the screen.** An administrator binds, from Administration, Capacités,
-what the file does not: the capabilities of a plugin installed from a registry first (§6.12).
-A recorded binding has the shape of an entry above, without `serviceAccountName` and without
-`podTemplate`: a capability that needs `cluster-deploy` is bound by the file only. **The file
+**Bindings recorded from the screen.** An administrator binds, from the Administration screen's
+capabilities tab (*Capacités*), what the file does not: the capabilities of a plugin installed
+from a registry first (doc 06 §6.12). A recorded binding has the shape of an entry above, but a
+`serviceAccountName` under a need is refused: a capability that needs `cluster-deploy` is bound
+by the file only. **The file
 wins**: a capability it binds is shown read-only, and its recorded binding, if any, ignored. A
 recorded binding that no longer holds does not stop start-up: the dashboard starts on the file
 alone, says so, and keeps trying.
@@ -85,9 +90,12 @@ params:
 ```
 
 An `input` carries form metadata (`label`, `help`, `placeholder`) and a `suggest` that names
-the *nature* of the value so the launch form can offer a list: `git-ref`, `image`, … With
-`suggest: image`, `image` names the short repository the parameter expects. `suggest` is also
-what lets an automation fill a parameter with nobody typing. It never constrains execution.
+the *nature* of the value so the launch form can offer a list: one of `git-ref`, `release-tag`,
+`environment`, `image`, `image-name`, `build-target`. With `suggest: image`, the `image` field
+names the short repository the parameter expects; no other parameter takes that field, and a
+`binding` parameter takes no `suggest`. `suggest` is also what lets an automation fill a
+parameter with nobody typing: in a release, a `git-ref` or `release-tag` parameter is filled by
+the run and a step cannot change it, and an `image` one is filled only when the step names none.
 
 **Config keys** available to `binding` parameters:
 
@@ -101,10 +109,13 @@ what lets an automation fill a parameter with nobody typing. It never constrains
 | `pipeline.registrySecret` | Name of the secret holding registry credentials |
 | `pipeline.imagePullSecret` | Name of the pull secret |
 | `minio.host`, `minio.pipelineBucket` | Object store as pipelines reach it |
-| `forge.status` | Forge base URL used to report commit status |
+| `forge.tekton.repoUrl` | Repository a pipeline clones its rules from (`FORGE_TEKTON_REPO_URL`) |
+| `tekton.namespace` | Namespace the PipelineRuns are created in |
 
-An installed plugin adds its own keys, resolved per project, and documents them. A required parameter that nothing resolves makes the enqueue fail,
-naming the key, rather than starting a run that would act somewhere else.
+An installed plugin adds its own keys, resolved per project, and documents them. A `binding`
+parameter whose key is absent, or empty when the parameter is required, fails the run when the
+scheduler creates it, naming the key, rather than starting a run that would act somewhere else.
+One bound to no key at all makes the capability unavailable.
 
 ## 5.4 Needs, volumes, config maps and uploads
 
@@ -133,8 +144,9 @@ key does not run it; a pipeline cloning another repository binds `pipeline.gitSe
 does a Go pipeline whose module requires private modules of the forge: a deploy key opens one
 repository, and `go mod download` fetches several (§6.2). Only
 `cluster-deploy` accepts a service account: it is the one need that is a cluster identity.
-Volumes are per-run claims; the capability gives their default size, the catalogue their storage
-class and, if needed, another size.
+Volumes are per-run claims: the capability gives their default size, the catalogue their
+`storageClassName`, and optionally another `storage` and `accessModes` (default
+`ReadWriteOnce`).
 
 Leaving a need unbound has two outcomes, and the difference is the workspace. `cluster-deploy`
 carries none: the capability stays known, a plan may name it, and its runs are refused with the
@@ -180,15 +192,17 @@ projects:
 ```
 
 Ids and ranks must be unique **within a project**: two projects may each have a `staging`
-of rank 1. A project absent from this section simply declares no environment.
+of rank 1. An omitted `rank` is 0, so give every environment one. Absent, `observable`,
+`visible` and `sensitive` are true; `deployer` maps strings to strings. A project absent from
+this section simply declares no environment.
 
 ## 5.6 How a run is read
 
 A run is read once it is over, every task included, by the **interpreter** of the capability
 that launched it. The dashboard fetches the artifacts the capability declares, parses each file
 with the parser the capability names (JUnit XML, mochawesome JSON, PHPStan or PHP-CS-Fixer JSON,
-`go test -json`, a k6 summary, the security report, or `raw` for a format the plugin parses
-itself), and hands the
+`go test -json`, a k6 summary, the security report, `attach` for a file kept as it is, or `raw`
+for a format the plugin parses itself), and hands the
 records to the interpreter together with the run's state as Tekton reported it: each task's
 status and reason, each step's exit code.
 

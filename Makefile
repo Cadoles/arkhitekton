@@ -169,10 +169,10 @@ vuln: ## Looks for vulnerabilities in the dependencies
 	# exception that has become useless makes the check fail.
 	./scripts/vulncheck.sh $(GO_PKGS)
 
-# A single target reproducing what CI checks: a developer must be able to observe locally the
-# failure they would get in integration. The promise holds only if none of the targets called
-# modifies the working tree.
-check: lint test web-check ## What CI checks
+# The quick checks CI also runs, needing neither a database nor Docker; the integration tests,
+# vuln, manifests and the image are CI's other jobs (docs/11-development.md). None of the targets
+# called modifies the working tree.
+check: lint test web-check ## Lint, unit tests and interface checks (a part of CI)
 
 clean: ## Removes the build artefacts
 	rm -rf bin/ dist/
