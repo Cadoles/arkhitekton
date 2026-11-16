@@ -2,6 +2,7 @@ package configure
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,7 +77,11 @@ func (a Applier) Plan(ctx context.Context, desired configfile.Set, prune bool) (
 
 	p := &planner{applier: a, prune: prune, checks: checks}
 	if desired.Instance != nil {
-		p.instance(*desired.Instance, current.Set.Instance)
+		recorded, err := a.Store.PluginSettingsAll(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		p.instance(*desired.Instance, current.Set.Instance, recorded)
 	}
 	for _, project := range desired.Projects {
 		existing, _ := current.Set.Project(project.Name)
@@ -137,7 +142,7 @@ func (p *planner) fail(format string, args ...any) {
  * The instance.
  */
 
-func (p *planner) instance(desired configfile.Instance, current *configfile.Instance) {
+func (p *planner) instance(desired configfile.Instance, current *configfile.Instance, recorded map[string]store.PluginSettings) {
 	if current == nil {
 		current = &configfile.Instance{}
 	}
@@ -165,7 +170,7 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 		// from the current configuration means on.
 		existing := current.Plugins[id]
 		input, changed, ok := p.pluginInput(id, plugin.ScopeGlobal, "instance", entry.Enabled, entry.Config,
-			existing.Config, configfile.IsOn(existing.Enabled) != configfile.IsOn(entry.Enabled))
+			existing.Config, recorded[id].Config, configfile.IsOn(existing.Enabled) != configfile.IsOn(entry.Enabled))
 		if !ok || !changed {
 			continue
 		}
@@ -230,12 +235,13 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 
 // pluginInput builds what the plugins' service writes, and says whether it changes anything.
 //
-// A sensitive field must be a reference. Resolved, it is written (it cannot be compared with the
-// sealed value without opening it). Unresolved, the value in place is kept; with none in place, it
-// is refused. A sensitive field the file no longer names is cleared.
+// A sensitive field must be a reference. Resolved, it is written when it differs from the value in
+// place, which is opened to be compared; unresolved, the value in place is kept; with none in place,
+// it is refused. A sensitive field the file no longer names is cleared. sealed is the configuration
+// as recorded, its sensitive fields sealed.
 func (p *planner) pluginInput(
 	id string, scope plugin.Scope, where string, enabled *bool,
-	desired, current map[string]configfile.Value, switched bool,
+	desired, current map[string]configfile.Value, sealed map[string]string, switched bool,
 ) (PluginInput, bool, bool) {
 	registry := capabilities.Of(p.applier.Registry)
 	descriptor, err := registry.Plugin(id)
@@ -269,7 +275,9 @@ func (p *planner) pluginInput(
 			p.fail("%s: plugin %s: %s: %v", where, id, name, err)
 		case found:
 			input.Config[name] = resolved
-			changed = true
+			if !p.holds(sealed[name], resolved) {
+				changed = true
+			}
 		default:
 			if _, set := current[name]; !set {
 				p.fail("%s: plugin %s: %s: %s is not set and no value is recorded", where, id, name, describeRef(value))
@@ -289,6 +297,18 @@ func (p *planner) pluginInput(
 	}
 	slices.Sort(input.ClearedSecrets)
 	return input, changed, true
+}
+
+// holds says whether a sealed value already holds this one, under the current key. Anything that
+// stops the comparison (no key, an envelope that does not open, a retired key) counts as a change:
+// writing again is always safe, and reseals under the current key.
+func (p *planner) holds(sealed, value string) bool {
+	cipher := p.applier.Services.Plugins.Cipher
+	if sealed == "" || !cipher.Configured() || cipher.NeedsResealing(sealed) {
+		return false
+	}
+	opened, err := cipher.Open(sealed)
+	return err == nil && subtle.ConstantTimeCompare([]byte(opened), []byte(value)) == 1
 }
 
 func (p *planner) resolve(value configfile.Value) (string, bool, error) {
@@ -359,12 +379,23 @@ func (p *planner) project(ctx context.Context, desired configfile.Project, curre
 		}
 	}
 
+	var sealed map[string]store.PluginSettings
+	if exists && len(desired.Plugins) > 0 {
+		p.load(ctx, func(ctx context.Context) error {
+			project, err := find(ctx)
+			if err != nil {
+				return err
+			}
+			sealed, err = p.applier.Store.ProjectPluginSettings(ctx, project.ID)
+			return err
+		})
+	}
 	for _, id := range sortedKeys(desired.Plugins) {
 		entry := desired.Plugins[id]
 		existing, recorded := current.Plugins[id]
 		where := "project " + slug
 		input, changed, ok := p.pluginInput(id, plugin.ScopeProject, where, entry.Enabled, entry.Config,
-			existing.Config, !recorded || configfile.IsOn(existing.Enabled) != configfile.IsOn(entry.Enabled))
+			existing.Config, sealed[id].Config, !recorded || configfile.IsOn(existing.Enabled) != configfile.IsOn(entry.Enabled))
 		if !ok || !changed {
 			continue
 		}

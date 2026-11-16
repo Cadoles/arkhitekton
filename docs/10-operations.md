@@ -239,7 +239,8 @@ applied from the interface.
 
 **Sensitive settings are references, never values.** `{env: NAME}` reads the worker's
 environment, `{file: PATH}` a file mounted in its pod. A resolved reference is sealed like a value
-typed into the interface. An unresolved one keeps the value already recorded, so that applying an
+typed into the interface, and written only when it differs from the value in place, which the
+worker opens to compare: a diff whose variables are set still says when there is nothing to do. An unresolved one keeps the value already recorded, so that applying an
 export changes nothing; with no value recorded either, it is refused. A sensitive value can
 therefore also be typed once in the interface, then kept by every apply. The export names each
 sensitive setting `ARK_<PLUGIN>_<FIELD>`, or `ARK_<PROJECT>_<PLUGIN>_<FIELD>` for a project, and

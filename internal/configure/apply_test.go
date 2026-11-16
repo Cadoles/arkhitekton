@@ -324,3 +324,33 @@ func TestAReleaseAutomationDeclaredOffIsCreatedOff(t *testing.T) {
 		t.Errorf("automation = %+v (%v), expected its plan, switched off", automation, err)
 	}
 }
+
+// A resolved sensitive value is compared with the one sealed in place: the same value writes
+// nothing, so that a diff can say there is nothing to do; another value is written.
+func TestAResolvedSecretIsWrittenOnlyWhenItChanged(t *testing.T) {
+	exported := configured(t).export(t)
+	fresh := emptyInstance(t)
+	apply(t, fresh.applier(secretValues), read(t, exported), false)
+
+	if ops, _ := planOps(t, fresh.applier(secretValues), read(t, exported), false); len(ops) != 0 {
+		t.Errorf("the same values write:\n%s", descriptions(ops))
+	}
+
+	changed := map[string]string{}
+	for name, value := range secretValues {
+		changed[name] = value
+	}
+	changed["ARK_GITEA_TOKEN"] = "a-rotated-token"
+	applier := fresh.applier(changed)
+	ops, _ := planOps(t, applier, read(t, exported), false)
+	if got := descriptions(ops); got != "~ plugin gitea" {
+		t.Fatalf("plan:\n%s\nwant the token's plugin alone", got)
+	}
+	if err := applier.Execute(context.Background(), ops); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := fresh.db.PluginSettingsAll(context.Background())
+	if opened, err := fresh.cipher.Open(settings["gitea"].Config["token"]); err != nil || opened != "a-rotated-token" {
+		t.Errorf("token = %q (%v), want the new value, sealed", opened, err)
+	}
+}
