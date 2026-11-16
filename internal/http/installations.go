@@ -76,8 +76,9 @@ func NewInstallationsHandler(
 
 // Routes are administration routes.
 func (h *InstallationsHandler) Routes(mux *http.ServeMux, m *Middleware) {
+	// The CSRF check lets the safe methods through.
 	admin := func(handler http.HandlerFunc) http.Handler {
-		return Chain(handler, m.Authenticate, m.Require(auth.PermAdmin))
+		return Chain(handler, m.Authenticate, m.Require(auth.PermAdmin), m.CSRF)
 	}
 	mux.Handle("GET /admin/plugins/installations", admin(h.List))
 	mux.Handle("POST /admin/plugins/installations", admin(h.Request))

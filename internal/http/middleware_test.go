@@ -318,3 +318,35 @@ func TestRequireInRefusesWithoutProjectResolution(t *testing.T) {
 		t.Error("a check with no project resolution must never grant")
 	}
 }
+
+// Every administration write of the plugins and their bindings checks the CSRF token, through the
+// routes the server mounts: their handlers are tested apart, which is how a route came to miss it.
+func TestPluginAdministrationWritesCheckTheCSRFToken(t *testing.T) {
+	m := testMiddleware(&stubSessions{lookup: auth.Session{Subject: "sub", Username: "admin"}, lookupRole: auth.RoleAdmin})
+	mux := http.NewServeMux()
+	(&CapabilitiesHandler{}).Routes(mux, m)
+	(&InstallationsHandler{}).Routes(mux, m)
+
+	for _, route := range []string{
+		"PUT /admin/capabilities/go/build/binding",
+		"DELETE /admin/capabilities/go/build/binding",
+		"POST /admin/plugins/installations",
+		"POST /admin/plugins/installations/1/activate",
+		"POST /admin/plugins/installations/1/accept",
+		"DELETE /admin/plugins/installations/1",
+		"POST /admin/plugins/mstore/update",
+		"POST /admin/plugins/mstore/check",
+		"PUT /admin/plugins/mstore/source",
+		"POST /admin/plugins/leftovers/mstore/purge",
+	} {
+		method, path, _ := strings.Cut(route, " ")
+		req := httptest.NewRequest(method, path, strings.NewReader("{}"))
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "CSRF") {
+			t.Errorf("%s: %d %s, expected the CSRF refusal", route, rec.Code, strings.TrimSpace(rec.Body.String()))
+		}
+	}
+}
