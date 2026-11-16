@@ -61,9 +61,9 @@ func NewCapabilitiesHandler(
 func (h *CapabilitiesHandler) Routes(mux *http.ServeMux, m *Middleware) {
 	mux.Handle("GET /admin/capabilities", Chain(http.HandlerFunc(h.List), m.Authenticate, m.Require(auth.PermAdmin)))
 	mux.Handle("PUT /admin/capabilities/{plugin}/{name}/binding", Chain(http.HandlerFunc(h.Bind),
-		m.Authenticate, m.Require(auth.PermAdmin)))
+		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
 	mux.Handle("DELETE /admin/capabilities/{plugin}/{name}/binding", Chain(http.HandlerFunc(h.Unbind),
-		m.Authenticate, m.Require(auth.PermAdmin)))
+		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
 }
 
 type needView struct {
