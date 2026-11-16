@@ -83,7 +83,7 @@ pool only needs to grow if requests wait for a connection.
 | `PIPELINE_IMAGE_PULL_SECRET` | `regcred` | | Pull secret of the pipelines' tooling images. Must exist in `TEKTON_NAMESPACE` |
 | `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty. Today, `mstore/integration-tests` and `mstore/security-audit`, from the Mstore plugin; the other pipelines publish through the dashboard and need neither variable |
 | `PIPELINE_MINIO_BUCKET` | — | | Bucket those pipelines write to (`minio.pipelineBucket`), likewise. It is not `MINIO_BUCKET`: the dashboard neither reads nor purges it, and its retention is the store's lifecycle rules |
-| `FORGE_TEKTON_REPO_URL` | — | | Repository the security audit clones its rules from (`forge.tekton.repoUrl`), likewise |
+| `FORGE_TEKTON_REPO_URL` | — | | Repository of the pipelines' definitions (`forge.tekton.repoUrl`). When set, a fresh instance seeds a project for it, with no image; no shipped pipeline reads it |
 | `FORGE_SSH_PORT` | `2222` | | SSH port used to build a project's clone URL. It cannot be derived from an HTTPS forge URL |
 
 ## 4.6 Issue tracker (Redmine)
