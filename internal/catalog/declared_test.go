@@ -11,7 +11,6 @@ func parseDeclared(content []byte) (*Catalog, error) {
 	var source struct {
 		Pipelines         []Pipeline                    `json:"pipelines"`
 		Projects          map[string]ProjectDeclaration `json:"projects,omitempty"`
-		Score             map[string]float64            `json:"score,omitempty"`
 		MaxConcurrentRuns int                           `json:"maxConcurrentRuns"`
 		PodTemplate       *PodTemplate                  `json:"podTemplate,omitempty"`
 	}
@@ -19,7 +18,7 @@ func parseDeclared(content []byte) (*Catalog, error) {
 		return nil, err
 	}
 	declared := &Catalog{
-		Pipelines: source.Pipelines, Projects: source.Projects, Score: source.Score,
+		Pipelines: source.Pipelines, Projects: source.Projects,
 		MaxConcurrentRuns: source.MaxConcurrentRuns, PodTemplate: source.PodTemplate,
 	}
 	if declared.MaxConcurrentRuns == 0 {

@@ -359,8 +359,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Dossier: releasesHandler.Dossier,
 	})
 
-	// The score's weighting comes from the catalogue: it was accepted by the client and stays
-	// adjustable without a redeployment. Releases' results and pull requests' alike.
+	// Releases' results and pull requests' alike; the score's weighting comes from the plan's steps.
 	testsHandler := dashhttp.NewTestsHandler(db, inForce.Catalogs()).WithAttachments(storage).WithPullRequests(db)
 
 	mounts := []dashhttp.Mount{
