@@ -475,7 +475,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		return err
 	}
 	if corrected > 0 {
-		logger.Info("version names renormalised", "corrigees", corrected)
+		logger.Info("version names renormalised", "corrected", corrected)
 	}
 
 	storage, err := blob.Open(ctx, cfg.Storage)
