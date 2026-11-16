@@ -144,13 +144,16 @@ score is computed by family: no release plan weighs a request's steps.
 | `POST /projects/{project}/reactions` | `admin` |
 | `PUT /projects/{project}/reactions/{reaction}` | `admin` |
 | `DELETE /projects/{project}/reactions/{reaction}` | `admin` |
+| `PUT /projects/{project}/reactions/{reaction}/enabled` | `admin` |
 | `GET /projects/{project}/automation` | `admin` |
 | `PUT /projects/{project}/automation` | `admin` |
+| `PUT /projects/{project}/automation/enabled` | `admin` |
 | `GET /admin/automations/catalogue` | `admin` |
 | `GET /projects/{project}/schedules` | `admin` |
 | `POST /projects/{project}/schedules` | `admin` |
 | `PUT /projects/{project}/schedules/{schedule}` | `admin` |
 | `DELETE /projects/{project}/schedules/{schedule}` | `admin` |
+| `PUT /projects/{project}/schedules/{schedule}/enabled` | `admin` |
 | `POST /hooks/{plugin}/projects/{project}` | none: the delivery's signature, see below |
 
 **Receiving a webhook.** The one route that changes something without a session. The plugin
@@ -161,6 +164,18 @@ once the facts are recorded, including when the delivery is about nothing the pl
 is never accepted; `404` for an unknown plugin or project, or a plugin switched off for the
 project; `413` above 4 MiB; `422` with the plugin's reason when it cannot read an authenticated
 delivery. A delivery launches nothing itself: the reactions of the project do.
+
+**A release's automation** reads as `{plan, declared, enabled, updated_by}`. `declared` is false
+while no automation was ever recorded: the worker's catch-up will compose one from the project's
+targets. Switched off (`enabled: false`), it keeps its plan and a declared release launches no
+pipeline. `PUT /automation` replaces the plan and leaves the switch where it is.
+
+**Switching an automation** takes `{"enabled": true|false}` on the `…/enabled` routes; a body
+without the key is a `400`. Only the switch is written, without validating the plan again, so a
+reaction whose fact is no longer produced can still be switched off. `404` for an unknown reaction
+or schedule, `409` for a release automation never declared: recording one to switch it would stop
+the catch-up. A schedule switched on gets its next firing from now, returned as `next_fire_at`.
+Each switch is audited as `reaction.enable`, `schedule.disable`, `automation.enable` and so on.
 
 **A schedule** is `{name, cron, timezone, ref, enabled, plan}`: five cron fields (`*`, values,
 ranges, lists, steps, English month and day abbreviations, `@daily` and its siblings) read in an

@@ -212,7 +212,20 @@ default to on. Unknown keys are refused, with the path of the mistake.
 
 **What is declared is imposed in full; what is not declared is left alone.** A field omitted takes
 its default, as at creation from the interface; a setting omitted from a plugin's `config` is
-removed. `--prune` also removes, for the declared projects and the instance, the reactions,
+removed.
+
+**An automation's switch is the exception: the file sets it at creation only.** The `enabled` of a
+reaction, a schedule or `releaseAutomation` applies when the automation is created; afterwards it
+belongs to the interface, and no apply switches back on what someone switched off, nor the
+reverse. A configuration can thus deliver its automations switched off, for a team to switch on
+when it is ready. The plan of `config apply` marks such a creation `(switched off)`, and an export
+writes the current state.
+
+```yaml
+  releaseAutomation:
+    enabled: false              # created switched off: a declared release launches nothing
+    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
+``` `--prune` also removes, for the declared projects and the instance, the reactions,
 schedules, project plugin settings, pipeline switches, status mappings, queue limits and bindings
 the files no longer declare. It never removes a project nor uninstalls a plugin. Reactions and
 schedules are matched by name: a rename is a removal and a creation, and the run history of the

@@ -108,7 +108,7 @@ that group.
 | `events` | `type`, `source`, `project_id`, `subject`, `payload`, `occurred_at`, `depth`, `dedup_key`, `dispatch_pending` |
 | `reactions` | `name`, `event_type`, `enabled`, `match`, `plan` |
 | `schedules` | `name`, `cron`, `timezone`, `ref`, `enabled`, `plan`, `next_fire_at`, `last_fired_at`, `last_outcome` |
-| `release_automations` | The plan a project runs for a release, per project |
+| `release_automations` | The plan a project runs for a release, per project, and its `enabled` switch |
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
 | `plan_steps` | `stage`, `position`, `kind`, `ref`, `state`, `job_id`, `detail` |
 | `plan_artifacts` | What a step produced: `name`, `kind`, `reference` |
