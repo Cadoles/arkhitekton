@@ -9,7 +9,7 @@ const projects = [
 describe('setProjects', () => {
   afterEach(() => {
     window.history.replaceState(null, '', '/')
-    window.localStorage.clear()
+    window.localStorage?.clear()
   })
 
   it("retient le projet qu'un lien nomme", () => {
