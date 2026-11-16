@@ -41,8 +41,19 @@ func LeaderIdentity() string {
 	return "unknown"
 }
 
-// RunAsLeader acquires the Lease then runs `work`. The context passed to `work` is cancelled
-// as soon as the lease is lost.
+// standAgainAfter is the pause between a leadership term that ended and the next candidacy: the
+// loops of the term that ended see their context cancelled and stop in the meantime, and a loop
+// that keeps failing restarts at this pace rather than in a tight cycle.
+var standAgainAfter = 5 * time.Second
+
+// RunAsLeader stands for the Lease, runs `work` while it holds it, and stands again when a term
+// ends, until ctx is cancelled. The context passed to `work` is cancelled as soon as the lease is
+// lost.
+//
+// A term ends in two ways. The lease is lost: the loops stop, the process stays a candidate, and a
+// lease lost during a network switch costs a second of unavailability rather than a crash loop.
+// `work` returns: a dead loop gives the lease up rather than let the others run half-way, and the
+// loops restart at the next term, here or in another worker.
 //
 // The durations follow the values client-go recommends, with a deliberately wide ratio
 // between the lease and the renewal period: a busy worker — log collection saturates its
@@ -56,15 +67,39 @@ func RunAsLeader(
 	logger *slog.Logger,
 	work func(context.Context) error,
 ) error {
+	for {
+		if err := runTerm(ctx, kube, cfg, logger, work); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(standAgainAfter):
+		}
+	}
+}
+
+// runTerm stands once for the lease and returns when the term ends, once `work` has returned.
+func runTerm(
+	ctx context.Context,
+	kube kubernetes.Interface,
+	cfg LeaderConfig,
+	logger *slog.Logger,
+	work func(context.Context) error,
+) error {
+	termCtx, endTerm := context.WithCancel(ctx)
+	defer endTerm()
+
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta:  metav1.ObjectMeta{Name: LeaseName, Namespace: cfg.Namespace},
 		Client:     kube.CoordinationV1(),
 		LockConfig: resourcelock.ResourceLockConfig{Identity: cfg.Identity},
 	}
 
-	// workErr is set by the work goroutine and read after the election ends:
-	// `leaderelection.Run` returns no error.
-	var workErr error
+	// Closed when `work` starts, and when it returns: standing again before would run two copies of
+	// the loops.
+	workStarted := make(chan struct{})
+	workDone := make(chan struct{})
 
 	elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
 		Lock:            lock,
@@ -74,16 +109,16 @@ func RunAsLeader(
 		ReleaseOnCancel: true,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadingCtx context.Context) {
+				close(workStarted)
+				defer close(workDone)
 				logger.Info("lease acquired", "identity", cfg.Identity, "lease", LeaseName)
-				if err := work(leadingCtx); err != nil {
-					workErr = err
-					logger.Error("background loops interrupted", "error", err)
+				if err := work(leadingCtx); err != nil && leadingCtx.Err() == nil {
+					logger.Error("background loops interrupted, giving the lease up", "error", err)
 				}
+				// Ending the term releases the lease: ReleaseOnCancel.
+				endTerm()
 			},
 			OnStoppedLeading: func() {
-				// Neither panic nor restart: the process stays a candidate. A lease lost during a network
-				// switch is a normal incident, and exiting with an error would turn a second of unavailability
-				// into a crash loop.
 				logger.Warn("lease lost", "identity", cfg.Identity)
 			},
 			OnNewLeader: func(identity string) {
@@ -98,6 +133,17 @@ func RunAsLeader(
 		return fmt.Errorf("leader election: %w", err)
 	}
 
-	elector.Run(ctx)
-	return workErr
+	elector.Run(termCtx)
+	// Run gives up a candidacy only when ctx ends: otherwise it returns after a term, whose work was
+	// started and is stopping, its context cancelled.
+	if ctx.Err() == nil {
+		<-workDone
+		return nil
+	}
+	select {
+	case <-workStarted:
+		<-workDone
+	default:
+	}
+	return nil
 }
