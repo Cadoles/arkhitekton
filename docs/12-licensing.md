@@ -18,29 +18,29 @@ commons and a starting point for private forks.
 
 ## 12.2 Plugins, and why an exception was needed
 
-A plugin is not a neighbouring process. It is a Go package **compiled into the binary**:
-the registry is filled at compile time, and the core only ever sees descriptors. That
-boundary is real for the architecture, and says nothing to copyright law — the link is
+A built-in plugin is not a neighbouring process. It is a Go package **compiled into the
+binary**: the registry is filled at compile time, and the core only ever sees its declarations.
+That boundary is real for the architecture, and says nothing to copyright law: the link is
 static, so it is one program.
 
-Under the bare AGPL a third-party plugin would be covered by the AGPL, and its author
-would have no choice of licence. **No architectural decision changes that while the link
-is made at compile time.** Only two routes open it: an explicit exception, or
-out-of-process plugins (gRPC, WASM, an invoked executable). The first is what
-`LICENSE.plugin-exception` grants; the second remains possible later without invalidating
-anything.
+Under the bare AGPL a third-party plugin compiled in would be covered by the AGPL, and its
+author would have no choice of licence. **No architectural decision changes that while the link
+is made at compile time.** Only two routes open it: an explicit exception, or out-of-process
+plugins. Arkhitekton takes both: `LICENSE.plugin-exception` covers compiled plugins, and
+installed plugins run as separate programs over gRPC (§12.4).
 
 ## 12.3 What the exception does
 
 It grants an additional permission under **section 7** of the AGPL. It defines a *plugin
-interface* — the designated Go API, the HTTP API, and the declarative formats the program
-reads — and allows a work that uses only that interface to be published under any licence
-its author chooses, and the combined work to be conveyed **or made available over a
-network** on those terms.
+interface* (the designated Go API, the HTTP API, the declarative formats the program reads, and
+the interface through which it runs a plugin's program and loads its interface script) and
+allows a work that uses only that interface to be published under any licence its author
+chooses, and the combined work to be conveyed **or made available over a network** on those
+terms.
 
 That last clause is not decorative. Without it the exception would be useless here: a
 closed plugin could be distributed freely and still be caught by section 13 as soon as an
-instance served it — which is the only way the product is ever used.
+instance served it, which is the only way the product is ever used.
 
 Three deliberate limits:
 
@@ -54,8 +54,8 @@ Three deliberate limits:
 The plugin API is the `sdk` module (`forge.cadoles.com/vcarroy/arkhitekton/sdk`), kept in this
 repository but outside `internal/`, with its own `go.mod` and a version, `sdk.APIVersion`, that
 every plugin declares and the dashboard checks. It imports only the standard library, and the
-plugins shipped with the dashboard import nothing else of it (`internal/capabilities`
-`boundary_test.go`). `LICENSE.plugin-exception` names that module.
+plugins shipped with the dashboard import nothing of the dashboard but it
+(`internal/capabilities` `boundary_test.go`). `LICENSE.plugin-exception` names that module.
 
 A plugin is compiled into the binary, which is precisely what the exception makes possible, or
 is installed: a declared reading, and a program the dashboard launches and talks to over gRPC
@@ -113,7 +113,7 @@ scripts register components with. A format added later is added to the list
 in the exception, not left to interpretation.
 
 **Native plugins go through `hashicorp/go-plugin`**, under MPL-2.0, as is its `yamux`; the
-rest of what it brings is MIT or Apache 2.0. MPL-2.0 is file-level copyleft and, without the
+rest of what it brings is MIT, BSD-3-Clause or Apache 2.0. MPL-2.0 is file-level copyleft and, without the
 "Incompatible With Secondary Licenses" notice, which none of its files carries, combines with
 the AGPL. The `rpc` module that uses it stays under the dashboard's licence.
 

@@ -9,12 +9,13 @@ other than the one that ships them.
 
 The reference deployment runs this as a `Job` before the Deployments roll. `api` and
 `worker` do not assume it succeeded: at start-up each waits up to **45 seconds** for the
-database to carry the migrations its own build expects, and exits if it does not. A pod
+database to answer, then up to 45 seconds more for it to carry the migrations its own build
+expects, and exits if it does not. The `migrate` Job waits up to 2 minutes for the database. A pod
 that started against an older schema would fail later, in a request, instead of at
 deployment time.
 
-**A plugin owns its migrations.** It keeps its own history in its own version table,
-applied by the same command and waited on the same way. The
+**A plugin owns its migrations.** It keeps its own history in its own version table; the worker
+applies them when it installs the plugin, and `/readyz` reports each one as `schema-<id>`. The
 core's migration history never mentions plugin tables.
 
 Rolling back is a plugin-level or core-level operation on its own history; there is no
@@ -31,9 +32,11 @@ Kubernetes `Lease` named `arkhitekton-worker`, in `POD_NAMESPACE`:
 | Renew deadline | 20 s |
 | Retry period | 5 s |
 
-Losing the lease stops the loops without killing the process; regaining it restarts them.
-A worker that cannot reach the API server therefore stops working rather than working in
-parallel with another one.
+Losing the lease stops the loops without killing the process, which stands for the lease again;
+regaining it restarts them. A worker that cannot reach the API server therefore stops working
+rather than working in parallel with another one. A loop that fails ends the term too: the lease
+is given up, and the loops restart at the next term, five seconds later, here or in another
+worker.
 
 ## 10.3 Health and readiness
 
@@ -44,18 +47,25 @@ parallel with another one.
 
 `/readyz` reports one entry per check: `postgres`, `schema`, `minio`, and one per installed plugin
 with a schema of its own (`schema-<id>`). A single failing check makes the pod
-unready — it stops receiving traffic without being restarted, which is the right response
+unready: it stops receiving traffic without being restarted, which is the right response
 to a dependency that is briefly unavailable.
 
 ## 10.4 Loop cadence
 
 | Loop | Cadence |
 |---|---|
-| Scheduler | 2 s, or immediately when a job is enqueued |
-| Observer | 2 s |
-| Purge (sessions, auth flows) | 15 min |
+| Scheduler | 2 s |
+| Observer | Kubernetes watches, with a full resync every 10 min |
+| Facts received by webhook | 2 s |
+| Schedules | 20 s |
+| Capability reload | 30 s |
 | Module supervisor | 30 s |
-| Probes (tracker, forge) | `PROBE_INTERVAL`, default 5 min, with an enforced floor |
+| Deploy keys | 1 min |
+| Pipeline definitions | 10 min |
+| Purge (sessions, auth flows) | 15 min |
+| Probes | each probe's cadence (tracker 5 min, pull requests 1 min), raised to `PROBE_INTERVAL` (default 5 min, never under 1 min); the early passes a webhook asks for are read every 2 s |
+| Plugin update check | `PLUGIN_UPDATE_INTERVAL`, default 6 h |
+| Object purge | 24 h |
 
 The supervisor's cadence bounds how long switching a module on or off takes; what a module
 does at its own pace is its own.
@@ -65,9 +75,10 @@ does at its own pace is its own.
 Structured JSON on stdout (`slog`), with `version` and `revision` on every line. Messages
 and keys are English; the keys are stable and are what monitoring should match on.
 
-Four lines at worker start-up are worth watching, in order: the catalogue that was
-loaded, the pipeline target, the modules enabled per project, and the candidacy for the
-lease. Together they separate a misconfiguration from a failure faster than anything else.
+Lines at worker start-up worth watching, in order: `catalogue loaded`, `standing for the lease`,
+then, once the lease is held, `pipeline target`, and `module started` for each module with its
+project count. Together they separate a misconfiguration from a failure faster than anything
+else.
 
 ## 10.6 Occasional roles
 
@@ -81,13 +92,15 @@ It reads each run again through the interpreter of the capability that launched 
 re-running anything, and pins load baselines again on the measures it rebuilds. A run another
 plugin version read is refused, since reading it with the installed version changes its history;
 `--accept-drift` replays it anyway. Results from before the plugins read their runs carry a
-`-legacy` version and are always replayed.
+`-legacy` version and are always replayed. `--release` resolves the tag in the single project
+that has build targets, and refuses when several do.
 
 **Checking tracker access.**
 
     arkhitekton check-tracker
 
-Reads the tracker with the configured key and exits. It exists because the key targets a
+Reads the tracker with `TRACKER_URL` and `TRACKER_API_KEY` from the environment, not the
+settings stored per project, and exits. It exists because the key targets a
 production instance: the alternative is learning that a key was revoked from a user's
 failed screen.
 
@@ -98,6 +111,8 @@ failed screen.
 | Database | PostgreSQL | Everything except large payloads |
 | Objects | Bucket | Logs, raw reports, attachments, plugin layers |
 | `SECRETS_KEY` | **Outside both** | A database backup is unreadable without it, and restoring one without the key leaves settings nothing can open |
+| `SECRETS_RETIRED_KEYS` | With `SECRETS_KEY` | Needed to open the values sealed before the last rotation |
+| Deploy keys | Kubernetes Secrets in the pipelines' namespace | Not in the database: lost Secrets mean rotating every project's key |
 
 ## 10.8 Troubleshooting
 
@@ -127,8 +142,8 @@ for that project, and unknown environments fail closed to the higher role.
 ## 10.9 The configuration as files
 
 What an administrator sets in the interface (projects, plugin settings, a project's pipelines,
-its release automation, reactions and schedules, queue limits, recorded bindings, installed
-plugins) can be kept in versioned YAML files, tried on a local cluster, then applied to another
+its release automation, reactions and schedules, tracker status mappings, queue limits,
+recorded bindings, installed plugins) can be kept in versioned YAML files, tried on a local cluster, then applied to another
 instance. The database stays authoritative: the interface remains editable, and an export reads
 what it holds back into files.
 

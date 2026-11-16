@@ -21,17 +21,18 @@ Four roles, ordered. Each includes what the ones before it can do:
 | Role | Adds |
 |---|---|
 | `viewer` | Read everything it may see; produce a release's deliverable |
-| `operator` | Run and cancel pipelines; create and edit releases |
-| `releaser` | Make a release final; pin a benchmark baseline |
+| `operator` | Run and cancel pipelines; create, launch, rebuild and re-verify releases; edit notes and manual actions; declare versions; promote to non-sensitive environments |
+| `releaser` | Create the release kinds that require it (final and patch by default); approve a release; pin a benchmark baseline; promote to sensitive environments |
 | `admin` | Everything, including administration |
 
-Permissions are named strings — `read`, `pipeline:run`, `pipeline:cancel`,
-`release:create`, `release:create:final`, `release:edit`, `release:export`, `admin` — and
-one family is computed: `deploy:<environment>`.
+Permissions are named strings (`read`, `pipeline:run`, `pipeline:cancel`, `release:create`,
+`release:create:final`, `release:edit`, `release:export`, `admin`), and one family is
+computed: `deploy:<environment>`. `release:export` gates no route of the core: plugins use it.
 
 **Roles are per project, with an instance-wide fallback.** An identity carries a global
 role and a map of project roles; a route scoped to a project resolves the role *in that
-project*. Someone may be an operator on one project and a viewer on another.
+project*. Someone may be an operator on one project and a viewer on another. `admin` is only
+ever global.
 
 ## 9.3 Deployment permissions
 
@@ -60,6 +61,7 @@ Two narrow roles, and the shape of each is the point.
 | `pods`, `pods/log` | get, list, watch |
 | `secrets` | **create, patch, update, delete — not get, not list** |
 | `serviceaccounts` | get, update, patch |
+| `events` | get, list, watch |
 
 `delete` on definitions withdraws those of an uninstalled plugin (doc 06 §6.12): only what
 carries both the dashboard's mark (`app.kubernetes.io/managed-by=arkhitekton`) and a plugin's
@@ -88,18 +90,19 @@ talking to the API server; the worker, which does, mounts its token.
 ## 9.6 Credentials, and where they are not
 
 **Registry credentials are never stored in the database.** They are referenced by the
-name of a Kubernetes secret, which the pipeline mounts. The one deliberate exception is
-tracker API keys, which are encrypted at rest.
+name of a Kubernetes secret, which the pipeline mounts. The exception is plugin secret fields
+(tracker keys, forge tokens, webhook secrets), sealed at rest as described below.
 
 **Plugin secret fields** are sealed with `SECRETS_KEY` before reaching the database and
 are never returned by the API. The key lives in the environment: a database backup says
-nothing without it. Rotation is two-staged — the new key seals, the retired keys still
-open — because values are re-sealed only as they are rewritten.
+nothing without it. Rotation is two-staged (the new key seals, the retired keys still
+open), because values are re-sealed only as they are rewritten.
 
 **Deploy keys are per project.** Arkhitekton generates the pair, publishes the public
 half for an administrator to install on the forge, and keeps the private half in a
-Kubernetes secret that pipelines mount. Rotation is a request recorded on the project,
-so that the old key keeps working until the new one is installed.
+Kubernetes secret that pipelines mount. Rotation is a request recorded on the project and
+carried out by the worker within a minute; the old key works until then, and clones fail from
+then until the new public half is installed on the forge.
 
 **A configuration applied from files never carries a secret.** Sensitive settings are written as
 references to the worker's environment or to a mounted file, resolved when applied, then sealed;
@@ -114,13 +117,15 @@ its writes are audited under the name given by `--actor` (`config-apply` by defa
 the process. The guarantee is structural rather than a matter of caller discipline,
 because the key in circulation is a production one.
 
-**The forge transport is read-only** for browsing refs. Writing to the forge — deploy
-keys, commit statuses — goes through separate clients with their own credentials.
+**The forge transport is read-only** for browsing refs. Writing to the forge (tags, commit
+statuses, comments, releases, deploy keys) goes through a separate client, which only adds and
+never deletes.
 
-**Webhook targets are guarded.** Private addresses, loopback and plain `http://` are
-refused unless explicitly allowed, and link-local is never reopened: a URL typed in the
-interface becomes a request issued from inside the cluster, which is a
-server-side-request-forgery primitive if left open.
+**Webhook targets are guarded.** Private addresses (`100.64.0.0/10` included), loopback and
+plain `http://` are refused unless `WEBHOOK_ALLOW_PRIVATE` or `WEBHOOK_ALLOW_INSECURE` allows
+them ([04 §4.9](04-configuration.md#49-probes-and-webhooks)); link-local, multicast, unspecified
+addresses and redirects never are. A URL typed in the interface becomes a request issued from
+inside the cluster, which is a server-side-request-forgery primitive if left open.
 
 ## 9.8 Inbound webhooks
 
@@ -210,4 +215,4 @@ dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
 
 Every administrative act (role granted or revoked, plugin enabled, installed or refused, activated or
 uninstalled, its tables purged, capability bound, limit changed, project created) is recorded in `audit_log` with
-its actor, target and payload, and is readable at `GET /admin/audit` by an administrator.
+its actor, target and payload, and is readable at `GET /api/v1/admin/audit` by an administrator.

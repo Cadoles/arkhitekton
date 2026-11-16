@@ -35,7 +35,7 @@ observed until it concludes. A run is what Tekton did with it — its tasks, its
 results.
 
 **Plans.** A plan is what a release still owes: an ordered set of stages, each a set of
-pipeline runs, derived from what the project declares it needs. The plan advances on its
+steps (a pipeline to run or an action to take), derived from what the project declares it needs. The plan advances on its
 own as jobs conclude.
 
 **Events and reactions.** Anything worth reacting to is recorded as an event — a build
@@ -69,7 +69,8 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 1. A version is created, or mirrored from the tracker, and gathers issues.
 2. A release is drafted from a git ref, emitting `release.drafted`. The issues the release
    brings are detected from the merged pull requests, and completed or corrected by hand;
-   the reference can still change. A draft nobody launches is deleted, which frees its tag.
+   the reference can still change. A draft nobody will launch can be deleted, which frees its
+   tag.
 3. The draft is launched, emitting `release.created`: the reference is resolved to the commit
    it names at that instant, the git tag is set, and the project's declared plan starts:
    build, then the tests and audits it requires. A final release by re-tag goes to `ready`
@@ -79,31 +80,21 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
    security findings, benchmark measures, artifacts — are read back from the object
    store and the pipeline's own output.
 5. The release note, assembled on the draft, is edited if needed and exported.
-6. A release that satisfies its plan becomes final; what happens next — promotion to an
-   environment, sign-off, GitOps deployment — is a plugin's business.
+6. A release whose mandatory pipelines all concluded is `ready`; a releaser approves it to
+   `released`, which makes it promotable. What happens next (promotion to an environment,
+   sign-off, GitOps deployment) is a plugin's business.
 
 ## 1.4 Vocabulary
 
 | Term | Meaning |
 |---|---|
-| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `mse/security-audit`, …). Plugins bring capabilities; the core names only `docker/build` and `docker/retag`. |
-| **catalogue** | The YAML file that declares which pipelines exist, what they need and what they produce. See [05](05-pipeline-catalogue.md). |
-| **geste** | One pipeline run inside a plan stage. |
+| **capability** | What a plugin brings: a pipeline, a tracker, a forge, probes, actions, or a module. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `mse/security-audit`, …). The core names only `docker/build` and `docker/retag`. |
+| **catalogue** | The YAML file that binds the plugins' pipelines to this instance: which Secret fills a need, which account deploys, timeouts, volumes. See [05](05-pipeline-catalogue.md). |
+| **step** | One pipeline or action inside a plan stage (`gestes` in a stored plan). |
 | **fact** | An event normalised to a type a reaction can match. |
-| **module** | A plugin of kind `module`: it adds screens and routes, and can be switched off per project. |
+| **module** | Loops, screens and routes an installed plugin's program runs; on while its plugin is on for a project. |
 
 ## 1.5 Documentation map
 
-| Document | Contents |
-|---|---|
-| [01 — Overview](01-overview.md) | This document |
-| [02 — Architecture](02-architecture.md) | Processes, components, data flow |
-| [03 — Installation](03-installation.md) | Prerequisites, deployment, bootstrap |
-| [04 — Configuration](04-configuration.md) | Every environment variable |
-| [05 — Pipeline catalogue](05-pipeline-catalogue.md) | Catalogue format and the contract a pipeline honours |
-| [06 — Plugins](06-plugins.md) | Plugin model, settings, per-project activation |
-| [07 — HTTP API](07-http-api.md) | Every route, its permission and its shape |
-| [08 — Data model](08-data-model.md) | PostgreSQL schema and object layout |
-| [09 — Security](09-security.md) | Authentication, roles, RBAC, secrets |
-| [10 — Operations](10-operations.md) | Migrations, readiness, leader election, troubleshooting |
-| [11 — Development](11-development.md) | Building, testing, local cluster |
+The chapters are listed in [the index](README.md).

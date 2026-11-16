@@ -10,9 +10,9 @@
 #
 # This file lives outside the binary, in a ConfigMap, and is validated at start-up: a capability
 # no plugin brings, a parameter or a need the capability does not declare, a service account
-# given to anything but `cluster-deploy`, each prevents start-up with a message that names it. A
-# need left unbound does not: the capability stays in the catalogue, and its runs are refused
-# with that reason.
+# given to anything but `cluster-deploy`, each prevents start-up with a message that names it. So
+# does a need left unbound when it backs a workspace; `cluster-deploy`, which backs none, leaves
+# the capability known and its runs refused with that reason.
 
 # Deployment environments, per project, in their promotion order: declared here by an instance
 # whose distribution deploys, usually from the extension's own component (docs/06-plugins.md §6.10).

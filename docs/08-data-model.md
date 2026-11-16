@@ -1,11 +1,12 @@
 # 8. Data model
 
 PostgreSQL holds all state. The object store holds what is large; the database keeps its
-key. Migrations are embedded in the binary and applied by the `migrate` role — see
+key. Migrations are embedded in the binary and applied by the `migrate` role: see
 [10 §10.1](10-operations.md#101-schema-migrations).
 
-Every table below carries `created_at`, and most carry `updated_at`; they are omitted
-from the column lists for brevity when they add nothing.
+Most tables carry a creation time (`created_at`, or a name of their own such as `at`,
+`recorded_at` or `added_at`) and many an `updated_at`; they are omitted from the column lists
+for brevity.
 
 ## 8.1 Identity and access
 
@@ -37,7 +38,7 @@ from the column lists for brevity when they add nothing.
 | `project_pipelines` | Which catalogue kinds this project enables |
 | `project_plugins` | Per-project plugin state and settings. **Absence means inheritance** |
 | `sync_state` | Cursor and last outcome of each source's synchronisation, per project |
-| `issue_status_mapping` | How this project's tracker statuses map to buckets |
+| `issue_status_mapping` | How tracker statuses map to buckets: per project, or instance-wide when `project_id` is null |
 
 ## 8.3 Versions and issues
 
@@ -53,12 +54,13 @@ locally and one mirrored from Redmine differ by these columns alone.
 
 | Table | Key columns |
 |---|---|
-| `releases` | `tag`, `kind`, `state`, `git_ref`, `git_branch`, `git_commit`, `image_version`, `version_id`, `source_release_id`, `notes_md`, `quality_score`, `manual_actions_md`, `launched_by`, `launched_at`, `released_at` |
+| `releases` | `project_id`, `tag`, `kind`, `state`, `git_ref`, `git_branch`, `git_commit`, `image_version`, `version_id`, `source_release_id`, `notes_md`, `quality_score`, `manual_actions_md`, `created_by`, `launched_by`, `launched_at`, `released_at` |
 | `release_images` | `name`, `repository`, `tag`, `digest`, `size_bytes` |
 | `release_notes` | `source`, `pull_request`, `external_id`, `added_by` |
 | `release_note_dismissals` | `release_id`, `external_id`, `dismissed_by`: the issues removed by hand from a note, which detecting it again leaves out |
 
-`source_release_id` links a final release to the release candidate it was promoted from,
+A tag is unique within its project, not across the instance. `source_release_id` links a final
+release to the release candidate it was promoted from,
 which is how a final release inherits results it did not produce itself.
 
 A release in `draft` has not been launched: `launched_by` and `launched_at` are empty, and
@@ -69,12 +71,13 @@ creation, which is what migration 0071 records.
 
 | Table | Key columns |
 |---|---|
-| `jobs` | `kind`, `queue_class`, `priority`, `state`, `params`, `release_id`, `project_id`, `requested_by`, `attempt`, `queue_reason`, `cancel_reason`, `error`, `run_name`, `exclusive_at_start`, `concurrent_at_start` |
-| `runs` | `job_id`, `pipeline_name`, `pipelinerun_name`, `namespace`, `status`, `reason`, `results`, `observed`, `declared_tasks` |
-| `task_runs` | `run_id`, `name`, `display_name`, `status`, `pod_name`, `log_object`, `log_sealed` |
+| `jobs` | `kind`, `capability`, `plugin_version`, `priority`, `state`, `params`, `release_id`, `project_id`, `pull_request_id`, `environment_id`, `requested_by`, `attempt`, `queue_reason`, `cancel_reason`, `error`, `run_name`, `exclusive_at_start`, `concurrent_at_start` |
+| `runs` | `job_id`, `pipeline_name`, `pipelinerun_name`, `namespace`, `status`, `reason`, `results`, `observed`, `declared_tasks`, `interpreted_at`, `interpreted_by` |
+| `task_runs` | `run_id`, `name`, `display_name`, `status`, `reason`, `steps`, `pod_name`, `log_object`, `log_sealed` |
 | `queue_limits` | `kind`, `max_concurrent` — an administrator's override of the catalogue |
 
 `runs.observed` distinguishes a run Arkhitekton created from one it merely watches.
+`runs.interpreted_at` says the run has been read into results; `reprocess` clears it.
 `task_runs.log_sealed` says the log has been fully copied to the object store and will
 not change again.
 
@@ -162,8 +165,9 @@ administrator may purge: the migrations undone, the version table dropped, the p
 ## 8.10 Object store layout
 
     raw/<pipelinerun>/<artifact>                uploaded reports, verbatim
-    raw/<pipelinerun>/meta/<tool>.json          the descriptor a tool emitted
-    logs/<pipelinerun>/<task>/<step>.log        collected task logs
+    logs/<pipelinerun>/<task>.log               a task's sealed log, its steps concatenated
+    logs/<pipelinerun>/<task>/parts/<NNN>-<step>/<NNNNNNNN>.log
+                                                chunks while the task runs, removed once sealed
     attachments/<pipelinerun>/<hash>/<name>     archive members kept as attachments
     plugins/<id>/<version>/sha256-<hex>.tar.gz  an installed plugin's layer, as signed
 
