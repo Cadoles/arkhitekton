@@ -205,7 +205,7 @@ func NewAPIRouter(
 	// Declaring a version by hand: the only entry point for a project with no tracker, whose
 	// versions come from no outside tool. POST and a CSRF check, like every write.
 	mux.Handle("POST /projects/{project}/versions", Chain(http.HandlerFunc(versions.Create),
-		middleware.Authenticate, middleware.Require(auth.PermReleaseCreate), middleware.CSRF))
+		middleware.Authenticate, middleware.RequireIn(auth.PermReleaseCreate), middleware.CSRF))
 
 	mux.Handle("GET /projects/{project}/versions/{id}", Chain(http.HandlerFunc(versions.Get),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
