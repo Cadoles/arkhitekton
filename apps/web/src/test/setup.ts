@@ -3,8 +3,13 @@
  */
 
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, expect } from 'vitest'
+
+// Les `findBy…` attendent 3 s et non 1 s : sur un exécuteur de CI chargé, un
+// écran qui attend plusieurs requêtes dépassait la seconde, et le test échouait
+// sur un défaut qui n'existait pas.
+configure({ asyncUtilTimeout: 3000 })
 
 // Le DOM est démonté entre deux tests. Sans cela, un `getByRole` du second
 // trouverait l'arbre du premier — et le test passerait pour la mauvaise raison,
