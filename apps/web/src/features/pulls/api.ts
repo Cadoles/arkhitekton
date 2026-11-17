@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import { projectPath } from '../../lib/project'
+import type { PipelineStatus } from '../../lib/status'
 import type { ReleaseJob } from '../releases/api'
+import type { Attachment, Finding } from '../releases/tests'
 
 export type PullState = 'open' | 'closed' | 'merged'
 
@@ -75,5 +77,28 @@ export function useLaunchOnPull(number: number) {
       void queryClient.invalidateQueries({ queryKey: ['pulls', number] })
       void queryClient.invalidateQueries({ queryKey: ['queue'] })
     },
+  })
+}
+
+/** La dernière revue IA de la PR : son verdict, ses remarques, la revue telle qu'écrite. Les
+ *  remarques hors du périmètre de la PR arrivent écartées (`suppressed`). */
+export type PullReview = {
+  reviewed: boolean
+  status?: PipelineStatus
+  summary?: string
+  tool?: string
+  run_name?: string
+  reviewed_at?: string
+  /** `verdict`, `head`, `reviewers` (« 2/3 »), `questions`, `failed`, `models`. */
+  attributes?: Record<string, string>
+  findings: Finding[]
+  attachments: Attachment[]
+}
+
+export function useReview(number: number) {
+  return useQuery({
+    queryKey: ['pulls', number, 'review'],
+    queryFn: () => request<PullReview>(projectPath(`/pulls/${number}/review`)),
+    refetchInterval: 30_000,
   })
 }

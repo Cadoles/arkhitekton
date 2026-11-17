@@ -1,0 +1,59 @@
+{
+  "schema_version": "1",
+  "summary": "La pagination ignore le dernier élément, et le jeton est écrit dans les journaux.",
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "category": "security",
+      "severity": "high",
+      "confidence": 0.9,
+      "file": "internal/http/client.go",
+      "start_line": 42,
+      "end_line": 44,
+      "title": "Le jeton est écrit dans les journaux",
+      "description": "La requête est journalisée avec son en-tête Authorization.",
+      "evidence": "logger.Debug(\"request\", \"headers\", req.Header)",
+      "suggestion": "Retirer l'en-tête avant de journaliser.",
+      "reported_by": ["pi-qwen", "pi-mistral"]
+    },
+    {
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": 0.7,
+      "file": "internal/store/list.go",
+      "start_line": 88,
+      "end_line": 88,
+      "title": "La pagination ignore le dernier élément",
+      "description": "La borne est exclusive des deux côtés.",
+      "reported_by": ["pi-qwen"]
+    },
+    {
+      "category": "maintainability",
+      "severity": "low",
+      "confidence": 0.5,
+      "file": "internal/legacy/old.go",
+      "start_line": 3,
+      "end_line": 9,
+      "title": "Code mort voisin",
+      "description": "Une fonction que plus rien n'appelle.",
+      "reported_by": ["pi-mistral"],
+      "out_of_scope": true
+    }
+  ],
+  "questions": [{"file": "internal/store/list.go", "line": 88, "question": "La borne est-elle voulue ?"}],
+  "failed_reviewers": [{"id": "pi-llama", "reason": "timeout"}],
+  "meta": {
+    "run_id": "20261117-101500-abc",
+    "pr_number": 12,
+    "pr_title": "Pagination",
+    "pr_url": "https://forge.example/team/shop/pulls/12",
+    "head_sha": "abcdef0123456789",
+    "merge_base_sha": "0123456789abcdef",
+    "reviewers_total": 3,
+    "reviewers_succeeded": 2,
+    "lead_id": "pi-lead",
+    "lead_used": true,
+    "succeeded_reviewers": ["pi-qwen", "pi-mistral"],
+    "models": {"pi-qwen": "qwen3-coder", "pi-mistral": "devstral", "pi-lead": "qwen3-coder"}
+  }
+}

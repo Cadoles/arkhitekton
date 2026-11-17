@@ -47,7 +47,7 @@ MINIO_TEST_PORT   := 19000
 MINIO_TEST_BUCKET := arkhitekton-test
 
 .PHONY: config-export config-diff config-apply help build example-plugin providers-demo proto test test-live test-integration test-ci lint fmt fmt-check vet vuln clean check dev run-once \
-        binaries web web-install web-dev web-check image image-push kind-load manifests deploy undeploy logs
+        binaries web web-install web-dev web-check image image-push kind-load review-image manifests deploy undeploy logs
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | expand -t24
@@ -212,6 +212,14 @@ image-push: image ## Pushes the image to the registry
 # largely dominates the time of a local iteration.
 kind-load: image ## Loads the image into the kind cluster
 	kind load docker-image $(LOCAL_IMAGE) --name $(KIND_CLUSTER)
+
+# The AI review's image, Conclave and Pi. Its own repository, beside the dashboard's: a pipeline
+# pulls it, the dashboard never runs it.
+REVIEW_IMAGE_REPO ?= $(IMAGE_REPO)-review
+REVIEW_IMAGE      := $(REVIEW_IMAGE_REPO):$(IMAGE_TAG)
+
+review-image: ## Builds the AI review's image, tagged by commit and `dev`
+	DOCKER_BUILDKIT=1 docker build -t $(REVIEW_IMAGE) -t $(REVIEW_IMAGE_REPO):dev images/review
 
 manifests: ## Renders and lints the overlay's manifests
 	@kustomize build $(OVERLAY) > /dev/null

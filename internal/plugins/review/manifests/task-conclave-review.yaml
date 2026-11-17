@@ -1,0 +1,201 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: conclave-review
+spec:
+  description: >
+    Reviews a pull request with Conclave, and leaves the review as JSON and as Markdown.
+
+    Conclave's configuration is written here from the plugin's settings: one reviewer per model,
+    the lead, the timeouts, the exclusions, the CI's weight. On top, what is not for a setting to
+    choose: the forge, no environment file, no inherited file, no label written on the forge, and
+    agents that do not inherit the forge's token. The provider's key stays in this pod's home.
+
+    The working copy is the default branch, never the pull request's head: Conclave reads the
+    `.env` of the directory it runs in. The agents read the head in worktrees of their own.
+
+    The task succeeds whatever the verdict: the verdict is a result, which the core collects only
+    from a step that succeeded. It fails when the review could not be written.
+
+  workspaces:
+    - name: source
+    - name: ssh-directory
+    - name: model-access
+    - name: forge-token
+
+  params:
+    - name: repo-url
+    - name: forge-url
+    - name: image
+    - name: number
+    - name: endpoint
+    - name: api
+      default: ""
+    - name: reviewers
+    - name: lead
+    - name: thinking
+      default: ""
+    - name: timeout
+      default: ""
+    - name: agent-timeout
+      default: ""
+    - name: lead-timeout
+      default: ""
+    - name: max-parallel
+      default: ""
+    - name: diff-exclude
+      default: ""
+    - name: ci
+      default: ""
+    - name: output-dir
+      default: test-results/review
+
+  results:
+    - name: verdict
+      description: approve, comment or request_changes.
+    - name: verdict-label
+      description: The verdict in French, for a comment.
+    - name: counts
+      description: The in-scope findings by severity, in French, on one line.
+    - name: summary
+      description: The lead's summary, cut to 1500 characters.
+
+  steps:
+    - name: review
+      image: $(params.image)
+      # Through the environment, never spliced into the script: a setting is text an administrator
+      # typed, and the shell must not read it as code.
+      env:
+        - name: FORGE_URL
+          value: $(params.forge-url)
+        - name: NUMBER
+          value: $(params.number)
+        - name: ENDPOINT
+          value: $(params.endpoint)
+        - name: API
+          value: $(params.api)
+        - name: REVIEWERS
+          value: $(params.reviewers)
+        - name: LEAD
+          value: $(params.lead)
+        - name: THINKING
+          value: $(params.thinking)
+        - name: TIMEOUT
+          value: $(params.timeout)
+        - name: AGENT_TIMEOUT
+          value: $(params.agent-timeout)
+        - name: LEAD_TIMEOUT
+          value: $(params.lead-timeout)
+        - name: MAX_PARALLEL
+          value: $(params.max-parallel)
+        - name: DIFF_EXCLUDE
+          value: $(params.diff-exclude)
+        - name: CI_WEIGHS
+          value: $(params.ci)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        SRC="$(workspaces.source.path)"
+        OUT="${SRC}/$(params.output-dir)"
+        mkdir -p "${OUT}" "${HOME}/.ssh" "${HOME}/.pi/agent"
+        chmod 700 "${HOME}/.ssh"
+        case "${NUMBER}" in ''|*[!0-9]*) echo "not a pull request number: ${NUMBER}" >&2; exit 1 ;; esac
+
+        # ssh://git@host:2222/owner/repo.git, or git@host:owner/repo.git.
+        URL="$(params.repo-url)"
+        case "${URL}" in
+          ssh://*)
+            AUTHORITY="${URL#ssh://}"; AUTHORITY="${AUTHORITY%%/*}"; AUTHORITY="${AUTHORITY#*@}"
+            HOST="${AUTHORITY%%:*}"; PORT="22"
+            case "${AUTHORITY}" in *:*) PORT="${AUTHORITY##*:}" ;; esac
+            ;;
+          *@*:*) HOST="${URL#*@}"; HOST="${HOST%%:*}"; PORT="22" ;;
+          *) HOST="$(echo "${URL}" | sed -E 's#^[a-z]+://##; s#[/:].*##')"; PORT="22" ;;
+        esac
+        for key in id_ed25519 ssh-privatekey; do
+          if [ -f "$(workspaces.ssh-directory.path)/${key}" ]; then
+            cp "$(workspaces.ssh-directory.path)/${key}" "${HOME}/.ssh/id_ed25519"
+            break
+          fi
+        done
+        chmod 600 "${HOME}/.ssh/id_ed25519"
+        ssh-keyscan -p "${PORT}" "${HOST}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
+
+        # The provider's key, read by Pi from the agents' environment rather than written in a file.
+        MODEL="$(workspaces.model-access.path)"
+        REVIEW_API_KEY="none"
+        if [ -f "${MODEL}/api-key" ]; then REVIEW_API_KEY="$(tr -d '[:space:]' < "${MODEL}/api-key")"; fi
+        export REVIEW_API_KEY
+
+        # Pi's provider: the secret's own `models.json` when it brings one, several providers for
+        # instance, the endpoint of the settings otherwise.
+        if [ -f "${MODEL}/models.json" ]; then
+          cp "${MODEL}/models.json" "${HOME}/.pi/agent/models.json"
+        else
+          jq -n --arg endpoint "${ENDPOINT}" --arg api "${API:-openai-completions}" \
+            --arg reviewers "${REVIEWERS}" --arg lead "${LEAD}" '
+            def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
+            {providers: {"self-hosted": {
+              baseUrl: $endpoint, api: $api, apiKey: "$REVIEW_API_KEY",
+              models: ([($reviewers | list)[], $lead]
+                | map(ltrimstr("self-hosted/")) | map(select(test("/") | not)) | unique | map({id: .}))
+            }}}' > "${HOME}/.pi/agent/models.json"
+        fi
+        chmod 600 "${HOME}/.pi/agent/models.json"
+
+        GITEA_TOKEN="$(tr -d '[:space:]' < "$(workspaces.forge-token.path)/token")"
+        export GITEA_TOKEN
+
+        # In this pod's home, not on the shared volume: the agents' environment carries the key.
+        CONFIG="${HOME}/conclave.yaml"
+        EMPTY="${HOME}/empty.env"
+        : > "${EMPTY}"
+        jq -n --arg forge "${FORGE_URL}" --arg empty "${EMPTY}" \
+          --arg reviewers "${REVIEWERS}" --arg lead "${LEAD}" --arg thinking "${THINKING}" \
+          --arg timeout "${TIMEOUT:-30m}" --arg agent "${AGENT_TIMEOUT:-15m}" --arg leadTimeout "${LEAD_TIMEOUT:-10m}" \
+          --arg parallel "${MAX_PARALLEL:-2}" --arg exclude "${DIFF_EXCLUDE}" --arg ci "${CI_WEIGHS}" '
+          def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
+          def qualified: if test("/") then . else "self-hosted/" + . end;
+          def agent($id; $role; $model): {
+            id: $id, role: $role,
+            command: (["pi", "--print", "--no-session", "--mode", "json", "--tools", "read,grep,find,ls",
+                       "--model", ($model | qualified)]
+                      + (if $thinking == "" then [] else ["--thinking", $thinking] end) + ["--"]),
+            input: "argument", output: "pi-json", max_output_bytes: 33554432,
+            inherit_env: false, environment: {REVIEW_API_KEY: $ENV.REVIEW_API_KEY}
+          };
+          {
+            version: 1, inherits: false, env_file: $empty,
+            forge: {provider: "gitea", remote: "origin", base_url: $forge, token_env: "GITEA_TOKEN"},
+            review: {timeout: $timeout, agent_timeout: $agent, lead_timeout: $leadTimeout,
+                     max_parallel: ($parallel | tonumber), diff_exclude: ($exclude | list), running_label: ""},
+            ci: {enabled: ($ci == "true"), max_wait: "0s"},
+            agents: ([$reviewers | list | to_entries[] | agent("relecteur-\(.key + 1)"; "reviewer"; .value)]
+                     + [agent("lead"; "lead"; $lead)])
+          }' > "${CONFIG}"
+        chmod 600 "${CONFIG}"
+
+        rm -rf "${SRC}/repo"
+        git clone --quiet "${URL}" "${SRC}/repo"
+        cd "${SRC}/repo"
+
+        conclave config validate --config "${CONFIG}" >&2
+        # Written aside, then moved: a review that fails leaves no half-written report to read.
+        conclave review "${NUMBER}" --config "${CONFIG}" --format json > "${HOME}/review.json"
+        mv "${HOME}/review.json" "${OUT}/review.json"
+        RUN="$(ls -1td .git/conclave/runs/*/ | head -n 1)"
+        if [ -f "${RUN}final/review.md" ]; then
+          cp "${RUN}final/review.md" "${OUT}/review.md"
+        fi
+
+        jq -j '.verdict' "${OUT}/review.json" > "$(results.verdict.path)"
+        jq -j '{"approve": "Approuvée", "comment": "Commentée", "request_changes": "Modifications demandées"}[.verdict] // .verdict' \
+          "${OUT}/review.json" > "$(results.verdict-label.path)"
+        jq -j '
+          [.findings[] | select(.out_of_scope | not) | .severity] as $in |
+          [["critical", "critique(s)"], ["high", "élevée(s)"], ["medium", "moyenne(s)"], ["low", "faible(s)"], ["info", "informative(s)"]]
+          | map(. as [$severity, $word] | ($in | map(select(. == $severity)) | length) as $n | select($n > 0) | "\($n) \($word)")
+          | if length == 0 then "aucune remarque" else join(", ") end
+        ' "${OUT}/review.json" > "$(results.counts.path)"
+        jq -j '.summary | if length > 1500 then .[:1500] + "…" else . end' "${OUT}/review.json" > "$(results.summary.path)"

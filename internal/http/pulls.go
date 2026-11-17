@@ -285,5 +285,6 @@ func (h *PullsHandler) Routes(mux *http.ServeMux, m *Middleware) {
 	mux.Handle("GET /projects/{project}/pulls/{number}/tests", read(h.results.PullTests))
 	mux.Handle("GET /projects/{project}/pulls/{number}/tests/{group}", read(h.results.PullGroup))
 	mux.Handle("GET /projects/{project}/pulls/{number}/security", read(h.results.PullSecurity))
+	mux.Handle("GET /projects/{project}/pulls/{number}/review", read(h.results.PullReview))
 	mux.Handle("GET /projects/{project}/pulls/{number}/attachments/{id}", read(h.results.PullAttachment))
 }
