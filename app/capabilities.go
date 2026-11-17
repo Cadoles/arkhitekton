@@ -220,6 +220,37 @@ func recordedBindings(ctx context.Context, db *store.DB) ([]catalog.Binding, err
 	return bindings, nil
 }
 
+// lenientSnapshot builds the capabilities in force without the recorded bindings that no longer
+// hold, and names those it left out.
+//
+// `config apply` is how an operator replaces such a binding, a capability's workspace removed by a
+// new version for instance: it must not be the one tool a broken binding stops. The others are
+// kept, with the installed plugins, so that the rest of the files is checked against what runs.
+func (s *capabilitySources) lenientSnapshot(ctx context.Context) (live.Snapshot, []error, error) {
+	registry, err := s.registry(ctx, nil)
+	if err != nil {
+		return live.Snapshot{}, nil, err
+	}
+	recorded, err := recordedBindings(ctx, s.db)
+	if err != nil {
+		return live.Snapshot{}, nil, err
+	}
+	var kept []catalog.Binding
+	var dropped []error
+	for _, binding := range recorded {
+		if _, err := s.catalog(registry, append(append([]catalog.Binding{}, kept...), binding)); err != nil {
+			dropped = append(dropped, fmt.Errorf("recorded binding of %s left out: %w", binding.Ref, err))
+			continue
+		}
+		kept = append(kept, binding)
+	}
+	pipelines, err := s.catalog(registry, kept)
+	if err != nil {
+		return live.Snapshot{}, dropped, err
+	}
+	return live.Snapshot{Registry: registry, Catalog: pipelines}, dropped, nil
+}
+
 // checkBinding builds the catalogue as it would be with one more binding, or a changed one, and says
 // why it could not.
 func (s *capabilitySources) checkBinding(ctx context.Context, binding catalog.Binding) error {
