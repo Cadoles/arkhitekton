@@ -39,6 +39,11 @@ export function ProjectGeneralScreen() {
             partagée qui servait de repli a été retirée, une clé unique ajoutée à
             plusieurs dépôts faisant de sa révocation une panne pour tous. */}
         <ProjectKey project={project} />
+        {/* Les Secrets du projet tirent leur nom de cet identifiant, et non du slug, qui se
+            renomme et se réutilise : c'est lui qu'on cherche avec kubectl. */}
+        <p className="mt-3 text-xs text-zinc-500">
+          Identifiant du projet : <span className="font-mono text-zinc-700">{project.uid}</span>
+        </p>
       </Card>
     </div>
   )
