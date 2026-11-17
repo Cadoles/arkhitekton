@@ -515,3 +515,21 @@ func TestAProjectsSecretsFollowItsIDNotItsSlug(t *testing.T) {
 		t.Errorf("still to delete %v", names)
 	}
 }
+
+// A job that failed says why, on the release that launched it.
+func TestAReleasesFailedJobSaysWhy(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	releaseID := releaseFor(t, db, "2.0.0")
+	id, err := db.Enqueue(ctx, JobRequest{Kind: "docker/build", RequestedBy: "vcarroy", ReleaseID: &releaseID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishJob(ctx, id, JobFailed, "the project has no active deploy key"); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := db.ListReleaseJobs(ctx, releaseID)
+	if err != nil || len(jobs) != 1 || jobs[0].Error != "the project has no active deploy key" {
+		t.Errorf("jobs = %+v, %v", jobs, err)
+	}
+}

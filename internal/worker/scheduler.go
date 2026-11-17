@@ -118,6 +118,9 @@ func (s *Scheduler) WithProjectedSecrets(projector SecretProjector) *Scheduler {
 	return s
 }
 
+// errNoActiveKey is a project whose pipelines clone with its own key, which no forge has yet.
+var errNoActiveKey = errors.New("the project has no active deploy key")
+
 // ProjectDeployKey is the configuration key naming the secret of the project's own deploy key.
 //
 // Distinct from `pipeline.gitSecret`, the deployment's clone credential: a project's key opens the
@@ -367,6 +370,15 @@ func (s *Scheduler) dispatchOne(ctx context.Context, limits store.Limits) bool {
 	resolved := pipeline
 	if err == nil {
 		resolved, err = pipeline.ResolveNames(settings)
+	}
+	if errors.Is(err, errNoActiveKey) {
+		// Lasting until someone pastes the key on the forge: retrying would end the same way a few
+		// seconds later, under a count of attempts that says nothing of the cause.
+		s.logger.Warn("project without an active deploy key", "job", job.ID, "project", *job.ProjectID)
+		if err := s.queue.FinishJob(ctx, job.ID, store.JobFailed, err.Error()); err != nil {
+			s.logger.Error("concluding a job without a deploy key", "job", job.ID, "error", err)
+		}
+		return true
 	}
 	if err != nil {
 		s.logger.Error("job parameters", "job", job.ID, "error", err)
@@ -724,10 +736,8 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 		return nil, fmt.Errorf("reading the deploy key of project %d: %w",
 			*job.ProjectID, err)
 	case !found:
-		return nil, fmt.Errorf(
-			"project %d has no active deploy key: paste its public half "+
-				"into the repository settings, then declare it active from "+
-				"the project screen", *job.ProjectID)
+		return nil, fmt.Errorf("%w: paste its public half, shown on the project's screen, into the "+
+			"repository's deploy keys, then check the access from that screen", errNoActiveKey)
 	}
 	if found {
 		overrides[ProjectDeployKey] = gitSecret

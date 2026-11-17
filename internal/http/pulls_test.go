@@ -18,6 +18,7 @@ type pullFixture struct {
 	listed   string
 	results  []store.TestResult
 	attached store.ResultAttachment
+	failed   *store.ReleaseJob
 }
 
 var openPull = store.PullRequest{
@@ -49,7 +50,11 @@ func (f *pullFixture) PullRequestByNumber(_ context.Context, projectID, number i
 }
 
 func (f *pullFixture) ListPullRequestJobs(context.Context, int64) ([]store.ReleaseJob, error) {
-	return []store.ReleaseJob{{ID: 3, Kind: "docker/build", State: "succeeded", RequestedBy: "system:plan"}}, nil
+	jobs := []store.ReleaseJob{{ID: 3, Kind: "docker/build", State: "succeeded", RequestedBy: "system:plan"}}
+	if f.failed != nil {
+		jobs = append(jobs, *f.failed)
+	}
+	return jobs, nil
 }
 
 func (f *pullFixture) ListPullRequestPlanRuns(context.Context, int64, int) ([]store.PlanRunSummary, error) {
@@ -271,5 +276,16 @@ func TestAPullRequestsReviewIsItsReviewGroup(t *testing.T) {
 	}
 	if len(review.Attachments) != 1 || review.Attachments[0].Name != "review.md" {
 		t.Errorf("attachments = %+v", review.Attachments)
+	}
+}
+
+// A job that failed before any run says why: without it, the page shows a bare "failed".
+func TestAFailedJobSaysWhy(t *testing.T) {
+	fixture := &pullFixture{failed: &store.ReleaseJob{ID: 4, Kind: "docker/build", State: "failed",
+		Error: "the project has no active deploy key"}}
+	recorder := httptest.NewRecorder()
+	pullRouter(fixture).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/projects/shop/pulls/12", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"error":"the project has no active deploy key"`) {
+		t.Errorf("%d: %s", recorder.Code, recorder.Body)
 	}
 }

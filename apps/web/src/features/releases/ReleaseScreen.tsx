@@ -1,5 +1,6 @@
 import { useState, type ComponentType } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { JobError } from './JobError'
 import { TestsPanel } from './TestsPanel'
 import { attachmentURL, releaseSubject } from './tests'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -334,6 +335,7 @@ function Executions({ release }: { release: ReleaseDetail }) {
               <span className="ml-auto text-zinc-500">
                 {job.requested_by} — {formatDateTime(job.requested_at)}
               </span>
+              {job.error && <JobError error={job.error} />}
             </li>
           ))}
         </ul>
