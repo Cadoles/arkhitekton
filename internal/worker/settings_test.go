@@ -209,3 +209,52 @@ func TestAPipelineCloningElsewhereNeedsNoProjectKey(t *testing.T) {
 		t.Errorf("mounted %q, expected the deployment's credential", name)
 	}
 }
+
+// projector records what it wrote, and fails when told.
+type projector struct {
+	written []int64
+	err     error
+}
+
+func (p *projector) Keys() []string { return []string{"project.reviewSecret"} }
+
+func (p *projector) Project(_ context.Context, key string, projectID int64) (string, error) {
+	if p.err != nil {
+		return "", p.err
+	}
+	p.written = append(p.written, projectID)
+	return "arkhitekton-project-shop-review", nil
+}
+
+// reviewing mounts the Secret a sealed setting feeds.
+var reviewing = catalog.Pipeline{Kind: "review/pull-request", Workspaces: []catalog.Workspace{
+	{Name: "model-access", Secret: &catalog.SecretSource{ConfigKey: "project.reviewSecret"}},
+}}
+
+// A sealed setting reaches a run as the project's Secret, written for a pipeline that mounts it
+// and for no other; a job with no project has none to write.
+func TestASealedSettingIsWrittenForThePipelineThatMountsIt(t *testing.T) {
+	written := &projector{}
+	scheduler := schedulerWith(nil).WithProjectedSecrets(written)
+
+	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), reviewing)
+	if err != nil || settings["project.reviewSecret"] != "arkhitekton-project-shop-review" {
+		t.Fatalf("settings %v, %v", settings, err)
+	}
+	if _, err := scheduler.settingsFor(context.Background(), jobOf(7), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if len(written.written) != 1 || written.written[0] != 7 {
+		t.Errorf("written for %v, expected project 7 once", written.written)
+	}
+
+	if _, err := scheduler.settingsFor(context.Background(), store.Job{ID: 2}, reviewing); err == nil {
+		t.Error("a job with no project mounted a project's secret")
+	}
+
+	written.err = errors.New("cluster down")
+	if _, err := scheduler.settingsFor(context.Background(), jobOf(7), reviewing); err == nil ||
+		!strings.Contains(err.Error(), "project.reviewSecret") {
+		t.Errorf("err = %v, expected the key named", err)
+	}
+}

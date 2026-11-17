@@ -107,6 +107,7 @@ pull requests.
 |---|---|
 | `project.repoUrl` | Clone URL of the job's project, built from its forge and repository |
 | `project.forgeUrl` | Public address of the job's project's forge, for a pipeline that reads its API |
+| `project.reviewSecret` | Name of the project's Secret carrying the AI review's model key, written by the worker from the `review` plugin's sealed setting right before a run that binds it |
 | `registry.project` | Registry repository prefix |
 | `registry.insecure` | `true` when that registry is served over plain HTTP (`PIPELINE_INSECURE_REGISTRY`) |
 | `project.deployKeySecret` | Name of the secret holding the project's own deploy key: it opens the project's repository and nothing else |
