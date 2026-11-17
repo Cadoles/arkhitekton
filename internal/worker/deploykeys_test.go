@@ -10,20 +10,39 @@ import (
 )
 
 type fakeKeyStore struct {
-	pending []store.PendingKey
-	saved   map[int64]string
-	audits  int
+	pending   []store.PendingKey
+	saved     map[int64]string
+	secrets   map[int64]string
+	errors    map[int64]string
+	orphans   []string
+	forgotten []string
+	audits    int
 }
 
 func (f *fakeKeyStore) ProjectsAwaitingKey(context.Context) ([]store.PendingKey, error) {
 	return f.pending, nil
 }
 
-func (f *fakeKeyStore) SetDeployKey(_ context.Context, id int64, public string) error {
+func (f *fakeKeyStore) SetDeployKey(_ context.Context, id int64, public, secret string) error {
 	if f.saved == nil {
-		f.saved = map[int64]string{}
+		f.saved, f.secrets = map[int64]string{}, map[int64]string{}
 	}
-	f.saved[id] = public
+	f.saved[id], f.secrets[id] = public, secret
+	return nil
+}
+
+func (f *fakeKeyStore) SetDeployKeyError(_ context.Context, id int64, reason string) error {
+	if f.errors == nil {
+		f.errors = map[int64]string{}
+	}
+	f.errors[id] = reason
+	return nil
+}
+
+func (f *fakeKeyStore) SecretsToDelete(context.Context) ([]string, error) { return f.orphans, nil }
+
+func (f *fakeKeyStore) SecretDeleted(_ context.Context, name string) error {
+	f.forgotten = append(f.forgotten, name)
 	return nil
 }
 
@@ -33,22 +52,28 @@ func (f *fakeKeyStore) Audit(context.Context, string, string, string, map[string
 }
 
 type fakeKeyIssuer struct {
-	// bySlug returns an error for the slugs listed in it.
+	// failures returns an error for the slugs listed in it.
 	failures map[string]error
 	issued   []string
 	known    map[string]bool
+	revoked  []string
 }
 
-func (f *fakeKeyIssuer) Issue(_ context.Context, slug string, known bool) (string, error) {
+func (f *fakeKeyIssuer) Issue(_ context.Context, uid, slug string, known bool) (string, string, error) {
 	if err := f.failures[slug]; err != nil {
-		return "", err
+		return "", "", err
 	}
 	f.issued = append(f.issued, slug)
 	if f.known == nil {
 		f.known = map[string]bool{}
 	}
 	f.known[slug] = known
-	return "ssh-ed25519 AAAA " + slug, nil
+	return deploykeys.KindGit.Name(uid), "ssh-ed25519 AAAA " + slug, nil
+}
+
+func (f *fakeKeyIssuer) Revoke(_ context.Context, name string) error {
+	f.revoked = append(f.revoked, name)
+	return nil
 }
 
 // The nominal case: every waiting project receives its key, and the public half is recorded.
@@ -125,5 +150,51 @@ func TestAKeyNotSetIsNotRecorded(t *testing.T) {
 	}
 	if projects.audits != 0 {
 		t.Error("a failed setting must not be logged as done")
+	}
+}
+
+// A key that could not be set says why on its project, and the name of a key set is recorded.
+func TestWhyAKeyWasNotSetIsRecorded(t *testing.T) {
+	projects := &fakeKeyStore{pending: []store.PendingKey{
+		{ID: 1, Slug: "occupe", UID: "u1"},
+		{ID: 2, Slug: "libre", UID: "u2"},
+	}}
+	issuer := &fakeKeyIssuer{failures: map[string]error{"occupe": deploykeys.ErrNameTaken}}
+
+	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
+
+	if projects.errors[1] == "" {
+		t.Error("the refusal was not recorded for the project's screen")
+	}
+	if projects.secrets[2] != deploykeys.KindGit.Name("u2") {
+		t.Errorf("secret recorded %q", projects.secrets[2])
+	}
+}
+
+// A key named from its slug, before projects had an id, moves under the id's name at its rotation,
+// and the former Secret is taken back.
+func TestARotationTakesBackAKeyNamedFromItsSlug(t *testing.T) {
+	projects := &fakeKeyStore{pending: []store.PendingKey{
+		{ID: 1, Slug: "mse", UID: "u1", Known: true, Secret: "arkhitekton-project-mse-git"},
+		{ID: 2, Slug: "shop", UID: "u2", Known: true, Secret: deploykeys.KindGit.Name("u2")},
+	}}
+	issuer := &fakeKeyIssuer{}
+
+	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
+
+	if len(issuer.revoked) != 1 || issuer.revoked[0] != "arkhitekton-project-mse-git" {
+		t.Errorf("revoked %v, expected the slug's name alone", issuer.revoked)
+	}
+}
+
+// The Secrets of a deleted project are deleted, then forgotten.
+func TestADeletedProjectsSecretsAreDeleted(t *testing.T) {
+	projects := &fakeKeyStore{orphans: []string{"arkhitekton-project-u1-git", "arkhitekton-project-u1-review"}}
+	issuer := &fakeKeyIssuer{}
+
+	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
+
+	if len(issuer.revoked) != 2 || len(projects.forgotten) != 2 {
+		t.Errorf("revoked %v, forgotten %v", issuer.revoked, projects.forgotten)
 	}
 }

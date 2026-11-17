@@ -194,9 +194,14 @@ type Project struct {
 	// whether a project's secret belongs to it. It reads it here.
 	DeployKeyPublic    string
 	DeployKeyCreatedAt *time.Time
-	CreatedBy          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	// DeployKeyError is why the worker could not set the key, empty once it could.
+	DeployKeyError string
+	// UID identifies the project for good: its Secrets are named from it, so that a slug renamed or
+	// reused never points at another project's.
+	UID       string
+	CreatedBy string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ErrProjectNotFound reports a missing project.
@@ -265,6 +270,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        deploy_key_error, uid::text,
 		        created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
@@ -291,6 +297,7 @@ func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        deploy_key_error, uid::text,
 		        created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
@@ -373,6 +380,7 @@ func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
+		        deploy_key_error, uid::text,
 		        created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
 	if err != nil {
@@ -399,7 +407,7 @@ func scanProject(rows pgx.Rows) (Project, error) {
 		&project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
-		&project.DeployKeyActive,
+		&project.DeployKeyActive, &project.DeployKeyError, &project.UID,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("reading a project: %w", err)
@@ -547,14 +555,63 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 	return nil
 }
 
-// DeleteProject removes a repository from the list.
+// DeleteProject removes a repository from the list, and puts its Secrets down for deletion.
+//
+// The API has no cluster token: the worker deletes them. Put down in the same transaction, so
+// that a project gone always leaves the names of its Secrets behind, and nothing else.
 func (db *DB) DeleteProject(ctx context.Context, id int64) error {
-	tag, err := db.pool.Exec(ctx, `delete from projects where id = $1`, id)
+	transaction, err := db.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("deleting project %d: %w", id, err)
 	}
-	if tag.RowsAffected() == 0 {
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	var uid, secret string
+	err = transaction.QueryRow(ctx,
+		`select uid::text, deploy_key_secret from projects where id = $1 for update`, id).Scan(&uid, &secret)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrProjectNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("deleting project %d: %w", id, err)
+	}
+	names := []string{deploykeys.KindReview.Name(uid)}
+	if secret != "" {
+		names = append(names, secret)
+	}
+	if _, err := transaction.Exec(ctx,
+		`insert into project_secrets_to_delete (name) select unnest($1::text[]) on conflict do nothing`,
+		names); err != nil {
+		return fmt.Errorf("deleting project %d: %w", id, err)
+	}
+	if _, err := transaction.Exec(ctx, `delete from projects where id = $1`, id); err != nil {
+		return fmt.Errorf("deleting project %d: %w", id, err)
+	}
+	return transaction.Commit(ctx)
+}
+
+// SecretsToDelete are the Secrets of deleted projects, still in the cluster.
+func (db *DB) SecretsToDelete(ctx context.Context) ([]string, error) {
+	rows, err := db.pool.Query(ctx, `select name from project_secrets_to_delete order by requested_at`)
+	if err != nil {
+		return nil, fmt.Errorf("secrets to delete: %w", err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("secrets to delete: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+// SecretDeleted forgets a Secret the worker deleted.
+func (db *DB) SecretDeleted(ctx context.Context, name string) error {
+	if _, err := db.pool.Exec(ctx, `delete from project_secrets_to_delete where name = $1`, name); err != nil {
+		return fmt.Errorf("secret %s deleted: %w", name, err)
 	}
 	return nil
 }
@@ -603,16 +660,29 @@ func normaliseTargets(targets []Target) []Target {
 // is the ownership record, and writing it first would suggest a key was set if
 // placing it then failed. A later rotation would then replace a Secret that does not
 // exist, or worse, someone else's.
-func (db *DB) SetDeployKey(ctx context.Context, projectID int64, public string) error {
+//
+// The Secret's name is recorded with it: it is what the runs mount and what a deletion removes,
+// read here rather than derived from a slug that may since have been renamed or reused.
+func (db *DB) SetDeployKey(ctx context.Context, projectID int64, public, secret string) error {
 	_, err := db.pool.Exec(ctx,
 		// The rotation request is cleared in the same gesture: leaving it would set a new key
-		// on every turn of the loop.
+		// on every turn of the loop. And a key set says nothing failed any more.
 		`update projects
-		 set deploy_key_public = $2, deploy_key_created_at = now(),
-		     deploy_key_rotate_requested_at = null, updated_at = now()
-		 where id = $1`, projectID, public)
+		 set deploy_key_public = $2, deploy_key_secret = $3, deploy_key_created_at = now(),
+		     deploy_key_rotate_requested_at = null, deploy_key_error = '', updated_at = now()
+		 where id = $1`, projectID, public, secret)
 	if err != nil {
 		return fmt.Errorf("key of project %d: %w", projectID, err)
+	}
+	return nil
+}
+
+// SetDeployKeyError records why the worker could not set a project's key, for its screen.
+func (db *DB) SetDeployKeyError(ctx context.Context, projectID int64, reason string) error {
+	_, err := db.pool.Exec(ctx,
+		`update projects set deploy_key_error = $2 where id = $1`, projectID, reason)
+	if err != nil {
+		return fmt.Errorf("key error of project %d: %w", projectID, err)
 	}
 	return nil
 }
@@ -625,7 +695,7 @@ func (db *DB) SetDeployKey(ctx context.Context, projectID int64, public string) 
 func (db *DB) ClearDeployKey(ctx context.Context, projectID int64) error {
 	_, err := db.pool.Exec(ctx,
 		`update projects
-		 set deploy_key_public = '', deploy_key_created_at = null, updated_at = now()
+		 set deploy_key_public = '', deploy_key_secret = '', deploy_key_created_at = null, updated_at = now()
 		 where id = $1`, projectID)
 	if err != nil {
 		return fmt.Errorf("forgetting the key of project %d: %w", projectID, err)
@@ -639,23 +709,24 @@ func (db *DB) ClearDeployKey(ctx context.Context, projectID int64) error {
 // `deploy_key_public` and not from the cluster: the dashboard's RBAC does not let it
 // read a secret there, and this column is authoritative about ownership.
 func (db *DB) DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error) {
-	var slug, public string
+	var secret string
 	err := db.pool.QueryRow(ctx,
 		// `deploy_key_active` and not merely the key's presence: between setting it and the
 		// moment someone pastes it into the forge, it opens nothing. Using it regardless
 		// would fail the clone of a repository that worked the day before.
-		`select slug, deploy_key_public from projects
+		`select deploy_key_secret from projects
 		 where id = $1 and deploy_key_active`, projectID).
-		Scan(&slug, &public)
+		Scan(&secret)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", false, nil
 	case err != nil:
 		return "", false, fmt.Errorf("key of project %d: %w", projectID, err)
-	case public == "":
+	case secret == "":
 		return "", false, nil
 	}
-	return deploykeys.SecretName(slug), true, nil
+	// The name recorded when the key was set: a slug renamed since names nothing.
+	return secret, true, nil
 }
 
 // RequestKeyRotation asks for a project's key to be replaced.
@@ -681,6 +752,11 @@ func (db *DB) RequestKeyRotation(ctx context.Context, projectID int64) error {
 type PendingKey struct {
 	ID   int64
 	Slug string
+	// UID names the Secret a key is set into.
+	UID string
+	// Secret is the name of the key's Secret already set, empty for a first set. A rotation that
+	// names it otherwise removes it.
+	Secret string
 	// Known says whether the dashboard already holds this project's key. That is what
 	// separates a rotation — the Secret is ours, we replace it — from a first set, where
 	// a Secret of the same name necessarily came from elsewhere and must not be adopted.
@@ -694,7 +770,7 @@ type PendingKey struct {
 // up on both without having to tell which had been interrupted.
 func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, slug, deploy_key_public <> ''
+		`select id, slug, uid::text, deploy_key_secret, deploy_key_public <> ''
 		 from projects
 		 where deploy_key_public = '' or deploy_key_rotate_requested_at is not null
 		 order by id`)
@@ -706,7 +782,7 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 	var pending []PendingKey
 	for rows.Next() {
 		var entry PendingKey
-		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.Known); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.UID, &entry.Secret, &entry.Known); err != nil {
 			return nil, fmt.Errorf("projects without a key: %w", err)
 		}
 		pending = append(pending, entry)

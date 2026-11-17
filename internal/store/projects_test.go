@@ -457,3 +457,61 @@ func TestAStageWithNoImageIsDiscarded(t *testing.T) {
 		t.Errorf("stages kept = %+v", stored.Targets)
 	}
 }
+
+// A project's id is the database's, unique, and names its Secrets: a slug renamed keeps the key
+// recorded, and a deleted project leaves the names of its Secrets for the worker to delete.
+func TestAProjectsSecretsFollowItsIDNotItsSlug(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	id := project(t, db, "CNOUS/mse")
+	other := project(t, db, "CNOUS/theme")
+	read, _ := db.GetProject(ctx, id)
+	second, _ := db.GetProject(ctx, other)
+	if len(read.UID) != 36 || read.UID == second.UID {
+		t.Fatalf("ids %q and %q", read.UID, second.UID)
+	}
+
+	if err := db.SetDeployKeyError(ctx, id, "a Secret already carries this name"); err != nil {
+		t.Fatal(err)
+	}
+	if read, _ := db.GetProject(ctx, id); read.DeployKeyError == "" {
+		t.Error("the key's error was not kept")
+	}
+	secret := "arkhitekton-project-" + read.UID + "-git"
+	if err := db.SetDeployKey(ctx, id, "ssh-ed25519 AAAA", secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ActivateDeployKey(ctx, id, true); err != nil {
+		t.Fatal(err)
+	}
+	read, _ = db.GetProject(ctx, id)
+	if read.DeployKeyError != "" {
+		t.Errorf("error kept after the key was set: %q", read.DeployKeyError)
+	}
+
+	// Renamed: the key recorded stays the one mounted.
+	read.Slug = "portail"
+	if err := db.UpdateProject(ctx, read); err != nil {
+		t.Fatalf("renaming: %v", err)
+	}
+	if name, found, err := db.DeployKeySecret(ctx, id); err != nil || !found || name != secret {
+		t.Errorf("secret after renaming = %q (%v, %v)", name, found, err)
+	}
+
+	if err := db.DeleteProject(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	names, err := db.SecretsToDelete(ctx)
+	if err != nil || len(names) != 2 {
+		t.Fatalf("to delete %v, %v", names, err)
+	}
+	for _, name := range names {
+		if err := db.SecretDeleted(ctx, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if names, _ := db.SecretsToDelete(ctx); len(names) != 0 {
+		t.Errorf("still to delete %v", names)
+	}
+}
