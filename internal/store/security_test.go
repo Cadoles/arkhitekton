@@ -153,3 +153,31 @@ func TestLatestSecurityAuditOnAReleaseWithout(t *testing.T) {
 		t.Errorf("error = %v, expected ErrAuditNotFound", err)
 	}
 }
+
+// A review's findings come after the audit and must not stand for it: each group keeps its own.
+func TestAnotherGroupOfFindingsLeavesTheAuditAlone(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+	releaseID, auditID := auditFixture(t, db, nil)
+
+	reviewID, err := db.SaveTestResult(ctx, TestResult{Producer: "review@1", Shape: "findings",
+		RunID: testRun(t, db, "review-1"), ReleaseID: &releaseID, Group: "review",
+		Tool: "conclave", Status: "fail", Total: 1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if err := db.SaveSecurityAudit(ctx, SecurityAudit{TestResultID: reviewID, RunID: "review", Total: 1},
+		[]SecurityFinding{{Fingerprint: "r", RunID: "review", Tool: "pi", Severity: "HIGH", Title: "Fuite"}}); err != nil {
+		t.Fatalf("review: %v", err)
+	}
+
+	audit, err := db.LatestSecurityAudit(ctx, releaseID)
+	if err != nil || audit.TestResultID != auditID {
+		t.Errorf("security = %d (%v), expected %d", audit.TestResultID, err, auditID)
+	}
+	review, err := db.LatestFindingsIn(ctx, ReleaseScope(releaseID), "review")
+	if err != nil || review.TestResultID != reviewID {
+		t.Errorf("review = %d (%v), expected %d", review.TestResultID, err, reviewID)
+	}
+}
