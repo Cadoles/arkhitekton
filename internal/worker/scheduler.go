@@ -154,6 +154,10 @@ func (s *Scheduler) WithUploads(presigner Presigner) *Scheduler {
 // projectRepoKey is the key under which the catalogue names the repository to clone.
 const projectRepoKey = "project.repoUrl"
 
+// projectForgeKey names the project's forge, its public address: a pipeline that reads the forge's
+// API, a review reading its pull request, reaches the host the repository is cloned from.
+const projectForgeKey = "project.forgeUrl"
+
 // NewSchedulerFromCatalog assembles the scheduler. `config` supplies the values of the
 // parameters whose source is `config`.
 func NewSchedulerFromCatalog(
@@ -641,6 +645,9 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 		}
 		if clone := config.CloneURLFor(project.ForgeURL, project.Repository, s.projectSSHPort); clone != "" {
 			overrides[projectRepoKey] = clone
+		}
+		if forge := strings.TrimRight(strings.TrimSpace(project.ForgeURL), "/"); forge != "" {
+			overrides[projectForgeKey] = forge
 		}
 	}
 
