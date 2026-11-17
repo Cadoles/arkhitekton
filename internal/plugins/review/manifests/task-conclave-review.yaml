@@ -129,8 +129,11 @@ spec:
         export REVIEW_API_KEY
 
         # Pi's provider: the secret's own `models.json` when it brings one, several providers for
-        # instance, the endpoint of the settings otherwise.
+        # instance, whose models are then named `provider/id`; the endpoint of the settings
+        # otherwise, whose models are named by their whole id, a slash included.
+        OWN_MODELS="false"
         if [ -f "${MODEL}/models.json" ]; then
+          OWN_MODELS="true"
           cp "${MODEL}/models.json" "${HOME}/.pi/agent/models.json"
         else
           jq -n --arg endpoint "${ENDPOINT}" --arg api "${API:-openai-completions}" \
@@ -138,11 +141,32 @@ spec:
             def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
             {providers: {"self-hosted": {
               baseUrl: $endpoint, api: $api, apiKey: "$REVIEW_API_KEY",
-              models: ([($reviewers | list)[], $lead]
-                | map(ltrimstr("self-hosted/")) | map(select(test("/") | not)) | unique | map({id: .}))
+              models: ([($reviewers | list)[], $lead] | unique | map({id: .}))
             }}}' > "${HOME}/.pi/agent/models.json"
         fi
         chmod 600 "${HOME}/.pi/agent/models.json"
+
+        # The endpoint asked once before the review: one behind a login page answers a redirect,
+        # which Pi follows into an empty stream, and the review would fail on a message that does
+        # not name the address. Not followed, a redirect or a refusal stops here, said plainly; a
+        # missing `/models` route only warns, since not every server has one.
+        if [ "${OWN_MODELS}" = "false" ]; then
+          node -e '
+            const url = process.env.ENDPOINT.replace(/\/+$/, "") + "/models";
+            fetch(url, {headers: {Authorization: "Bearer " + process.env.REVIEW_API_KEY}, redirect: "manual",
+                        signal: AbortSignal.timeout(20000)})
+              .then((answer) => {
+                const where = answer.headers.get("location");
+                const said = `the endpoint ${url} answers ${answer.status}` + (where ? ` towards ${where}` : "");
+                if (answer.status >= 300 && answer.status < 400 || answer.status === 401 || answer.status === 403) {
+                  console.error(said + ": check its address (the OpenAI-compatible API) and its key");
+                  process.exit(1);
+                }
+                if (!answer.ok) console.error("warning: " + said);
+              })
+              .catch((error) => { console.error(`the endpoint ${url} cannot be reached: ${error.message}`); process.exit(1); });
+          '
+        fi
 
         GITEA_TOKEN="$(tr -d '[:space:]' < "$(workspaces.forge-token.path)/token")"
         export GITEA_TOKEN
@@ -154,13 +178,14 @@ spec:
         jq -n --arg forge "${FORGE_URL}" --arg empty "${EMPTY}" \
           --arg reviewers "${REVIEWERS}" --arg lead "${LEAD}" --arg thinking "${THINKING}" \
           --arg timeout "${TIMEOUT:-30m}" --arg agent "${AGENT_TIMEOUT:-15m}" --arg leadTimeout "${LEAD_TIMEOUT:-10m}" \
-          --arg parallel "${MAX_PARALLEL:-2}" --arg exclude "${DIFF_EXCLUDE}" --arg ci "${CI_WEIGHS}" '
+          --arg parallel "${MAX_PARALLEL:-2}" --arg exclude "${DIFF_EXCLUDE}" --arg ci "${CI_WEIGHS}" \
+          --arg own "${OWN_MODELS}" '
           def list: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
-          def qualified: if test("/") then . else "self-hosted/" + . end;
+          def selected: if $own == "true" then ["--model", .] else ["--provider", "self-hosted", "--model", .] end;
           def agent($id; $role; $model): {
             id: $id, role: $role,
-            command: (["pi", "--print", "--no-session", "--mode", "json", "--tools", "read,grep,find,ls",
-                       "--model", ($model | qualified)]
+            command: (["pi", "--print", "--no-session", "--mode", "json", "--tools", "read,grep,find,ls"]
+                      + ($model | selected)
                       + (if $thinking == "" then [] else ["--thinking", $thinking] end) + ["--"]),
             input: "argument", output: "pi-json", max_output_bytes: 33554432,
             inherit_env: false, environment: {REVIEW_API_KEY: $ENV.REVIEW_API_KEY}
