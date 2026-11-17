@@ -8,6 +8,7 @@ import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useQueue, type Kind } from '../queue/api'
+import { JobError } from '../releases/JobError'
 import { TestsPanel } from '../releases/TestsPanel'
 import { pullSubject } from '../releases/tests'
 import { useLaunchOnPull, usePull, type PullDetail } from './api'
@@ -112,6 +113,7 @@ function PullPage({ detail }: { detail: PullDetail }) {
                 <span className="ml-auto text-zinc-500">
                   {job.requested_by} — {formatDateTime(job.requested_at)}
                 </span>
+                {job.error && <JobError error={job.error} />}
               </li>
             ))}
           </ul>

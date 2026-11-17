@@ -327,6 +327,8 @@ type releaseJobPayload struct {
 	RequestedBy string     `json:"requested_by"`
 	RequestedAt time.Time  `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	// Error is why the job failed: before any run, it is the only trace of it.
+	Error string `json:"error,omitempty"`
 }
 
 // jobRole names a job's pipeline and says what it does for the release.
@@ -521,7 +523,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 			ID: job.ID, Kind: job.Kind, Label: label, Role: role,
 			State: job.State, Environment: job.EnvironmentID,
 			RunName: job.RunName, RequestedBy: who.name(job.RequestedBy),
-			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
+			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt, Error: job.Error,
 		})
 	}
 

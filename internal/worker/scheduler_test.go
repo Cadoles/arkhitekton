@@ -449,3 +449,26 @@ func TestAnOverridableParameterTakesTheStepsValue(t *testing.T) {
 		}
 	}
 }
+
+// A project whose key no forge has yet will not clone until someone pastes it: the job ends at
+// once, saying so, rather than after attempts that name no cause.
+func TestAJobOfAProjectWithoutAnActiveKeyEndsAtOnce(t *testing.T) {
+	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{{
+		Kind: "php/unit-tests", PipelineRef: "php-unit-tests", Workspaces: []catalog.Workspace{
+			{Name: "git-credentials", Secret: &catalog.SecretSource{ConfigKey: ProjectDeployKey}},
+		},
+	}}}
+	project := int64(8)
+	queue := &unavailableQueue{job: store.Job{ID: 9, Kind: "php/unit-tests", RunName: "ark-x-9", ProjectID: &project}}
+	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, map[string]string{}, slog.New(slog.DiscardHandler)).
+		WithProjectKeys(&fakeProjectSecrets{})
+
+	scheduler.dispatchOne(context.Background(), store.Limits{})
+
+	if queue.requeued != 0 {
+		t.Errorf("requeued %d time(s)", queue.requeued)
+	}
+	if len(queue.finished) != 1 || !strings.Contains(queue.finished[0], "no active deploy key") {
+		t.Errorf("finished = %v", queue.finished)
+	}
+}

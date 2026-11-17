@@ -113,6 +113,26 @@ describe("la page d'une pull request", () => {
     expect(screen.getByText("Retirer l'en-tête.")).toBeInTheDocument()
   })
 
+  it("dit pourquoi un job a échoué", async () => {
+    const failing = {
+      ...pull,
+      jobs: [
+        ...pull.jobs,
+        { id: 4, kind: 'review/pull-request', label: 'Revue IA', state: 'failed', requested_by: 'vcarroy',
+          requested_at: '2026-11-17T10:00:00Z', error: "the project has no active deploy key" },
+      ],
+    }
+    mockFetch([
+      { path: '/me', body: { subject: 's', username: 'admin', role: 'admin', projects: [{ slug: 'shop', label: 'Shop' }] } },
+      { path: '/pulls/12/review', body: notReviewed },
+      { path: '/pulls/12/tests', body: { results: [], score: { value: 0, measured: false, health: 'na', signals: [], redistributed: [] } } },
+      { path: '/pulls/12', body: failing },
+    ])
+    render(<PullScreen />)
+
+    expect(await screen.findByText('the project has no active deploy key')).toBeInTheDocument()
+  })
+
   it("ne montre rien de la revue tant qu'aucune n'a été faite", async () => {
     arm()
     render(<PullScreen />)

@@ -267,6 +267,8 @@ type ReleaseJob struct {
 	RequestedBy   string
 	RequestedAt   time.Time
 	FinishedAt    *time.Time
+	// Error is why the job failed, empty when it did not.
+	Error string
 }
 
 // ListReleaseJobs returns what was triggered for a release.
@@ -286,7 +288,7 @@ func (db *DB) ListPullRequestJobs(ctx context.Context, pullRequestID int64) ([]R
 func (db *DB) listJobsOf(ctx context.Context, column string, releaseID int64) ([]ReleaseJob, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, kind, state, coalesce(environment_id, ''), coalesce(run_name, ''),
-		        requested_by, requested_at, finished_at
+		        requested_by, requested_at, finished_at, coalesce(error, '')
 		 from jobs where `+column+` = $1 order by requested_at desc`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("jobs of %s %d: %w", column, releaseID, err)
@@ -297,7 +299,7 @@ func (db *DB) listJobsOf(ctx context.Context, column string, releaseID int64) ([
 	for rows.Next() {
 		var job ReleaseJob
 		if err := rows.Scan(&job.ID, &job.Kind, &job.State, &job.EnvironmentID,
-			&job.RunName, &job.RequestedBy, &job.RequestedAt, &job.FinishedAt); err != nil {
+			&job.RunName, &job.RequestedBy, &job.RequestedAt, &job.FinishedAt, &job.Error); err != nil {
 			return nil, fmt.Errorf("jobs of %s %d: %w", column, releaseID, err)
 		}
 		jobs = append(jobs, job)

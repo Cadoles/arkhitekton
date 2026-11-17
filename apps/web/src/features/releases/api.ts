@@ -106,6 +106,8 @@ export type ReleaseJob = {
   requested_by: string
   requested_at: string
   finished_at?: string
+  /** Pourquoi le job a échoué. Avant tout run, c'est la seule trace de l'échec. */
+  error?: string
 }
 
 /** Un artefact que l'automatisation a produit.

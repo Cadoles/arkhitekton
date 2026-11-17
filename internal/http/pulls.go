@@ -126,7 +126,7 @@ func (h *PullsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		jobViews = append(jobViews, releaseJobPayload{
 			ID: job.ID, Kind: job.Kind, Label: label, Role: role, State: job.State,
 			RunName: job.RunName, RequestedBy: who.name(job.RequestedBy),
-			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt,
+			RequestedAt: job.RequestedAt, FinishedAt: job.FinishedAt, Error: job.Error,
 		})
 	}
 	runViews := make([]planRunPayload, 0, len(runs))
