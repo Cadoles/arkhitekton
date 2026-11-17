@@ -482,6 +482,19 @@ export function ProjectKey({ project }: { project: Project }) {
   const [confirming, setConfirming] = useState(false)
 
   if (!project.deploy_key) {
+    // Le refus du worker plutôt qu'une promesse : sans lui, l'écran annonçait une clé « au
+    // prochain passage » qui ne venait jamais.
+    if (project.deploy_key_error) {
+      return (
+        <p className="flex items-start gap-1.5 text-xs text-critical-700">
+          <Icon name="alert" className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            La clé n'a pas pu être posée : {project.deploy_key_error}. Le worker réessaie à chaque
+            minute ; les constructions de ce projet refusent de partir d'ici là.
+          </span>
+        </p>
+      )
+    }
     return (
       <p className="text-xs text-zinc-500">
         Pas encore de clé propre — elle sera posée au prochain passage du worker. Tant

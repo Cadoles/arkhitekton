@@ -187,8 +187,12 @@ type projectPayload struct {
 	// False, nothing builds. There is no shared key to fall back on any more: it made its
 	// revocation an outage for every project at once, and said nothing about who cloned
 	// what.
-	DeployKeyActive bool   `json:"deploy_key_active"`
-	CreatedBy       string `json:"created_by"`
+	DeployKeyActive bool `json:"deploy_key_active"`
+	// DeployKeyError is why the worker could not set the key, empty once it could.
+	DeployKeyError string `json:"deploy_key_error,omitempty"`
+	// UID is the project's unique id, which its Secrets are named from: `kubectl` finds them by it.
+	UID       string `json:"uid"`
+	CreatedBy string `json:"created_by"`
 }
 
 // List returns the projects, the deploy key and the default forge.
@@ -244,7 +248,8 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
 		DeployKey: project.DeployKeyPublic, DeployKeyCreatedAt: project.DeployKeyCreatedAt,
-		DeployKeyActive: project.DeployKeyActive,
+		DeployKeyActive: project.DeployKeyActive, DeployKeyError: project.DeployKeyError,
+		UID: project.UID,
 	}
 }
 

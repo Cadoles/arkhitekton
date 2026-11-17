@@ -191,13 +191,16 @@ export type Project = {
   check_ok?: boolean
   check_note?: string
   /** Moitié **publique** de la clé propre au projet. Absente tant que le worker
-   *  ne l'a pas posée : le projet emploie alors la clé partagée. La moitié
-   *  privée n'apparaît jamais, ni ici ni ailleurs. */
+   *  ne l'a pas posée. La moitié privée n'apparaît jamais, ni ici ni ailleurs. */
   deploy_key?: string
   deploy_key_created_at?: string
-  /** La clé ouvre vraiment le dépôt : quelqu'un l'a collée dans ses réglages.
-   *  Faux, les pipelines montent la clé partagée — qui, elle, fonctionne. */
+  /** La clé ouvre vraiment le dépôt : le test d'accès l'a trouvée dans ses clés.
+   *  Faux, les pipelines du projet refusent de partir. */
   deploy_key_active: boolean
+  /** Pourquoi le worker n'a pas pu poser la clé. Absent dès qu'il y arrive. */
+  deploy_key_error?: string
+  /** L'identifiant unique du projet, dont ses Secrets tirent leur nom. */
+  uid: string
   created_by: string
 }
 
