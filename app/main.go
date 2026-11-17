@@ -660,7 +660,8 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithProjectRepositories(db, os.Getenv("FORGE_SSH_PORT")).
 				// And the settings the plugins add for this project. Nothing from a plugin switched
 				// off for it.
-				WithProjectSettings(answers.projectSettings()).
+				// The built-in plugins' settings first, the installed plugins' answers over them.
+				WithProjectSettings(mergedSettings(builtinSettings(db, carriedPlugins()), answers.projectSettings())).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db))
 
