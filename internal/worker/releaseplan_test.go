@@ -457,3 +457,25 @@ func TestAnOrdinaryUnresolvedVariableDoesNotFail(t *testing.T) {
 		t.Errorf("note = %q", params["note"])
 	}
 }
+
+// A step on a pull request's fact gets the request's number with nothing written: a reaction's
+// review names no pull request, and could not name another one.
+func TestAPullRequestsFactGivesItsNumber(t *testing.T) {
+	pipeline := catalog.Pipeline{Kind: "review/pull-request", Params: map[string]catalog.Param{
+		"number": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestPullRequest},
+	}}
+	geste := plan.Geste{Kind: plan.GestePipeline, Ref: pipeline.Kind, Params: map[string]string{"number": "99"}}
+
+	params, err := stepParams(pipeline, geste, map[string]string{
+		contextRevision: "abc", contextTag: "pr-12-abc", contextPullRequest: "4", contextNumber: "12",
+	})
+	if err != nil || params["number"] != "12" {
+		t.Errorf("number = %q (%v), expected the fact's", params["number"], err)
+	}
+
+	// A release's run bears on no pull request: the step is refused rather than run on none.
+	if _, err := stepParams(pipeline, plan.Geste{Kind: plan.GestePipeline, Ref: pipeline.Kind},
+		releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")); err == nil {
+		t.Error("a release's run reviewed a pull request")
+	}
+}

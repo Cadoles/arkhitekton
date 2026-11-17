@@ -591,8 +591,23 @@ pipelines:
 	}
 	// And the fallback stays computable: a step that declares nothing receives what
 	// the registry and the tag compose.
-	if got := input.FromContext("abc123", "1.8.0", "vcarroy"); got == "" {
+	if got := input.FromContext("abc123", "1.8.0", "vcarroy", ""); got == "" {
 		t.Error("the fallback returns nothing — a step with no declaration would have no image")
+	}
+}
+
+// A pull request's number is the run's to give, like its revision: a step does not choose which
+// pull request it reviews.
+func TestAPullRequestsNumberComesFromTheRun(t *testing.T) {
+	input := Input{Name: "number", Required: true, Suggest: SuggestPullRequest}
+	if input.Origin() != OriginContext {
+		t.Errorf("origin = %q, expected %q", input.Origin(), OriginContext)
+	}
+	if got := input.FromContext("abc123", "pr-12-abc123", "reg", "12"); got != "12" {
+		t.Errorf("number = %q", got)
+	}
+	if got := input.FromContext("abc123", "1.8.0", "reg", ""); got != "" {
+		t.Errorf("a release gave the number %q", got)
 	}
 }
 

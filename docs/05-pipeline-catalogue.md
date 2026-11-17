@@ -91,11 +91,15 @@ params:
 
 An `input` carries form metadata (`label`, `help`, `placeholder`) and a `suggest` that names
 the *nature* of the value so the launch form can offer a list: one of `git-ref`, `release-tag`,
-`environment`, `image`, `image-name`, `build-target`. With `suggest: image`, the `image` field
+`environment`, `image`, `image-name`, `build-target`, `pull-request`. With `suggest: image`, the `image` field
 names the short repository the parameter expects; no other parameter takes that field, and a
 `binding` parameter takes no `suggest`. `suggest` is also what lets an automation fill a
 parameter with nobody typing: in a release, a `git-ref` or `release-tag` parameter is filled by
-the run and a step cannot change it, and an `image` one is filled only when the step names none.
+the run and a step cannot change it, and an `image` one is filled only when the step names none. A
+`pull-request` parameter is filled with the request's number by a run on a pull request, launched
+from its page or by a reaction to one of its facts, and a step cannot change it either; a
+release's run gives none, so a step needing one is refused there. The launch form offers the open
+pull requests.
 
 **Config keys** available to `binding` parameters:
 

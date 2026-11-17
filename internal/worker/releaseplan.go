@@ -65,6 +65,9 @@ const (
 	contextTag       = "tag"
 	contextReleaseID = "release_id"
 	contextRegistry  = "registry"
+	// The two keys of a pull request's fact that name it: its row, and its number on the forge.
+	contextPullRequest = "pull_request_id"
+	contextNumber      = "number"
 )
 
 // releaseTrigger names the trigger of a release's plan.
@@ -135,9 +138,14 @@ func stepParams(
 			"stage", missing)
 	}
 
+	// The pull request a run bears on, when it does: a release's fact carries no number.
+	pull := ""
+	if context[contextPullRequest] != "" {
+		pull = context[contextNumber]
+	}
 	for _, input := range pipeline.Inputs() {
 		provided := input.FromContext(
-			context[contextRevision], context[contextTag], context[contextRegistry])
+			context[contextRevision], context[contextTag], context[contextRegistry], pull)
 
 		switch input.Origin() {
 		case catalog.OriginContext:
