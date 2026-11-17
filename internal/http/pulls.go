@@ -189,7 +189,7 @@ func (h *PullsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		params[name] = value
 	}
 	for _, input := range pipeline.Inputs() {
-		if value := input.FromContext(pull.HeadSHA, tag, h.registry); value != "" {
+		if value := input.FromContext(pull.HeadSHA, tag, h.registry, strconv.FormatInt(pull.Number, 10)); value != "" {
 			params[input.Name] = value
 		}
 	}

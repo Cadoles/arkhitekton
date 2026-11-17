@@ -281,6 +281,23 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 		return proposed
 	}
 
+	// The open pull requests, for a pipeline that bears on one. Read when the store follows them.
+	if pulls, follows := h.releases.(openPulls); follows {
+		open, err := pulls.ListPullRequests(ctx, currentID, "open", suggestedReleases)
+		if err != nil {
+			if h.logger != nil {
+				h.logger.Error("pull request suggestions", "error", err)
+			}
+		} else {
+			numbers := make([]option, 0, len(open))
+			for _, pull := range open {
+				numbers = append(numbers, option{Value: strconv.FormatInt(pull.Number, 10),
+					Label: fmt.Sprintf("#%d %s", pull.Number, pull.Title)})
+			}
+			proposed[catalog.SuggestPullRequest] = numbers
+		}
+	}
+
 	tags := make([]option, 0, len(releases))
 	for _, release := range releases {
 		tags = append(tags, option{Value: release.Tag})
@@ -305,6 +322,11 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	}
 
 	return proposed
+}
+
+// openPulls lists a project's pull requests, for the launch form.
+type openPulls interface {
+	ListPullRequests(ctx context.Context, projectID int64, state string, limit int) ([]store.PullRequest, error)
 }
 
 // projectOf resolves the project of the suggestions.

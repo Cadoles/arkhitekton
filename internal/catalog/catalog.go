@@ -293,11 +293,14 @@ const (
 	SuggestImageName = "image-name"
 	// SuggestBuildTarget offers the Dockerfile targets that feed them.
 	SuggestBuildTarget = "build-target"
+	// SuggestPullRequest is a pull request's number: filled by a run on a pull request, from its
+	// page or by a reaction to one of its facts, and offered from the open ones elsewhere.
+	SuggestPullRequest = "pull-request"
 )
 
 var suggestions = map[string]bool{
 	SuggestGitRef: true, SuggestReleaseTag: true, SuggestEnvironment: true,
-	SuggestImage: true, SuggestImageName: true, SuggestBuildTarget: true,
+	SuggestImage: true, SuggestImageName: true, SuggestBuildTarget: true, SuggestPullRequest: true,
 }
 
 // Input describes a parameter to supply at launch.
@@ -341,7 +344,7 @@ const (
 // Origin classifies this parameter.
 func (i Input) Origin() Origin {
 	switch i.Suggest {
-	case SuggestGitRef, SuggestReleaseTag:
+	case SuggestGitRef, SuggestReleaseTag, SuggestPullRequest:
 		return OriginContext
 	case SuggestImage:
 		return OriginFallback
@@ -828,7 +831,8 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 			continue
 		}
 
-		value := input.FromContext(revision, tag, registry)
+		// A release bears on no pull request.
+		value := input.FromContext(revision, tag, registry, "")
 		if value == "" {
 			return nil, input.Name
 		}
@@ -841,8 +845,10 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 //
 // Empty when it gives none: it is then for the declaration to fill it, and
 // [Input.Origin] says which of the two has the last word.
-func (i Input) FromContext(revision, tag, registry string) string {
+func (i Input) FromContext(revision, tag, registry, pull string) string {
 	switch i.Suggest {
+	case SuggestPullRequest:
+		return pull
 	case SuggestGitRef:
 		return revision
 	case SuggestReleaseTag:

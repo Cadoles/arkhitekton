@@ -398,3 +398,29 @@ func TestALaunchIsForTheSelectedProject(t *testing.T) {
 		t.Errorf("no project: status %d, %+v", code, fake.enqueued)
 	}
 }
+
+// pullFollowingStore is the queue's store once pull requests are followed.
+type pullFollowingStore struct {
+	*fakeQueueStore
+}
+
+func (pullFollowingStore) ListPullRequests(_ context.Context, _ int64, state string, _ int) ([]store.PullRequest, error) {
+	if state != "open" {
+		return nil, nil
+	}
+	return []store.PullRequest{{Number: 12, Title: "Recherche"}}, nil
+}
+
+// The launch form offers the open pull requests, for a pipeline that bears on one.
+func TestTheLaunchFormOffersTheOpenPullRequests(t *testing.T) {
+	fake := newFakeQueueStore()
+	followed := pullFollowingStore{fake}
+	handler := NewQueueHandler(fake, &catalog.Catalog{MaxConcurrentRuns: 1}).
+		WithSuggestions(followed, "reg", nil)
+
+	listing := listQueues(t, handler)
+	offered := listing.Suggestions[catalog.SuggestPullRequest]
+	if len(offered) != 1 || offered[0].Value != "12" || offered[0].Label != "#12 Recherche" {
+		t.Errorf("pull requests = %+v", offered)
+	}
+}

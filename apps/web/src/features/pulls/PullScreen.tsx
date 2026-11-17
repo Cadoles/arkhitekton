@@ -21,10 +21,16 @@ import { ReviewSection } from './ReviewSection'
  * sur ses faits. Chaque famille se compare à la poussée précédente de la même PR.
  */
 
-/** Ce que la tête de la PR remplit : la révision, l'étiquette de PR, les images construites dessous.
- *  Une image se suggère sous `image:<dépôt>`. */
+/** Ce que la PR remplit : son numéro, la révision de sa tête, son étiquette, les images construites
+ *  dessous. Une image se suggère sous `image:<dépôt>`. */
 function filledByHead(suggest: string | undefined): boolean {
-  return suggest === 'git-ref' || suggest === 'release-tag' || suggest === 'image' || Boolean(suggest?.startsWith('image:'))
+  return (
+    suggest === 'pull-request' ||
+    suggest === 'git-ref' ||
+    suggest === 'release-tag' ||
+    suggest === 'image' ||
+    Boolean(suggest?.startsWith('image:'))
+  )
 }
 
 export function PullScreen() {
@@ -213,8 +219,8 @@ function LaunchModal({ number, onClose }: { number: number; onClose: () => void 
         </label>
 
         <p className="text-xs text-zinc-500">
-          La révision, l&apos;étiquette de PR et les images construites dessous sont remplies depuis la tête de la
-          pull request.
+          Le numéro de la pull request, la révision de sa tête, son étiquette et les images construites dessous
+          sont remplis par la pull request.
         </p>
 
         {asked.map((input) => (

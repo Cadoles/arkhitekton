@@ -112,10 +112,8 @@ func pullRequest(manifests []capability.Manifest) capability.Pipeline {
 				"max-parallel":  setting("maxParallel", false),
 				"diff-exclude":  setting("diffExclude", false),
 				"ci":            setting("ci", false),
-				"number": {
-					Source: capability.ParamInput, Required: true, Label: "Pull request",
-					Help: "Le numéro de la pull request sur la forge. Une automatisation le lit dans le fait : {number}.",
-				},
+				// Filled by the run: from a pull request's page, or by a reaction to its facts.
+				"number": {Source: capability.ParamInput, Required: true, Suggest: "pull-request", Label: "Pull request"},
 			},
 			Workspaces: []capability.Workspace{
 				{Name: "git-credentials", Need: capability.NeedSourceRead},

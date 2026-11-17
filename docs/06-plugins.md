@@ -189,7 +189,7 @@ and `summary` reach the next step. A reaction publishes them on the pull request
       match: {draft: "false"}
       plan:
         stages:
-          - gestes: [{kind: pipeline, ref: review/pull-request, label: review, params: {number: '{number}'}}]
+          - gestes: [{kind: pipeline, ref: review/pull-request, label: review}]
           - gestes:
               - kind: action
                 ref: gitea.comment

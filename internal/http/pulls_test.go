@@ -93,6 +93,9 @@ func pullCatalogue() *catalog.Catalog {
 			"revision": input(true, catalog.SuggestGitRef), "tag-name": input(true, catalog.SuggestReleaseTag),
 			"image-name": input(true, catalog.SuggestImageName),
 		}},
+		{Kind: "review/pull-request", PipelineRef: "review", Params: map[string]catalog.Param{
+			"number": input(true, catalog.SuggestPullRequest),
+		}},
 		{Kind: "mstore/integration-tests", PipelineRef: "integration", Verification: true, Params: map[string]catalog.Param{
 			"mstore-revision": input(true, catalog.SuggestGitRef), "portal-image": portal,
 		}},
@@ -160,6 +163,21 @@ func TestALaunchOnAPullRequestRunsOnItsHead(t *testing.T) {
 		"/projects/shop/pulls/13/launch", strings.NewReader(`{"kind":"docker/build"}`))))
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("an unknown pull request: %d", recorder.Code)
+	}
+}
+
+// A review launched from a pull request's page reviews that pull request: its number is the
+// page's, never asked for.
+func TestALaunchOnAPullRequestGivesItsNumber(t *testing.T) {
+	fixture := &pullFixture{}
+	recorder := httptest.NewRecorder()
+	pullRouter(fixture).ServeHTTP(recorder, asAdmin(httptest.NewRequest(http.MethodPost,
+		"/projects/shop/pulls/12/launch", strings.NewReader(`{"kind":"review/pull-request","params":{"number":"7"}}`))))
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("%d: %s", recorder.Code, recorder.Body)
+	}
+	if len(fixture.jobs) != 1 || fixture.jobs[0].Params["number"] != "12" {
+		t.Errorf("jobs = %+v", fixture.jobs)
 	}
 }
 
