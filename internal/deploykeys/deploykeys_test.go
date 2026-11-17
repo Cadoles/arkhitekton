@@ -368,3 +368,44 @@ func TestAMissingAccountDoesNotStopTheOthers(t *testing.T) {
 		t.Errorf("existing account %v — the authorization should have completed there", account.Secrets)
 	}
 }
+
+// A Secret written from a setting is created, then replaced as it is: the key typed again in the
+// interface reaches the next review. Its name says whose it is, and never collides with the deploy
+// key's.
+func TestASettingsSecretIsCreatedThenReplaced(t *testing.T) {
+	ctx := context.Background()
+	kube := fake.NewSimpleClientset()
+	owner := NewOwner(kube, "mse-tekton-pipelines")
+
+	name, err := owner.Put(ctx, KindReview, "mse", map[string][]byte{"api-key": []byte("first")})
+	if err != nil || name != "arkhitekton-project-mse-review" || name == SecretName("mse") {
+		t.Fatalf("name %q, %v", name, err)
+	}
+	if _, err := owner.Put(ctx, KindReview, "mse", map[string][]byte{}); err != nil {
+		t.Fatalf("replacing: %v", err)
+	}
+	secret, err := kube.CoreV1().Secrets("mse-tekton-pipelines").Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secret.Data) != 0 || secret.Type != corev1.SecretTypeOpaque || secret.Labels["arkhitekton/project"] != "mse" {
+		t.Errorf("secret = %+v", secret)
+	}
+
+	// The deploy key is not written from a setting: it is generated, and its rotation is refused on a
+	// Secret the database does not know.
+	if _, err := owner.Put(ctx, KindGit, "mse", nil); err == nil {
+		t.Error("a deploy key written from a setting")
+	}
+}
+
+// A Secret of another kind is made mountable under its own name, beside the deploy key.
+func TestASettingsSecretIsMountable(t *testing.T) {
+	kube, mounter := mounterFor(t, serviceAccount("regcred"))
+	if err := mounter.AllowKind(context.Background(), KindReview, "mse"); err != nil {
+		t.Fatal(err)
+	}
+	if names := mountable(t, kube); len(names) != 2 || names[1] != "arkhitekton-project-mse-review" {
+		t.Errorf("mountable = %v", names)
+	}
+}
