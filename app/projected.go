@@ -35,11 +35,11 @@ var projectedSecrets = []projectedSecret{
 }
 
 type secretWriter interface {
-	Put(ctx context.Context, kind deploykeys.Kind, slug string, data map[string][]byte) (string, error)
+	Put(ctx context.Context, kind deploykeys.Kind, uid, slug string, data map[string][]byte) (string, error)
 }
 
 type secretMounter interface {
-	AllowKind(ctx context.Context, kind deploykeys.Kind, slug string) error
+	AllowKind(ctx context.Context, kind deploykeys.Kind, uid string) error
 }
 
 // settingSecrets writes them, through the same owner and mounter as the deploy keys.
@@ -78,11 +78,12 @@ func (s settingSecrets) Project(ctx context.Context, key string, projectID int64
 		if value != "" {
 			data[projected.dataKey] = []byte(value)
 		}
-		name, err := s.owner.Put(ctx, projected.kind, project.Slug, data)
+		// Named from the project's id: a slug renamed or reused would point at another project's.
+		name, err := s.owner.Put(ctx, projected.kind, project.UID, project.Slug, data)
 		if err != nil {
 			return "", err
 		}
-		if err := s.mounter.AllowKind(ctx, projected.kind, project.Slug); err != nil {
+		if err := s.mounter.AllowKind(ctx, projected.kind, project.UID); err != nil {
 			return "", err
 		}
 		return name, nil

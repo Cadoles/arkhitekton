@@ -93,15 +93,6 @@ func secretData(private []byte) map[string][]byte {
 // else's key, and adopting it would amount to asserting an ownership that cannot be checked.
 var ErrNameTaken = errors.New("a secret already carries this name and was not created by the dashboard")
 
-// SecretName returns the name of the Secret carrying a project's key.
-//
-// Derived from the slug, which is already constrained to `^[a-z0-9][a-z0-9-]*$` by a migration —
-// hence a valid Kubernetes resource name with no escaping. The prefix makes ownership readable
-// without consulting the labels.
-func SecretName(slug string) string {
-	return KindGit.Name(slug)
-}
-
 // Kind is a sort of Secret the dashboard keeps for a project. The set is closed: its fields are
 // unexported, so that no caller composes a name the dashboard does not own.
 type Kind struct {
@@ -117,21 +108,27 @@ var (
 	KindReview = Kind{suffix: "review", secretType: corev1.SecretTypeOpaque}
 )
 
-// Name returns the name of a project's Secret of this kind. The prefix `arkhitekton-project-` is
-// the dashboard's: what carries it is written by it, and by nobody else.
-func (k Kind) Name(slug string) string {
-	return "arkhitekton-project-" + slug + "-" + k.suffix
+// Name returns the name of a project's Secret of this kind, from the project's unique id.
+//
+// The id and not the slug: a slug is renamed or reused, by a project deleted then declared again or
+// a database started afresh, and would then name another project's Secret. The id is a UUID, a
+// valid resource name with no escaping, and the whole name stays under 63 characters.
+func (k Kind) Name(uid string) string {
+	return "arkhitekton-project-" + uid + "-" + k.suffix
 }
 
-func (o *Owner) secret(kind Kind, slug string, data map[string][]byte) *corev1.Secret {
+// secret composes a project's Secret. The slug goes in an annotation, for whoever reads the
+// cluster: a label is bounded to 63 characters ending with an alphanumeric, which a slug is not.
+func (o *Owner) secret(kind Kind, uid, slug string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kind.Name(slug),
+			Name:      kind.Name(uid),
 			Namespace: o.namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": ManagedBy,
-				"arkhitekton/project":          slug,
+				"arkhitekton/project-uid":      uid,
 			},
+			Annotations: map[string]string{"arkhitekton/project": slug},
 		},
 		Type: kind.secretType,
 		Data: data,
@@ -186,7 +183,7 @@ func NewOwner(kube kubernetes.Interface, namespace string) *Owner {
 	return &Owner{kube: kube, namespace: namespace}
 }
 
-// Create deposits the private half into a Secret and returns the public half.
+// Create deposits the private half into a Secret, and returns the Secret's name and the public half.
 //
 // `known` says whether the database already knows a key for this project. It is that parameter
 // which replaces reading the cluster: without it, "our Secret, to be replaced" could not be told
@@ -195,37 +192,40 @@ func NewOwner(kube kubernetes.Interface, namespace string) *Owner {
 // When the key is known, the Secret is **replaced**: it is a rotation, a deliberate act whose
 // old public half becomes void on the forge's side. When it is not, creation is the only
 // operation attempted, and a conflict returns [ErrNameTaken].
-func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (string, error) {
-	pair, err := Generate(comment)
+//
+// The name comes from the project's id: a first set never meets a Secret of the same name, unless
+// one was put there by someone else, which [ErrNameTaken] refuses.
+func (o *Owner) Create(ctx context.Context, uid, slug string, known bool) (string, string, error) {
+	pair, err := Generate(slug)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	name := SecretName(slug)
-	secret := o.secret(KindGit, slug, secretData(pair.Private))
+	secret := o.secret(KindGit, uid, slug, secretData(pair.Private))
+	name := secret.Name
 
 	secrets := o.kube.CoreV1().Secrets(o.namespace)
 
 	_, err = secrets.Create(ctx, secret, metav1.CreateOptions{})
 	switch {
 	case err == nil:
-		return pair.Public, nil
+		return name, pair.Public, nil
 
 	case apierrors.IsAlreadyExists(err) && !known:
 		// The refusal to adopt. Without `get`, it cannot be checked that this Secret is ours, and the
 		// database says it is not.
-		return "", fmt.Errorf("%w: %s", ErrNameTaken, name)
+		return "", "", fmt.Errorf("%w: %s", ErrNameTaken, name)
 
 	case apierrors.IsAlreadyExists(err):
 		// Rotation: the database attests that this key is ours. `Update` replaces the material without
 		// our having had to read it.
 		if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
-			return "", fmt.Errorf("rotating the key of project %q: %w", slug, err)
+			return "", "", fmt.Errorf("rotating the key of project %q: %w", slug, err)
 		}
-		return pair.Public, nil
+		return name, pair.Public, nil
 
 	default:
-		return "", fmt.Errorf("creating the key of project %q: %w", slug, err)
+		return "", "", fmt.Errorf("creating the key of project %q: %w", slug, err)
 	}
 }
 
@@ -233,11 +233,11 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 // setting: created, or replaced as it is when it exists. Without `get`, it is never read, and the
 // prefix of its name is what says it is ours. The deploy key keeps [Owner.Create], which refuses a
 // Secret the database does not know.
-func (o *Owner) Put(ctx context.Context, kind Kind, slug string, data map[string][]byte) (string, error) {
+func (o *Owner) Put(ctx context.Context, kind Kind, uid, slug string, data map[string][]byte) (string, error) {
 	if kind.suffix == "" || kind == KindGit {
 		return "", fmt.Errorf("a Secret of kind %q is not written from a setting", kind.suffix)
 	}
-	secret := o.secret(kind, slug, data)
+	secret := o.secret(kind, uid, slug, data)
 	secrets := o.kube.CoreV1().Secrets(o.namespace)
 	_, err := secrets.Create(ctx, secret, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
@@ -249,15 +249,15 @@ func (o *Owner) Put(ctx context.Context, kind Kind, slug string, data map[string
 	return secret.Name, nil
 }
 
-// Delete removes a project's Secret.
+// DeleteName removes a Secret the database recorded as the dashboard's: the key set for a project,
+// or one put down when its project was deleted. Never a name from anywhere else.
 //
 // Absence is not an error: deleting a project whose key has already disappeared must complete,
 // otherwise a deletion would stay stuck on a state that cannot be observed anyway.
-func (o *Owner) Delete(ctx context.Context, slug string) error {
-	err := o.kube.CoreV1().Secrets(o.namespace).
-		Delete(ctx, SecretName(slug), metav1.DeleteOptions{})
+func (o *Owner) DeleteName(ctx context.Context, name string) error {
+	err := o.kube.CoreV1().Secrets(o.namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting the key of project %q: %w", slug, err)
+		return fmt.Errorf("deleting the Secret %q: %w", name, err)
 	}
 	return nil
 }
@@ -275,8 +275,8 @@ func (o *Owner) Delete(ctx context.Context, slug string) error {
  *
  * Two rules bound it:
  *
- *   1. It adds only names it **owns** — those [SecretName] produces. An arbitrary name passed
- *      here would open for mounting a secret it knows nothing about.
+ *   1. It adds only names it **owns** — those [Kind.Name] produces from a project's id. An
+ *      arbitrary name passed here would open for mounting a secret it knows nothing about.
  *   2. It **never** removes an entry it did not set. The service account also carries the
  *      deployment's credentials, and pruning them would break the pipelines that use them.
  */
@@ -297,19 +297,14 @@ func NewMounter(kube kubernetes.Interface, namespace string, accounts ...string)
 	return &Mounter{kube: kube, namespace: namespace, accounts: accounts}
 }
 
-// Allow makes a project's key mountable.
+// AllowKind makes a project's Secret of a kind mountable.
 //
 // Idempotent: calling it again after a restart must not duplicate the entry, and the list is
 // compared before writing so as not to produce one `patch` per start-up on a service account
-// that has not moved.
-func (m *Mounter) Allow(ctx context.Context, slug string) error {
-	return m.AllowKind(ctx, KindGit, slug)
-}
-
-// AllowKind makes a project's Secret of a kind mountable.
-func (m *Mounter) AllowKind(ctx context.Context, kind Kind, slug string) error {
-	name := kind.Name(slug)
-
+// that has not moved. It takes a kind and an id, never a name: a caller cannot open for mounting
+// a Secret the dashboard does not own.
+func (m *Mounter) AllowKind(ctx context.Context, kind Kind, uid string) error {
+	name := kind.Name(uid)
 	var problems []error
 	for _, target := range m.accounts {
 		problems = append(problems, m.allowOn(ctx, target, name))
@@ -337,15 +332,12 @@ func (m *Mounter) allowOn(ctx context.Context, target, name string) error {
 	return nil
 }
 
-// Deny removes a project's key from the list.
+// DenyName removes a Secret from the list.
 //
-// Removes only what [SecretName] produces: the deployment's credentials stay in place. The
-// guarantee is **structural** and not checked at run time — these two methods take a slug, never
-// a secret name, and derive the name themselves. A caller therefore cannot name an entry that is
-// not ours, which is sturdier than a check one might forget to write.
-func (m *Mounter) Deny(ctx context.Context, slug string) error {
-	name := SecretName(slug)
-
+// Its name is one the database recorded as the dashboard's: the key set for a project, a key
+// named from its slug before projects had an id, or one put down when its project was deleted.
+// The deployment's credentials, which the database never records, stay in place.
+func (m *Mounter) DenyName(ctx context.Context, name string) error {
 	var problems []error
 	for _, target := range m.accounts {
 		problems = append(problems, m.denyOn(ctx, target, name))
@@ -395,22 +387,23 @@ func NewIssuer(owner *Owner, mounter *Mounter) *Issuer {
 	return &Issuer{owner: owner, mounter: mounter}
 }
 
-// Issue deposits the key and allows it to be mounted.
+// Issue deposits the key and allows it to be mounted, and returns the Secret's name and the
+// public half.
 //
 // The order counts: the Secret first. Allowing the mounting of a secret that does not exist would
 // leave a dangling entry in the service account, which nobody would go and remove.
-func (i *Issuer) Issue(ctx context.Context, slug string, known bool) (string, error) {
-	public, err := i.owner.Create(ctx, slug, slug, known)
+func (i *Issuer) Issue(ctx context.Context, uid, slug string, known bool) (string, string, error) {
+	name, public, err := i.owner.Create(ctx, uid, slug, known)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if err := i.mounter.Allow(ctx, slug); err != nil {
-		return "", err
+	if err := i.mounter.AllowKind(ctx, KindGit, uid); err != nil {
+		return "", "", err
 	}
-	return public, nil
+	return name, public, nil
 }
 
-// Revoke removes the authorization then the key.
+// Revoke removes the authorization then a Secret the database recorded.
 //
 // The reverse order of setting, and for the same reason: removing the Secret first would leave a
 // dangling entry if the second act failed.
@@ -418,6 +411,6 @@ func (i *Issuer) Issue(ctx context.Context, slug string, known bool) (string, er
 // Both errors are joined rather than the first returned: a failure on one does not prevent
 // attempting the other, and leaving the Secret in place because the service account did not
 // answer would be the worst of both worlds.
-func (i *Issuer) Revoke(ctx context.Context, slug string) error {
-	return errors.Join(i.mounter.Deny(ctx, slug), i.owner.Delete(ctx, slug))
+func (i *Issuer) Revoke(ctx context.Context, name string) error {
+	return errors.Join(i.mounter.DenyName(ctx, name), i.owner.DeleteName(ctx, name))
 }

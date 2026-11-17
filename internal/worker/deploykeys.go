@@ -33,13 +33,17 @@ const keyInterval = time.Minute
 // KeyStore is what the loop needs from the database.
 type KeyStore interface {
 	ProjectsAwaitingKey(ctx context.Context) ([]store.PendingKey, error)
-	SetDeployKey(ctx context.Context, projectID int64, public string) error
+	SetDeployKey(ctx context.Context, projectID int64, public, secret string) error
+	SetDeployKeyError(ctx context.Context, projectID int64, reason string) error
+	SecretsToDelete(ctx context.Context) ([]string, error)
+	SecretDeleted(ctx context.Context, name string) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
-// KeyIssuer puts a project's key into the cluster.
+// KeyIssuer puts a project's key into the cluster, and takes back a Secret the database recorded.
 type KeyIssuer interface {
-	Issue(ctx context.Context, slug string, known bool) (string, error)
+	Issue(ctx context.Context, uid, slug string, known bool) (string, string, error)
+	Revoke(ctx context.Context, name string) error
 }
 
 // KeyReconciler supplies the projects waiting for a key.
@@ -83,6 +87,28 @@ func (r *KeyReconciler) once(ctx context.Context) {
 	for _, project := range pending {
 		r.issue(ctx, project)
 	}
+	r.deleteOrphans(ctx)
+}
+
+// deleteOrphans deletes the Secrets of the projects deleted since: the API that deletes a project
+// has no cluster token, and puts their names down for this loop.
+func (r *KeyReconciler) deleteOrphans(ctx context.Context) {
+	names, err := r.store.SecretsToDelete(ctx)
+	if err != nil {
+		r.logger.Error("secrets of deleted projects", "error", err)
+		return
+	}
+	for _, name := range names {
+		if err := r.keys.Revoke(ctx, name); err != nil {
+			r.logger.Error("deleting a deleted project's secret", "secret", name, "error", err)
+			continue
+		}
+		if err := r.store.SecretDeleted(ctx, name); err != nil {
+			r.logger.Error("forgetting a deleted secret", "secret", name, "error", err)
+			continue
+		}
+		r.logger.Info("deleted project's secret deleted", "secret", name)
+	}
 }
 
 // issue sets a project's key, and does not interrupt the others if it fails.
@@ -91,27 +117,37 @@ func (r *KeyReconciler) once(ctx context.Context) {
 // reporting it and moving to the next is better than blocking the loop on it, which would
 // deprive of a key everyone coming after.
 func (r *KeyReconciler) issue(ctx context.Context, project store.PendingKey) {
-	public, err := r.keys.Issue(ctx, project.Slug, project.Known)
-	switch {
-	case errors.Is(err, deploykeys.ErrNameTaken):
-		r.logger.Error("deploy key not set",
-			"project", project.Slug,
-			"reason", "a secret already carries this name and was not created by the dashboard",
-			"consequence", "the project uses the deployment's shared key")
-		return
-	case err != nil:
-		r.logger.Error("setting the deploy key",
-			"project", project.Slug, "error", err)
+	secret, public, err := r.keys.Issue(ctx, project.UID, project.Slug, project.Known)
+	if err != nil {
+		reason := err.Error()
+		if errors.Is(err, deploykeys.ErrNameTaken) {
+			reason = "a Secret already carries the name of this project's key, and the dashboard did not create it"
+		}
+		r.logger.Error("deploy key not set", "project", project.Slug, "reason", reason,
+			"consequence", "the project's pipelines do not run")
+		// For the project's screen: without it, the screen promised a key at the next pass.
+		if err := r.store.SetDeployKeyError(ctx, project.ID, reason); err != nil {
+			r.logger.Error("recording why the deploy key was not set", "project", project.Slug, "error", err)
+		}
 		return
 	}
 
 	// The database **after** the cluster. The reverse would suggest a key was set if the store
 	// failed, and a later rotation would then replace a Secret that does not exist — or someone
 	// else's, since the column would have asserted an ownership the dashboard does not have.
-	if err := r.store.SetDeployKey(ctx, project.ID, public); err != nil {
+	if err := r.store.SetDeployKey(ctx, project.ID, public, secret); err != nil {
 		r.logger.Error("recording the deploy key",
 			"project", project.Slug, "error", err)
 		return
+	}
+
+	// A key set before projects had an id carries a name from the slug: its rotation moves it under
+	// the id's, and the former Secret is taken back once the new one is recorded.
+	if project.Secret != "" && project.Secret != secret {
+		if err := r.keys.Revoke(ctx, project.Secret); err != nil {
+			r.logger.Error("taking back the former key's secret", "project", project.Slug,
+				"secret", project.Secret, "error", err)
+		}
 	}
 
 	// Logged as an outgoing action: "who changed the key, and when" belongs to the audit just as

@@ -14,14 +14,14 @@ type recordedSecrets struct {
 	mounted []string
 }
 
-func (r *recordedSecrets) Put(_ context.Context, kind deploykeys.Kind, slug string, data map[string][]byte) (string, error) {
-	name := kind.Name(slug)
+func (r *recordedSecrets) Put(_ context.Context, kind deploykeys.Kind, uid, _ string, data map[string][]byte) (string, error) {
+	name := kind.Name(uid)
 	r.data[name] = data
 	return name, nil
 }
 
-func (r *recordedSecrets) AllowKind(_ context.Context, kind deploykeys.Kind, slug string) error {
-	r.mounted = append(r.mounted, kind.Name(slug))
+func (r *recordedSecrets) AllowKind(_ context.Context, kind deploykeys.Kind, uid string) error {
+	r.mounted = append(r.mounted, kind.Name(uid))
 	return nil
 }
 
@@ -32,7 +32,7 @@ func (s slugs) GetProject(_ context.Context, id int64) (store.Project, error) {
 	if !found {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	return store.Project{ID: id, Slug: slug}, nil
+	return store.Project{ID: id, Slug: slug, UID: "uid-" + slug}, nil
 }
 
 // The review's key, opened for the project, is written into the project's Secret and made
@@ -51,7 +51,7 @@ func TestASealedKeyIsWrittenIntoTheProjectsSecret(t *testing.T) {
 	}
 
 	name, err := projector.Project(context.Background(), "project.reviewSecret", 7)
-	if err != nil || name != "arkhitekton-project-shop-review" {
+	if err != nil || name != "arkhitekton-project-uid-shop-review" {
 		t.Fatalf("%q, %v", name, err)
 	}
 	if got := string(recorded.data[name]["api-key"]); got != "sk-project" {

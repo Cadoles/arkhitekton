@@ -12,6 +12,9 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// projectUID is a project's unique id, which its Secrets are named from.
+const projectUID = "3f2b9c1e-7a4d-4e8b-9c0a-5d6e7f8a9b0c"
+
 // The pair must be usable as it is by an SSH client and by a forge. Both halves are produced
 // together, and nothing else will check them: a badly encoded key would be discovered only at a
 // pipeline's first clone, in a message that names the repository and not the key.
@@ -74,7 +77,7 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	kube := fake.NewSimpleClientset()
 	owner := NewOwner(kube, "mstore-pipelines")
 
-	public, err := owner.Create(context.Background(), "my-project", "my-project", false)
+	_, public, err := owner.Create(context.Background(), projectUID, "my-project", false)
 	if err != nil {
 		t.Fatalf("creation: %v", err)
 	}
@@ -83,7 +86,7 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	}
 
 	secret, err := kube.CoreV1().Secrets("mstore-pipelines").
-		Get(context.Background(), SecretName("my-project"), metav1.GetOptions{})
+		Get(context.Background(), KindGit.Name(projectUID), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -122,21 +125,21 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 func TestAPreExistingSecretIsNeverAdopted(t *testing.T) {
 	kube := fake.NewSimpleClientset(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      SecretName("my-project"),
+			Name:      KindGit.Name(projectUID),
 			Namespace: "mstore-pipelines",
 		},
 		Data: map[string][]byte{corev1.SSHAuthPrivateKey: []byte("someone else's key")},
 	})
 	owner := NewOwner(kube, "mstore-pipelines")
 
-	_, err := owner.Create(context.Background(), "my-project", "my-project", false)
+	_, _, err := owner.Create(context.Background(), projectUID, "my-project", false)
 	if !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("error %v, expected ErrNameTaken", err)
 	}
 
 	// And above all: the material has not moved.
 	secret, _ := kube.CoreV1().Secrets("mstore-pipelines").
-		Get(context.Background(), SecretName("my-project"), metav1.GetOptions{})
+		Get(context.Background(), KindGit.Name(projectUID), metav1.GetOptions{})
 	if string(secret.Data[corev1.SSHAuthPrivateKey]) != "someone else's key" {
 		t.Error("a third party's secret was overwritten")
 	}
@@ -150,12 +153,12 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 	owner := NewOwner(kube, "mstore-pipelines")
 	ctx := context.Background()
 
-	first, err := owner.Create(ctx, "my-project", "my-project", false)
+	_, first, err := owner.Create(ctx, projectUID, "my-project", false)
 	if err != nil {
 		t.Fatalf("creation: %v", err)
 	}
 
-	second, err := owner.Create(ctx, "my-project", "my-project", true)
+	_, second, err := owner.Create(ctx, projectUID, "my-project", true)
 	if err != nil {
 		t.Fatalf("rotation: %v", err)
 	}
@@ -164,7 +167,7 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 	}
 
 	secret, _ := kube.CoreV1().Secrets("mstore-pipelines").
-		Get(ctx, SecretName("my-project"), metav1.GetOptions{})
+		Get(ctx, KindGit.Name(projectUID), metav1.GetOptions{})
 	if len(secret.Data[PrivateKeyFile]) == 0 {
 		t.Fatalf("field %q missing after the rotation: the new key would be useless",
 			PrivateKeyFile)
@@ -187,16 +190,34 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 func TestDeletingAnAbsentKeyCompletes(t *testing.T) {
 	owner := NewOwner(fake.NewSimpleClientset(), "mstore-pipelines")
 
-	if err := owner.Delete(context.Background(), "never-created"); err != nil {
+	if err := owner.DeleteName(context.Background(), KindGit.Name("never-created")); err != nil {
 		t.Errorf("deleting an absent key: %v", err)
 	}
 }
 
-// The name derives from the slug, already constrained by a migration to a form that is a valid
-// Kubernetes resource name.
-func TestTheSecretNameDerivesFromTheSlug(t *testing.T) {
-	if got := SecretName("mstore-theme"); got != "arkhitekton-project-mstore-theme-git" {
-		t.Errorf("SecretName = %q", got)
+// The name derives from the project's id, never from its slug: a slug renamed or reused would
+// name another project's Secret. It stays a valid name under 63 characters.
+func TestTheSecretNameDerivesFromTheProjectsID(t *testing.T) {
+	for _, kind := range []Kind{KindGit, KindReview} {
+		name := kind.Name(projectUID)
+		if !strings.HasPrefix(name, "arkhitekton-project-"+projectUID+"-") || len(name) > 63 {
+			t.Errorf("name = %q (%d characters)", name, len(name))
+		}
+	}
+}
+
+// The project's id goes in a label, its slug in an annotation: a label is bounded to 63
+// characters ending with an alphanumeric, which a slug is not.
+func TestTheSlugIsAnAnnotation(t *testing.T) {
+	kube := fake.NewSimpleClientset()
+	slug := strings.Repeat("a", 70) + "-"
+	name, _, err := NewOwner(kube, "ns").Create(context.Background(), projectUID, slug, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _ := kube.CoreV1().Secrets("ns").Get(context.Background(), name, metav1.GetOptions{})
+	if secret.Labels["arkhitekton/project-uid"] != projectUID || secret.Annotations["arkhitekton/project"] != slug {
+		t.Errorf("labels %v, annotations %v", secret.Labels, secret.Annotations)
 	}
 }
 
@@ -243,12 +264,12 @@ func mountable(t *testing.T, kube *fake.Clientset) []string {
 func TestAllowingAProjectDoesNotTouchTheDeploymentCredentials(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred", "git-credentials", "minio-credentials"))
 
-	if err := mounter.Allow(context.Background(), "my-project"); err != nil {
+	if err := mounter.AllowKind(context.Background(), KindGit, projectUID); err != nil {
 		t.Fatalf("authorisation: %v", err)
 	}
 
 	got := mountable(t, kube)
-	want := []string{"regcred", "git-credentials", "minio-credentials", SecretName("my-project")}
+	want := []string{"regcred", "git-credentials", "minio-credentials", KindGit.Name(projectUID)}
 	if len(got) != len(want) {
 		t.Fatalf("mountable list %v, expected %v", got, want)
 	}
@@ -266,8 +287,8 @@ func TestAllowingTwiceDoesNotDuplicate(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred"))
 	ctx := context.Background()
 
-	_ = mounter.Allow(ctx, "my-project")
-	_ = mounter.Allow(ctx, "my-project")
+	_ = mounter.AllowKind(ctx, KindGit, projectUID)
+	_ = mounter.AllowKind(ctx, KindGit, projectUID)
 
 	if got := mountable(t, kube); len(got) != 2 {
 		t.Errorf("mountable list %v — the entry is duplicated", got)
@@ -277,26 +298,26 @@ func TestAllowingTwiceDoesNotDuplicate(t *testing.T) {
 // The guard rail: a secret created outside the mountable list must not become mountable by
 // accident.
 //
-// The guarantee is structural: these methods take a **slug** and derive the name themselves. A
+// The guarantee is structural: allowing takes a kind and a project's id and derives the name. A
 // caller therefore cannot name `regcred`, even by passing it in full — it would get an entry for a
-// project named `regcred`, a distinct one, and the shared credential would stay intact.
+// project whose id is `regcred`, a distinct one, and the shared credential would stay intact.
 func TestADeploymentSecretCannotBeNamedByMistake(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred", "git-credentials"))
 
-	// A faulty caller passes the name of a shared credential as if it were a slug.
-	if err := mounter.Allow(context.Background(), "regcred"); err != nil {
+	// A faulty caller passes the name of a shared credential as if it were an id.
+	if err := mounter.AllowKind(context.Background(), KindGit, "regcred"); err != nil {
 		t.Fatalf("authorisation: %v", err)
 	}
 
 	got := mountable(t, kube)
 	// Three entries, not two: the entry added is a project's, and not a second reference to the
 	// shared credential.
-	if len(got) != 3 || got[2] != SecretName("regcred") {
+	if len(got) != 3 || got[2] != KindGit.Name("regcred") {
 		t.Errorf("mountable list %v — the name should have been derived", got)
 	}
 
 	// And removing that "project" does not remove the shared credential.
-	if err := mounter.Deny(context.Background(), "regcred"); err != nil {
+	if err := mounter.DenyName(context.Background(), KindGit.Name("regcred")); err != nil {
 		t.Fatalf("removal: %v", err)
 	}
 	after := mountable(t, kube)
@@ -310,7 +331,7 @@ func TestADeploymentSecretCannotBeNamedByMistake(t *testing.T) {
 func TestRemovingAnAbsentKeyWritesNothing(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred"))
 
-	if err := mounter.Deny(context.Background(), "never-allowed"); err != nil {
+	if err := mounter.DenyName(context.Background(), KindGit.Name("never-allowed")); err != nil {
 		t.Fatalf("removal: %v", err)
 	}
 	if got := mountable(t, kube); len(got) != 1 {
@@ -332,7 +353,7 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 	)
 	mounter := NewMounter(kube, "mstore-pipelines", "tekton-kubectl", "default")
 
-	if err := mounter.Allow(context.Background(), "my-project"); err != nil {
+	if err := mounter.AllowKind(context.Background(), KindGit, projectUID); err != nil {
 		t.Fatalf("authorisation: %v", err)
 	}
 
@@ -341,7 +362,7 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 			Get(context.Background(), name, metav1.GetOptions{})
 		found := false
 		for _, reference := range account.Secrets {
-			if reference.Name == SecretName("my-project") {
+			if reference.Name == KindGit.Name(projectUID) {
 				found = true
 			}
 		}
@@ -357,7 +378,7 @@ func TestAMissingAccountDoesNotStopTheOthers(t *testing.T) {
 	kube := fake.NewSimpleClientset(serviceAccount("regcred"))
 	mounter := NewMounter(kube, "mstore-pipelines", "tekton-kubectl", "never-created")
 
-	err := mounter.Allow(context.Background(), "my-project")
+	err := mounter.AllowKind(context.Background(), KindGit, projectUID)
 	if err == nil {
 		t.Error("a missing account must be reported")
 	}
@@ -377,24 +398,24 @@ func TestASettingsSecretIsCreatedThenReplaced(t *testing.T) {
 	kube := fake.NewSimpleClientset()
 	owner := NewOwner(kube, "mstore-pipelines")
 
-	name, err := owner.Put(ctx, KindReview, "mstore", map[string][]byte{"api-key": []byte("first")})
-	if err != nil || name != "arkhitekton-project-mstore-review" || name == SecretName("mstore") {
+	name, err := owner.Put(ctx, KindReview, projectUID, "mstore", map[string][]byte{"api-key": []byte("first")})
+	if err != nil || name != "arkhitekton-project-"+projectUID+"-review" || name == KindGit.Name(projectUID) {
 		t.Fatalf("name %q, %v", name, err)
 	}
-	if _, err := owner.Put(ctx, KindReview, "mstore", map[string][]byte{}); err != nil {
+	if _, err := owner.Put(ctx, KindReview, projectUID, "mstore", map[string][]byte{}); err != nil {
 		t.Fatalf("replacing: %v", err)
 	}
 	secret, err := kube.CoreV1().Secrets("mstore-pipelines").Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(secret.Data) != 0 || secret.Type != corev1.SecretTypeOpaque || secret.Labels["arkhitekton/project"] != "mstore" {
+	if len(secret.Data) != 0 || secret.Type != corev1.SecretTypeOpaque || secret.Labels["arkhitekton/project-uid"] != projectUID {
 		t.Errorf("secret = %+v", secret)
 	}
 
 	// The deploy key is not written from a setting: it is generated, and its rotation is refused on a
 	// Secret the database does not know.
-	if _, err := owner.Put(ctx, KindGit, "mstore", nil); err == nil {
+	if _, err := owner.Put(ctx, KindGit, projectUID, "mstore", nil); err == nil {
 		t.Error("a deploy key written from a setting")
 	}
 }
@@ -402,10 +423,10 @@ func TestASettingsSecretIsCreatedThenReplaced(t *testing.T) {
 // A Secret of another kind is made mountable under its own name, beside the deploy key.
 func TestASettingsSecretIsMountable(t *testing.T) {
 	kube, mounter := mounterFor(t, serviceAccount("regcred"))
-	if err := mounter.AllowKind(context.Background(), KindReview, "mstore"); err != nil {
+	if err := mounter.AllowKind(context.Background(), KindReview, projectUID); err != nil {
 		t.Fatal(err)
 	}
-	if names := mountable(t, kube); len(names) != 2 || names[1] != "arkhitekton-project-mstore-review" {
+	if names := mountable(t, kube); len(names) != 2 || names[1] != KindReview.Name(projectUID) {
 		t.Errorf("mountable = %v", names)
 	}
 }
