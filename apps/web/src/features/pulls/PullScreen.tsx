@@ -11,6 +11,7 @@ import { useQueue, type Kind } from '../queue/api'
 import { TestsPanel } from '../releases/TestsPanel'
 import { pullSubject } from '../releases/tests'
 import { useLaunchOnPull, usePull, type PullDetail } from './api'
+import { ReviewSection } from './ReviewSection'
 
 /*
  * La page d'une pull request, sur le modèle de celle d'une release : ce qu'elle est, ce qu'on y
@@ -82,6 +83,8 @@ function PullPage({ detail }: { detail: PullDetail }) {
       </div>
 
       <TestsPanel subject={subject} jobs={detail.jobs} />
+
+      <ReviewSection number={pull.number} subject={subject} />
 
       <CollapsibleSection title="Exécutions" count={detail.jobs.length} defaultOpen={detail.jobs.length > 0}>
         {detail.jobs.length === 0 ? (

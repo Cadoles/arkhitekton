@@ -200,3 +200,58 @@ func (s *pullTestStore) ProjectBySlug(ctx context.Context, slug string) (store.P
 func (s *pullTestStore) GetAttachment(context.Context, int64) (store.ResultAttachment, error) {
 	return s.fixture.attached, nil
 }
+
+func (s *pullTestStore) ListSecurityFindings(_ context.Context, resultID int64, _ bool) ([]store.SecurityFinding, error) {
+	if resultID != 6 {
+		return nil, nil
+	}
+	return []store.SecurityFinding{{Fingerprint: "f", Severity: "HIGH", Title: "Fuite", Tool: "pi",
+		RuleID: "security", Location: "app/main.go:12-14"}}, nil
+}
+
+func (s *pullTestStore) ResultAttachments(_ context.Context, resultID int64) ([]store.ResultAttachment, error) {
+	if resultID != 6 {
+		return nil, nil
+	}
+	return []store.ResultAttachment{{ID: 8, Name: "review.md", MediaType: "text/markdown"}}, nil
+}
+
+// The review is the latest result of its group, its findings beside it: the security audit,
+// which shares their shape, is not it.
+func TestAPullRequestsReviewIsItsReviewGroup(t *testing.T) {
+	fixture := &pullFixture{}
+	results := NewTestsHandler(&pullTestStore{fixture: fixture}, pullCatalogue()).WithPullRequests(fixture)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /projects/{project}/pulls/{number}/review", results.PullReview)
+	read := func() reviewPayload {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/projects/shop/pulls/12/review", nil))
+		var payload reviewPayload
+		if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &payload) != nil {
+			t.Fatalf("review: %d %s", recorder.Code, recorder.Body)
+		}
+		return payload
+	}
+
+	fixture.results = []store.TestResult{{ID: 4, Group: "security", Tool: "trivy", Shape: "findings", Status: "pass"}}
+	if review := read(); review.Reviewed || len(review.Findings) != 0 {
+		t.Errorf("the audit read as a review: %+v", review)
+	}
+
+	fixture.results = []store.TestResult{
+		{ID: 6, Group: ReviewGroup, Tool: "conclave", Shape: "findings", Status: "fail", Summary: "Une fuite."},
+		{ID: 2, Group: ReviewGroup, Tool: "conclave", Shape: "findings", Status: "pass"},
+		{ID: 4, Group: "security", Tool: "trivy", Shape: "findings", Status: "pass"},
+	}
+	review := read()
+	if !review.Reviewed || review.Status != "fail" || review.Summary != "Une fuite." {
+		t.Errorf("review = %+v", review)
+	}
+	if len(review.Findings) != 1 || review.Findings[0].Location != "app/main.go:12-14" {
+		t.Errorf("findings = %+v", review.Findings)
+	}
+	if len(review.Attachments) != 1 || review.Attachments[0].Name != "review.md" {
+		t.Errorf("attachments = %+v", review.Attachments)
+	}
+}

@@ -94,3 +94,51 @@ func TestBoundDefinitionsNameTheirPlugin(t *testing.T) {
 		}
 	}
 }
+
+// The review binds three secrets, the way its operator would from a file: each workspace gets its
+// source, and none is a service account. Its settings are the plugin's, not a binding's.
+func TestTheReviewBindsItsSecretsAndConfiguration(t *testing.T) {
+	registry, err := builtin.Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := catalog.Parse([]byte(`
+capabilities:
+  - ref: review/pull-request
+    timeout: 45m
+    needs:
+      source-read:  { secret: { configKey: project.deployKeySecret } }
+      model-access: { secret: { secretName: arkhitekton-review-model } }
+      forge-read:   { secret: { secretName: arkhitekton-review-forge } }
+    volumes:
+      shared-data: { storageClassName: standard }
+`), catalog.WithCapabilities(registry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, found := parsed.Find("review/pull-request")
+	if !found || pipeline.Unavailable != "" || pipeline.ServiceAccountName != "" || pipeline.MaxConcurrent != 1 {
+		t.Fatalf("pipeline = %+v", pipeline)
+	}
+	sources := map[string]string{}
+	for _, workspace := range pipeline.Workspaces {
+		switch {
+		case workspace.Secret != nil:
+			sources[workspace.Name] = workspace.Secret.SecretName + workspace.Secret.ConfigKey
+		case workspace.VolumeClaimTemplate != nil:
+			sources[workspace.Name] = "volume"
+		}
+	}
+	expected := map[string]string{
+		"git-credentials": "project.deployKeySecret", "model-access": "arkhitekton-review-model",
+		"forge-token": "arkhitekton-review-forge", "shared-data": "volume",
+	}
+	if len(sources) != len(expected) {
+		t.Errorf("workspaces = %v", sources)
+	}
+	for name, source := range expected {
+		if sources[name] != source {
+			t.Errorf("%s = %q, expected %q", name, sources[name], source)
+		}
+	}
+}

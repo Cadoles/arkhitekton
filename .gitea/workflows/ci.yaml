@@ -197,6 +197,14 @@ jobs:
             VERSION=ci-${{ github.sha }}
             REVISION=${{ github.sha }}
 
+      # The AI review's image, likewise: its downloads are checked against their checksums, and a
+      # pinned version that disappeared shows here.
+      - name: Build the review image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: images/review
+          push: false
+
   release:
     name: Release
     # On a version tag only, and only after every check: a version is a named object whose tests

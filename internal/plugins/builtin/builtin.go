@@ -12,6 +12,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/review"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/rocketchat"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -19,7 +20,7 @@ import (
 // Plugins are the plugins compiled into the binary.
 func Plugins() []capability.Plugin {
 	return []capability.Plugin{
-		docker.Plugin(), php.Plugin(), golang.Plugin(), k6.Plugin(),
+		docker.Plugin(), php.Plugin(), golang.Plugin(), k6.Plugin(), review.Plugin(),
 		redmine.Plugin(), gitea.Plugin(), rocketchat.Plugin(),
 	}
 }

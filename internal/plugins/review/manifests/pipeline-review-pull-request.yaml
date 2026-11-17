@@ -1,0 +1,118 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: review-pull-request
+spec:
+  description: >
+    An AI review of a pull request by Conclave: several agents read it at its head, a lead merges
+    their findings into one review with a verdict.
+
+  params:
+    - name: repo-url
+    - name: forge-url
+    - name: image
+    - name: number
+    - name: endpoint
+      default: ""
+    - name: api
+      default: ""
+    - name: reviewers
+      default: ""
+    - name: lead
+      default: ""
+    - name: thinking
+      default: ""
+    - name: timeout
+      default: ""
+    - name: agent-timeout
+      default: ""
+    - name: lead-timeout
+      default: ""
+    - name: max-parallel
+      default: ""
+    - name: diff-exclude
+      default: ""
+    - name: ci
+      default: ""
+    # The presigned PUT URL, supplied by the dashboard. Empty, publication is skipped.
+    - name: results-upload-url
+      default: ""
+
+  workspaces:
+    - name: shared-data
+    - name: git-credentials
+    - name: model-access
+    - name: forge-token
+
+  results:
+    - name: verdict
+      value: $(tasks.review.results.verdict)
+    - name: verdict-label
+      value: $(tasks.review.results.verdict-label)
+    - name: counts
+      value: $(tasks.review.results.counts)
+    - name: summary
+      value: $(tasks.review.results.summary)
+
+  tasks:
+    - name: review
+      displayName: Review
+      taskRef:
+        name: conclave-review
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: ssh-directory
+          workspace: git-credentials
+        - name: model-access
+          workspace: model-access
+        - name: forge-token
+          workspace: forge-token
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: forge-url
+          value: $(params.forge-url)
+        - name: image
+          value: $(params.image)
+        - name: number
+          value: $(params.number)
+        - name: endpoint
+          value: $(params.endpoint)
+        - name: api
+          value: $(params.api)
+        - name: reviewers
+          value: $(params.reviewers)
+        - name: lead
+          value: $(params.lead)
+        - name: thinking
+          value: $(params.thinking)
+        - name: timeout
+          value: $(params.timeout)
+        - name: agent-timeout
+          value: $(params.agent-timeout)
+        - name: lead-timeout
+          value: $(params.lead-timeout)
+        - name: max-parallel
+          value: $(params.max-parallel)
+        - name: diff-exclude
+          value: $(params.diff-exclude)
+        - name: ci
+          value: $(params.ci)
+
+  finally:
+    # In `finally`: a review that failed half-way still leaves what its agents wrote.
+    - name: save-results
+      displayName: Publish
+      taskRef:
+        name: publish-artifact
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: path
+          value: test-results
+        - name: mode
+          value: archive
+        - name: upload-url
+          value: $(params.results-upload-url)

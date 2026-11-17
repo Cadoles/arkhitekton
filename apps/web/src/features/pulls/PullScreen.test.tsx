@@ -37,9 +37,12 @@ const queue = {
   max_concurrent: 4,
 }
 
-function arm() {
+const notReviewed = { reviewed: false, findings: [], attachments: [] }
+
+function arm(review: object = notReviewed) {
   return mockFetch([
     { path: '/me', body: { subject: 's', username: 'admin', role: 'admin', projects: [{ slug: 'shop', label: 'Shop' }] } },
+    { path: '/pulls/12/review', body: review },
     { path: '/pulls/12/tests', body: { results: [], score: { value: 0, measured: false, health: 'na', signals: [], redistributed: [] } } },
     { path: '/pulls/12/launch', method: 'POST', status: 202, body: { id: 4, kind: 'docker/build', params: {} } },
     { path: '/pulls/12', body: pull },
@@ -79,5 +82,41 @@ describe("la page d'une pull request", () => {
 
     const sent = calls.find((call) => call.method === 'POST' && call.url.includes('/pulls/12/launch'))
     expect(sent?.body).toEqual({ kind: 'docker/build', params: { 'image-name': 'portal' } })
+  })
+
+  it("montre la revue IA à part, avec ce qui sort du périmètre replié", async () => {
+    arm({
+      reviewed: true,
+      status: 'fail',
+      summary: 'Le jeton est écrit dans les journaux.',
+      reviewed_at: '2026-11-17T10:00:00Z',
+      attributes: { verdict: 'request_changes', reviewers: '2/3', head: 'abcdef0123456789' },
+      findings: [
+        { fingerprint: 'a', severity: 'HIGH', title: 'Le jeton fuit', tool: 'pi-qwen', category: 'review', rule_id: 'security',
+          location: 'internal/http/client.go:42-44', fixable: false, status: 'open', description: 'Retirer l\'en-tête.', suppressed: false },
+        { fingerprint: 'b', severity: 'LOW', title: 'Code mort voisin', tool: 'pi-mistral', category: 'review', rule_id: 'maintainability',
+          location: 'internal/legacy/old.go:3-9', fixable: false, status: 'open', suppressed: true, suppression_reason: 'hors du périmètre de la pull request' },
+      ],
+      attachments: [{ id: 8, name: 'review.md', media_type: 'text/markdown', size_bytes: 2048 }],
+    })
+    render(<PullScreen />)
+
+    expect(await screen.findByText('Revue IA')).toBeInTheDocument()
+    expect(screen.getByText('Modifications demandées')).toBeInTheDocument()
+    expect(screen.getByText('internal/http/client.go:42-44')).toBeInTheDocument()
+    expect(screen.getByText(/1 remarque\(s\) hors du périmètre/)).toBeInTheDocument()
+    expect(screen.getByText('review.md')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Détail' }))
+    expect(screen.getByText("Retirer l'en-tête.")).toBeInTheDocument()
+  })
+
+  it("ne montre rien de la revue tant qu'aucune n'a été faite", async () => {
+    arm()
+    render(<PullScreen />)
+
+    expect(await screen.findByText('Ajoute la recherche')).toBeInTheDocument()
+    await screen.findByText(/Rien n'a été mesuré/)
+    expect(screen.queryByText('Revue IA')).not.toBeInTheDocument()
   })
 })
