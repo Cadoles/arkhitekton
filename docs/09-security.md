@@ -104,6 +104,16 @@ Kubernetes secret that pipelines mount. Rotation is a request recorded on the pr
 carried out by the worker within a minute; the old key works until then, and clones fail from
 then until the new public half is installed on the forge.
 
+**A project's Secrets are named from its id, and the database records them.** The name is
+`arkhitekton-project-<uid>-git`, from an id the database generates and never changes, and it is
+recorded when the key is set: renaming a project changes nothing of its Secrets, and a slug
+reused by another project, or a database started afresh, never meets a Secret that is not its
+own. The guarantee of touching only what the dashboard created rests on that record: a Secret is
+taken back from a service account's mountable list, or deleted, only by a name the database
+recorded. A first set that finds a Secret of its name is still refused, and the reason shows on
+the project's screen. Deleting a project puts its Secrets down for deletion in the same
+transaction, and the worker, which holds the cluster token the API does not, deletes them.
+
 **A configuration applied from files never carries a secret.** Sensitive settings are written as
 references to the worker's environment or to a mounted file, resolved when applied, then sealed;
 the export writes the reference's name, never the value, sealed or not. `arkhitekton config apply`
@@ -124,11 +134,10 @@ through the environment, never spliced into its script.
 
 **The model's key lives in two places.** Typed into the plugin's settings, it is sealed in the
 database like any sensitive setting. Before each review, the worker opens it and writes it into
-the project's Secret `arkhitekton-project-<slug>-review` in the pipelines' namespace, which it
+the project's Secret `arkhitekton-project-<uid>-review` in the pipelines' namespace, which it
 makes mountable, as it does the project's deploy key; it never reads that Secret back. A parameter
 would have carried it into the PipelineRun's spec. The names starting with `arkhitekton-project-`
-are the dashboard's: a Secret of that name is replaced as it is. Deleting a project leaves its
-Secrets in place, the deploy key's included.
+are the dashboard's: a Secret of that name is replaced as it is. Deleting the project deletes it.
 
 ## 9.7 Outbound requests
 
