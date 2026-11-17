@@ -111,6 +111,17 @@ writes to the database with an administrator's authority, through the same rules
 interface: running it is an operator's act, reserved to who can `exec` into the worker's pod, and
 its writes are audited under the name given by `--actor` (`config-apply` by default).
 
+**The AI review sends code to models, and reads the forge with a token of its own.** The models
+are the operator's choice, in the plugin's settings and the `model-access` Secret: the code reviewed goes
+wherever they point, and an instance that must keep its code in house points them at a self-hosted
+endpoint. The `forge-read` token is not the forge plugin's, which writes: it reads the pull
+request, its discussion and the issues it cites, and the comment is posted afterwards by the core's
+action. What a pull request contains is untrusted: the review runs in the default branch's working
+copy, never the head's, with no environment file read and no configuration inherited, so a pull
+request cannot declare the commands its review runs. The agents receive the model's keys but not
+the forge's token, and the pipeline gives them read-only tools. A setting reaches the review
+through the environment, never spliced into its script.
+
 ## 9.7 Outbound requests
 
 **The tracker transport refuses any method but GET and HEAD** before the request leaves

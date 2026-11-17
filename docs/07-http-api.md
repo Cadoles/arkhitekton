@@ -116,7 +116,10 @@ names for it.
 | `POST /projects/{project}/releases/{tag}/bench/{measure}/baseline` | `release:create:final` |
 
 **Pull requests.** The same results, read for a pull request: `GET /projects/{project}/pulls/{number}/tests`,
-`…/tests/{group}`, `…/attachments/{id}` and `…/security`, all `read`. A group is compared with the
+`…/tests/{group}`, `…/attachments/{id}` and `…/security`, all `read`. A pull request also has
+`…/review`, `read`: its latest result of the `review` group, with its findings, its attributes
+(`verdict`, `head`, `reviewers`, `questions`, `failed`, `models`) and its files, or
+`{"reviewed": false}`. The security routes read the `security` group only. A group is compared with the
 previous report on the same request (its previous push) rather than with a previous release, and the
 score is computed by family: no release plan weighs a request's steps.
 

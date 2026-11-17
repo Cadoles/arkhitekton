@@ -49,8 +49,8 @@ The order of the entries is the order in which a build chains its verifications.
 
 The built-in plugins bring `docker/build`, `docker/retag`, `docker/scan`, `php/static-tests`,
 `php/unit-tests`,
-`go/build`, `go/unit-tests`, `go/static-tests`, `go/vulncheck` and `k6/load` (observed, not
-launched); an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
+`go/build`, `go/unit-tests`, `go/static-tests`, `go/vulncheck`, `k6/load` (observed, not
+launched) and `review/pull-request`; an installed plugin brings its own. Their Tekton definitions are installed by the dashboard when the capability
 ships them, or provided by the operator otherwise.
 
 A binding naming a plugin that is not installed waits for it, and says so at start-up: the file
@@ -102,6 +102,7 @@ the run and a step cannot change it, and an `image` one is filled only when the 
 | Key | Value |
 |---|---|
 | `project.repoUrl` | Clone URL of the job's project, built from its forge and repository |
+| `project.forgeUrl` | Public address of the job's project's forge, for a pipeline that reads its API |
 | `registry.project` | Registry repository prefix |
 | `registry.insecure` | `true` when that registry is served over plain HTTP (`PIPELINE_INSECURE_REGISTRY`) |
 | `project.deployKeySecret` | Name of the secret holding the project's own deploy key: it opens the project's repository and nothing else |
@@ -112,6 +113,8 @@ the run and a step cannot change it, and an `image` one is filled only when the 
 | `forge.tekton.repoUrl` | Repository of the pipelines' definitions (`FORGE_TEKTON_REPO_URL`), for a pipeline that clones it; none shipped does |
 | `tekton.namespace` | Namespace the PipelineRuns are created in |
 
+A built-in plugin's settings are keys too, `<plugin>.<field>`: the instance's value with the
+project's over it, every declared field given, an empty one included, and a sensitive one never.
 An installed plugin adds its own keys, resolved per project, and documents them. A `binding`
 parameter whose key is absent, or empty when the parameter is required, fails the run when the
 scheduler creates it, naming the key, rather than starting a run that would act somewhere else.
@@ -127,6 +130,8 @@ A capability declares the privileges it needs, from a closed set:
 | `registry-pull` | a secret holding registry credentials |
 | `registry-push` | a secret holding registry credentials |
 | `cluster-deploy` | a service account |
+| `model-access` | a secret holding a model provider's endpoints and keys |
+| `forge-read` | a secret holding a forge token that reads pull requests and issues, never one that writes |
 
 ```yaml
 needs:

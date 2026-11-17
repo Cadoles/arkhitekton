@@ -100,7 +100,7 @@ refuses a run that another version read, unless asked.
 
 The built-in plugins are `docker` (build, re-tag, image scan), `php` (static analysis, unit
 tests), `go` (binaries, unit tests, static analysis, vulnerabilities), `k6` (load campaigns,
-observed rather than launched), `redmine` (tracker), `gitea` (forge) and `rocketchat` (a plan's
+observed rather than launched), `review` (an AI review of a pull request), `redmine` (tracker), `gitea` (forge) and `rocketchat` (a plan's
 messages to a channel). The merged security audit is the Mstore plugin's.
 A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
 the Mstore plugin produces the Mstore one, from the release's dossier (below).
@@ -135,6 +135,77 @@ versions the plugin pins.
 key and rewrites `https://<host>/` to SSH, with the key of its `source-read` secret. That secret
 must open the modules as well as the repository: bind `source-read` to `pipeline.gitSecret`
 rather than to the project's deploy key, which opens one repository only (doc 05 §5.4).
+
+**The `review` plugin.** `review/pull-request` has a pull request reviewed by
+[Conclave](https://github.com/Bornholm/conclave): several coding agents read it at its head, each in
+a worktree of its own, and a lead agent checks their findings against the code, merges the
+duplicates and writes one review with a verdict, `approve`, `comment` or `request_changes`.
+Conclave reads the pull request's description, its discussion, the issues it cites and its checks.
+The agents are [Pi](https://github.com/badlogic/pi-mono) runs with read-only tools.
+
+It is set from the plugin's settings, under Administration, Plugins, and a project may override
+each of them in its own Plugins tab, or switch the review off:
+
+| Setting | Meaning |
+|---|---|
+| `endpoint` | the address of an OpenAI-compatible API (vLLM, Ollama, LiteLLM…): the code reviewed goes there. Required |
+| `api` | the protocol Pi speaks to it, `openai-completions` when empty |
+| `reviewers` | the reviewers' models, comma-separated, one reviewer per model. Required |
+| `lead` | the lead's model. Required |
+| `thinking` | the agents' thinking level (`off` to `high`), the model's when empty |
+| `timeout`, `agentTimeout`, `leadTimeout` | the whole review, a reviewer, the lead: `30m`, `15m`, `10m` when empty |
+| `maxParallel` | reviewers at once, 2 when empty |
+| `diffExclude` | path patterns left out of the diff the reviewers are given, which keep the files at hand |
+| `ci` | whether the head's checks weigh on the verdict, only when checked: a failed one requests changes, a running one keeps the review from approving |
+| `image` | the image carrying Conclave and Pi, built from `images/review/` (`make review-image`). Required |
+
+A model named `provider/id` is taken as it is; a bare `id` is served by `endpoint`.
+
+| Binding | What the operator provides |
+|---|---|
+| `source-read` | the project's deploy key: the head is fetched as `refs/pull/<n>/head` |
+| `model-access` | a Secret whose `api-key` is the endpoint's key, absent for an endpoint that asks none. A `models.json` in it replaces the provider the settings describe with Pi's own configuration, several providers for instance; it reads the key as `$REVIEW_API_KEY` |
+| `forge-read` | a Secret whose `token` is a forge token with read access to the repository and its issues, and nothing more |
+
+The pipeline writes Conclave's configuration from the settings, and imposes on it what is not a
+setting's to choose: the forge (the project's, `project.forgeUrl`), no environment file and no
+inherited file, no label written on the forge, and agents that do not inherit the forge's token.
+The key reaches the agents through their environment, in the pod's home, never on the shared
+volume. The working copy is the default branch, never the pull request's head, since Conclave
+reads the `.env` of the directory it runs in.
+
+The review is read as findings of the `review` group: each at the file and lines it cites, under
+its category, with the reviewers that reported it. A finding on a file the pull request does not
+touch is kept apart and holds nothing against it. The review as written, in Markdown, is kept with
+it. The group stays out of the score and of the security tile: the pull request's page shows it in
+its own section. A request for changes fails the result, a comment warns, and the run itself stays
+green whatever the verdict, so that the pipeline's results `verdict`, `verdict-label`, `counts`
+and `summary` reach the next step. A reaction publishes them on the pull request:
+
+```yaml
+  reactions:
+    - name: AI review
+      event: pull_request.synchronized
+      match: {draft: "false"}
+      plan:
+        stages:
+          - gestes: [{kind: pipeline, ref: review/pull-request, label: review, params: {number: '{number}'}}]
+          - gestes:
+              - kind: action
+                ref: gitea.comment
+                params:
+                  number: '{number}'
+                  marker: ai-review
+                  body: |
+                    **Revue IA : {artifacts.review.verdict-label|non conclue}** ({artifacts.review.counts|})
+
+                    {artifacts.review.summary|}
+
+                    [Le détail sur le dashboard]({pull_request.url})
+```
+
+The capability is bound by no shipped catalogue: its Secrets exist only where an operator created
+them.
 
 ## 6.3 Declared readings
 
@@ -656,7 +727,8 @@ fetched.
 per run, an empty directory, or a **ConfigMap the operator owns**. The last is for data a plugin
 must not carry, because it belongs to the operator and changes without publishing a plugin: a
 severity scale, a set of rules, a policy. It is not a need, and that is deliberate. A need is a
-privilege whose set is closed, so that the operator reads from the name alone what granting it
+privilege whose set is closed (`source-read`, `registry-pull`, `registry-push`, `cluster-deploy`,
+`model-access`, `forge-read`), so that the operator reads from the name alone what granting it
 means; mounting a ConfigMap grants nothing, since the dashboard binds it as a volume and the run's
 service account never reads it. The plugin declares the workspace with a `reason`, one sentence
 saying what it expects there, and the operator binds a ConfigMap of their own (doc 05 §5.4).
