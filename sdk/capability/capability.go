@@ -278,6 +278,12 @@ const (
 	NeedRegistryPull  NeedName = "registry-pull"
 	NeedRegistryPush  NeedName = "registry-push"
 	NeedClusterDeploy NeedName = "cluster-deploy"
+	// NeedModelAccess is a secret holding a model provider's address and credentials. Granting it
+	// lets the run spend on that provider and send it what the run reads.
+	NeedModelAccess NeedName = "model-access"
+	// NeedForgeRead is a secret holding a forge token that reads pull requests and issues, never
+	// one that writes.
+	NeedForgeRead NeedName = "forge-read"
 )
 
 // Need is a privilege a pipeline declares, with why it needs it.

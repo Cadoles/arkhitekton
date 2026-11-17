@@ -175,6 +175,22 @@ func TestAPluginMayAskToDeploy(t *testing.T) {
 	}
 }
 
+// A review reads a model and the forge: two secrets the operator binds, never a service account.
+func TestAPluginMayAskToReadAModelAndTheForge(t *testing.T) {
+	reviewing := strings.Replace(valid, `"needs": [{"name": "source-read", "reason": "clone the project"}]`,
+		`"needs": [{"name": "source-read", "reason": "clone the project"},
+		  {"name": "model-access", "reason": "ask the reviewers"}, {"name": "forge-read", "reason": "read the pull request"}]`, 1)
+	reviewing = strings.Replace(reviewing, `{"name": "shared-data"`,
+		`{"name": "model", "need": "model-access"}, {"name": "forge", "need": "forge-read"}, {"name": "shared-data"`, 1)
+	declared, err := Decode([]byte(reviewing))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if needs := declared.Plugin().Pipelines[0].Spec.Needs; len(needs) != 3 || needs[2].Name != capability.NeedForgeRead {
+		t.Errorf("needs = %+v", needs)
+	}
+}
+
 const withProviders = `{
   "apiVersion": "arkhitekton.plugin/v2", "id": "forgery", "version": "1.0.0", "sdk": "1", "label": "Forgery",
   "perProject": true, "binary": "bin/plugin", "protocol": 1, "tracker": true, "forge": true,

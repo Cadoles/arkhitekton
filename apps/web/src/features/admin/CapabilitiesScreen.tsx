@@ -220,9 +220,7 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                     <input
                       id={`${capability.ref}-need-${need.name}`}
                       value={value.value}
-                      placeholder={
-                        value.source === 'secretName' ? 'git-credentials' : 'pipeline.gitSecret'
-                      }
+                      placeholder={placeholderOf(need.name, value.source)}
                       onChange={(event) =>
                         setDraft((current) => ({
                           ...current,
@@ -417,4 +415,17 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
       )}
     </li>
   )
+}
+
+/** Ce qu'un besoin attend, en exemple : le nom d'un secret qui le porte, ou la clé qui le nomme. */
+const NEED_EXAMPLES: Record<string, { secretName: string; configKey: string }> = {
+  'source-read': { secretName: 'git-credentials', configKey: 'project.deployKeySecret' },
+  'registry-pull': { secretName: 'regcred', configKey: 'pipeline.imagePullSecret' },
+  'registry-push': { secretName: 'regcred', configKey: 'pipeline.registrySecret' },
+  'model-access': { secretName: 'arkhitekton-review-model', configKey: '' },
+  'forge-read': { secretName: 'arkhitekton-review-forge', configKey: '' },
+}
+
+function placeholderOf(need: string, source: 'secretName' | 'configKey'): string {
+  return NEED_EXAMPLES[need]?.[source] ?? ''
 }

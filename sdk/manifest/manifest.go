@@ -538,7 +538,8 @@ func (p Pipeline) problems(at string) []error {
 	declared := map[capability.NeedName]bool{}
 	for _, need := range p.Needs {
 		switch need.Name {
-		case capability.NeedSourceRead, capability.NeedRegistryPull, capability.NeedRegistryPush:
+		case capability.NeedSourceRead, capability.NeedRegistryPull, capability.NeedRegistryPush,
+			capability.NeedModelAccess, capability.NeedForgeRead:
 		case capability.NeedClusterDeploy:
 			// Asked, never granted here: a service account is bound by the operator's catalogue file
 			// only, and a run whose need nobody bound is refused with the reason.
