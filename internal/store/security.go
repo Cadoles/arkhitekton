@@ -166,6 +166,14 @@ func (db *DB) LatestSecurityAudit(ctx context.Context, releaseID int64) (Securit
 
 // LatestSecurityAuditIn returns a scope's most recent audit.
 func (db *DB) LatestSecurityAuditIn(ctx context.Context, scope Scope) (SecurityAudit, error) {
+	return db.LatestFindingsIn(ctx, scope, "security")
+}
+
+// LatestFindingsIn returns a scope's most recent set of findings in a group.
+//
+// The group keeps two producers of findings apart: a review's remarks must not stand for the
+// security audit, in its tile nor in the score.
+func (db *DB) LatestFindingsIn(ctx context.Context, scope Scope, group string) (SecurityAudit, error) {
 	var audit SecurityAudit
 	var status, policy []byte
 	var generatedAt, previousRunID *string
@@ -182,9 +190,9 @@ func (db *DB) LatestSecurityAuditIn(ctx context.Context, scope Scope) (SecurityA
 		 -- audit. A loose join: the report outlives the purge of its projection,
 		 -- and an audit with no run stays readable.
 		 left join runs p on p.id = r.run_id
-		 where `+scope.on("r")+`
+		 where `+scope.on("r")+` and r.fact_group = $2
 		 order by a.created_at desc
-		 limit 1`, scope.ID).
+		 limit 1`, scope.ID, group).
 		Scan(&audit.TestResultID, &audit.RunID, &generatedAt, &audit.Total,
 			&audit.Critical, &audit.High, &audit.Medium, &audit.Low, &audit.Suppressed,
 			&audit.DeltaNew, &audit.DeltaExisting, &audit.DeltaResolved,
