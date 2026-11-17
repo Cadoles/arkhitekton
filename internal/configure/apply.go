@@ -182,10 +182,14 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 
 	for _, ref := range sortedKeys(desired.CapabilityBindings) {
 		binding := desired.CapabilityBindings[ref]
-		if existing, recorded := current.CapabilityBindings[ref]; recorded && sameJSON(existing, binding) {
+		if existing, recorded := current.CapabilityBindings[ref]; recorded && sameBinding(ref, existing, binding) {
 			continue
 		}
-		p.check(p.checks.binding(ref))
+		if err := p.checks.binding(ref); err != nil {
+			p.check(err)
+		} else {
+			p.checks.bound[ref] = true
+		}
 		p.add("~ binding "+ref, func(ctx context.Context) error {
 			parsed, err := services.Bindings.Ref(ref)
 			if err != nil {
@@ -721,6 +725,28 @@ func sameJSON(a, b []byte) bool {
 	return reflect.DeepEqual(left, right)
 }
 
+// sameBinding compares two bindings as they are recorded: a file names its capability by its key,
+// where the recorded binding also carries it as `ref`.
+func sameBinding(ref string, a, b []byte) bool {
+	normalised := func(raw []byte) ([]byte, bool) {
+		binding, err := catalog.ParseBinding(raw)
+		if err != nil {
+			return nil, false
+		}
+		if binding.Ref == "" {
+			binding.Ref = ref
+		}
+		out, err := json.Marshal(binding)
+		return out, err == nil
+	}
+	left, okLeft := normalised(a)
+	right, okRight := normalised(b)
+	if !okLeft || !okRight {
+		return sameJSON(a, b)
+	}
+	return sameJSON(left, right)
+}
+
 func onOff(enabled bool) string {
 	if enabled {
 		return "on"
@@ -741,6 +767,9 @@ type checker struct {
 	catalog  *catalog.Catalog
 	actions  action.Catalog
 	events   map[string]bool
+	// bound are the capabilities the files bind: written before the projects, they are in the
+	// catalogue by the time a plan naming them is.
+	bound map[string]bool
 }
 
 func (a Applier) checker() (checker, error) {
@@ -759,7 +788,7 @@ func (a Applier) checker() (checker, error) {
 	}
 	return checker{
 		registry: registry, catalog: catalog.Of(a.Catalog),
-		actions: action.NewCatalog(registry.Plugins()), events: events,
+		actions: action.NewCatalog(registry.Plugins()), events: events, bound: map[string]bool{},
 	}, nil
 }
 
@@ -767,7 +796,7 @@ func (c checker) kind(where, kind string) error {
 	if c.catalog == nil {
 		return fmt.Errorf("%s: kind %q cannot be checked: no catalogue is loaded", where, kind)
 	}
-	if _, found := c.catalog.Find(kind); !found {
+	if _, found := c.catalog.Find(kind); !found && !c.bound[kind] {
 		return fmt.Errorf("%s: kind %q is missing from the catalogue", where, kind)
 	}
 	return nil

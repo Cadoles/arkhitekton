@@ -15,6 +15,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -106,11 +107,25 @@ func runConfigApply(
 		}
 	}
 
-	snapshot, err := sources.snapshot(ctx, 0)
+	snapshot, dropped, err := sources.lenientSnapshot(ctx)
+	for _, problem := range dropped {
+		fmt.Fprintln(stderr, "warning:", problem)
+	}
 	if err != nil {
 		return err
 	}
-	registry, pipelines := snapshot.Registry, snapshot.Catalog
+	// A binding written by this apply makes its capability known to what follows: a reaction of the
+	// same files may name it. The catalogue is read again once the binding is recorded.
+	holder := live.NewHolder(snapshot)
+	registry, pipelines := snapshot.Registry, holder.Catalogs()
+	reload := func(ctx context.Context) error {
+		next, _, err := sources.lenientSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		holder.Replace(next)
+		return nil
+	}
 
 	// The same services the screen writes through, given what the API gives them. The deployer's
 	// scheme check is left out: it is a hook of a running plugin, and the screen still applies it.
@@ -123,7 +138,8 @@ func runConfigApply(
 		ProjectPipelines: configure.ProjectPipelines{Store: db, Catalog: pipelines, Logger: logger},
 		QueueLimits:      configure.QueueLimits{Store: db, Logger: logger},
 		Bindings: configure.Bindings{
-			Store: db, Registry: registry, Catalog: pipelines, Check: sources.checkBinding, Logger: logger,
+			Store: db, Registry: registry, Catalog: pipelines, Check: sources.checkBinding, Reload: reload,
+			Logger: logger,
 		},
 		StatusMappings: configure.StatusMappings{Store: db, Logger: logger},
 		Automations: configure.Automations{

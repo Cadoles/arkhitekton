@@ -2,11 +2,15 @@ package configure
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
 
 func (i instance) applier(env map[string]string) Applier {
@@ -239,6 +243,46 @@ func TestOnlyWhatIsWrittenIsChecked(t *testing.T) {
 	_, _, err := i.applier(nil).Plan(context.Background(), set, false)
 	if err == nil || !strings.Contains(err.Error(), `"php/static-tests" is missing from the catalogue`) {
 		t.Errorf("error = %v, want the changed reaction's lost kind named", err)
+	}
+}
+
+// A kind the same files bind is known to their plans: the binding is written before the projects.
+func TestAKindTheFilesBindIsKnownToTheirPlans(t *testing.T) {
+	i := configured(t)
+	set := read(t, i.export(t))
+	i.catalog = &catalog.Catalog{Pipelines: []catalog.Pipeline{
+		{Kind: "docker/build", PipelineRef: "build-image", Produces: []catalog.Product{catalog.ProductImage}},
+	}}
+	set.Projects[0].Reactions[0].Match = map[string]string{"branch": "develop"}
+	registry, err := capabilities.New(forgePlugin(), capability.Plugin{ID: "php", Version: "1", APIVersion: sdk.APIVersion,
+		Pipelines: []capability.Pipeline{{Name: "static-tests", Spec: capability.PipelineSpec{PipelineRef: "php-static"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.registry = registry
+	if set.Instance == nil {
+		t.Fatal("no instance exported")
+	}
+	set.Instance.CapabilityBindings = map[string]json.RawMessage{"php/static-tests": json.RawMessage(`{}`)}
+
+	ops, _, err := i.applier(nil).Plan(context.Background(), set, false)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if !strings.Contains(descriptions(ops), "~ binding php/static-tests") {
+		t.Errorf("ops:\n%s", descriptions(ops))
+	}
+}
+
+// A file names a binding's capability by its key; the recorded one also carries it as `ref`. The same
+// binding either way writes nothing.
+func TestABindingWithoutItsRefIsTheRecordedOne(t *testing.T) {
+	recorded := json.RawMessage(`{"ref": "php/static-tests", "timeout": "45m"}`)
+	if !sameBinding("php/static-tests", recorded, json.RawMessage(`{"timeout": "45m"}`)) {
+		t.Error("the same binding read as a change")
+	}
+	if sameBinding("php/static-tests", recorded, json.RawMessage(`{"timeout": "30m"}`)) {
+		t.Error("a changed timeout read as the same binding")
 	}
 }
 
