@@ -44,8 +44,8 @@ func TestTheParametersReadTheDeclaredSettings(t *testing.T) {
 	declared := func(fields []capability.Field) map[string]bool {
 		names := map[string]bool{}
 		for _, field := range fields {
-			if field.Secret {
-				t.Errorf("%s is secret: a model's key belongs in the model-access Secret", field.Name)
+			if field.Secret != (field.Name == "apiKey") {
+				t.Errorf("%s: secret %v, only the model's key is", field.Name, field.Secret)
 			}
 			names[ID+"."+field.Name] = true
 		}
@@ -55,6 +55,9 @@ func TestTheParametersReadTheDeclaredSettings(t *testing.T) {
 	for name, param := range plugin.Pipelines[0].Spec.Params {
 		if param.Source != capability.ParamBinding || !strings.HasPrefix(param.DefaultKey, ID+".") {
 			continue
+		}
+		if param.DefaultKey == ID+".apiKey" {
+			t.Errorf("%s reads the key: a parameter lands in the PipelineRun's spec", name)
 		}
 		if !global[param.DefaultKey] || !project[param.DefaultKey] {
 			t.Errorf("%s reads %s, which the plugin does not declare everywhere", name, param.DefaultKey)

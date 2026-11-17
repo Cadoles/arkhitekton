@@ -149,6 +149,7 @@ each of them in its own Plugins tab, or switch the review off:
 | Setting | Meaning |
 |---|---|
 | `endpoint` | the address of an OpenAI-compatible API (vLLM, Ollama, LiteLLM…): the code reviewed goes there. Required |
+| `apiKey` | the endpoint's key, sealed like any sensitive setting and never shown again; empty for an endpoint that asks none |
 | `api` | the protocol Pi speaks to it, `openai-completions` when empty |
 | `reviewers` | the reviewers' models, comma-separated, one reviewer per model. Required |
 | `lead` | the lead's model. Required |
@@ -159,12 +160,13 @@ each of them in its own Plugins tab, or switch the review off:
 | `ci` | whether the head's checks weigh on the verdict, only when checked: a failed one requests changes, a running one keeps the review from approving |
 | `image` | the image carrying Conclave and Pi, built from `images/review/` (`make review-image`). Required |
 
-A model named `provider/id` is taken as it is; a bare `id` is served by `endpoint`.
+A model is named by its whole id on `endpoint`, a slash included (`team/model`); only with a
+`models.json` of one's own, below, is it named `provider/id`.
 
 | Binding | What the operator provides |
 |---|---|
 | `source-read` | the project's deploy key: the head is fetched as `refs/pull/<n>/head` |
-| `model-access` | a Secret whose `api-key` is the endpoint's key, absent for an endpoint that asks none. A `models.json` in it replaces the provider the settings describe with Pi's own configuration, several providers for instance; it reads the key as `$REVIEW_API_KEY` |
+| `model-access` | `project.reviewSecret`: before each review, the worker opens the `apiKey` setting (the project's, or the instance's) and writes it as `api-key` into the project's Secret `arkhitekton-project-<slug>-review`, which it makes mountable. Bound instead to a Secret of one's own, a `models.json` in it replaces the provider the settings describe with Pi's own configuration, several providers for instance; it reads the key as `$REVIEW_API_KEY` |
 | `forge-read` | a Secret whose `token` is a forge token with read access to the repository and its issues, and nothing more |
 
 The pipeline writes Conclave's configuration from the settings, and imposes on it what is not a
@@ -204,8 +206,8 @@ and `summary` reach the next step. A reaction publishes them on the pull request
                     [Le détail sur le dashboard]({pull_request.url})
 ```
 
-The capability is bound by no shipped catalogue: its Secrets exist only where an operator created
-them.
+The capability is bound by no shipped catalogue: its forge token's Secret exists only where an
+operator created it.
 
 ## 6.3 Declared readings
 

@@ -112,7 +112,7 @@ interface: running it is an operator's act, reserved to who can `exec` into the 
 its writes are audited under the name given by `--actor` (`config-apply` by default).
 
 **The AI review sends code to models, and reads the forge with a token of its own.** The models
-are the operator's choice, in the plugin's settings and the `model-access` Secret: the code reviewed goes
+are the operator's choice, in the plugin's settings: the code reviewed goes
 wherever they point, and an instance that must keep its code in house points them at a self-hosted
 endpoint. The `forge-read` token is not the forge plugin's, which writes: it reads the pull
 request, its discussion and the issues it cites, and the comment is posted afterwards by the core's
@@ -121,6 +121,14 @@ copy, never the head's, with no environment file read and no configuration inher
 request cannot declare the commands its review runs. The agents receive the model's keys but not
 the forge's token, and the pipeline gives them read-only tools. A setting reaches the review
 through the environment, never spliced into its script.
+
+**The model's key lives in two places.** Typed into the plugin's settings, it is sealed in the
+database like any sensitive setting. Before each review, the worker opens it and writes it into
+the project's Secret `arkhitekton-project-<slug>-review` in the pipelines' namespace, which it
+makes mountable, as it does the project's deploy key; it never reads that Secret back. A parameter
+would have carried it into the PipelineRun's spec. The names starting with `arkhitekton-project-`
+are the dashboard's: a Secret of that name is replaced as it is. Deleting a project leaves its
+Secrets in place, the deploy key's included.
 
 ## 9.7 Outbound requests
 

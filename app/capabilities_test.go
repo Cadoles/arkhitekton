@@ -108,7 +108,7 @@ capabilities:
     timeout: 45m
     needs:
       source-read:  { secret: { configKey: project.deployKeySecret } }
-      model-access: { secret: { secretName: arkhitekton-review-model } }
+      model-access: { secret: { configKey: project.reviewSecret } }
       forge-read:   { secret: { secretName: arkhitekton-review-forge } }
     volumes:
       shared-data: { storageClassName: standard }
@@ -130,7 +130,7 @@ capabilities:
 		}
 	}
 	expected := map[string]string{
-		"git-credentials": "project.deployKeySecret", "model-access": "arkhitekton-review-model",
+		"git-credentials": "project.deployKeySecret", "model-access": "project.reviewSecret",
 		"forge-token": "arkhitekton-review-forge", "shared-data": "volume",
 	}
 	if len(sources) != len(expected) {

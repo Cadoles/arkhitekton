@@ -94,7 +94,28 @@ type Scheduler struct {
 	// deployKeys returns the name of the secret carrying a project's deploy key. Nil when no
 	// per-project key is in service: the runs then mount the shared key.
 	deployKeys ProjectKeys
-	logger     *slog.Logger
+	// projected writes the Secrets a project's sealed settings feed, for the pipelines that mount
+	// them. Nil: no setting reaches a pipeline as a Secret.
+	projected SecretProjector
+	logger    *slog.Logger
+}
+
+// SecretProjector writes a project's Secret from a sealed setting, right before a run mounts it.
+//
+// A setting typed in the interface and sealed in the database cannot reach a pod as a parameter:
+// it would land in the PipelineRun's spec. It reaches it as a Secret of the project's, written
+// again at each run so that the value is the screen's at that moment.
+type SecretProjector interface {
+	// Keys are the configuration keys it fills: a binding names one, `project.reviewSecret`.
+	Keys() []string
+	// Project writes the Secret behind a key for a project, and returns its name.
+	Project(ctx context.Context, key string, projectID int64) (string, error)
+}
+
+// WithProjectedSecrets wires the Secrets written from sealed settings.
+func (s *Scheduler) WithProjectedSecrets(projector SecretProjector) *Scheduler {
+	s.projected = projector
+	return s
 }
 
 // ProjectDeployKey is the configuration key naming the secret of the project's own deploy key.
@@ -625,6 +646,13 @@ func (s *Scheduler) retry(ctx context.Context, jobID int64, reason string) {
 // created, provisioned by the deployment for the whole instance, and a project naming none in
 // particular legitimately pushes where the others push.
 func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline catalog.Pipeline) (map[string]string, error) {
+	if job.ProjectID == nil && s.projected != nil {
+		for _, key := range s.projected.Keys() {
+			if binds(pipeline, key) {
+				return nil, fmt.Errorf("the secret %s is a project's, and this job names none", key)
+			}
+		}
+	}
 	if job.ProjectID == nil {
 		// A job predating projects clones with the deployment's key: there is no project key to
 		// name.
@@ -659,6 +687,20 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 			return nil, fmt.Errorf("settings of project %d: %w", *job.ProjectID, err)
 		}
 		maps.Copy(overrides, values)
+	}
+
+	// Written only for a pipeline that mounts it: a run that does not need a key does not spread it.
+	if s.projected != nil {
+		for _, key := range s.projected.Keys() {
+			if !binds(pipeline, key) {
+				continue
+			}
+			name, err := s.projected.Project(ctx, key, *job.ProjectID)
+			if err != nil {
+				return nil, fmt.Errorf("the secret %s of project %d: %w", key, *job.ProjectID, err)
+			}
+			overrides[key] = name
+		}
 	}
 
 	if s.deployKeys == nil {

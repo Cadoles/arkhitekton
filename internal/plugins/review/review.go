@@ -56,8 +56,12 @@ func Plugin() capability.Plugin {
 // models, on another endpoint, or exclude its generated files.
 var settings = []capability.Field{
 	{Name: "endpoint", Label: "Point d'accès des modèles", Type: capability.FieldURL,
-		Help:        "L'adresse d'une API compatible OpenAI (vLLM, Ollama, LiteLLM…), le code relu y part. La clé est dans le secret du besoin model-access, sous api-key.",
+		Help:        "L'adresse d'une API compatible OpenAI (vLLM, Ollama, LiteLLM…), le code relu y part.",
 		Placeholder: "https://llm.example.fr/v1"},
+	// Sealed, and never a pipeline's parameter: the worker writes it into the project's Secret
+	// right before a review, which mounts it through `project.reviewSecret`.
+	{Name: "apiKey", Label: "Clé d'API", Type: capability.FieldText, Secret: true,
+		Help: "La clé du point d'accès, vide s'il n'en demande pas. Scellée, jamais réaffichée, et recopiée avant chaque revue dans un secret du projet que le pipeline monte."},
 	{Name: "api", Label: "API", Type: capability.FieldText,
 		Help: "Le protocole que Pi parle à ce point d'accès. Vide : openai-completions.", Placeholder: "openai-completions"},
 	{Name: "reviewers", Label: "Modèles des relecteurs", Type: capability.FieldList,
@@ -123,7 +127,7 @@ func pullRequest(manifests []capability.Manifest) capability.Pipeline {
 			},
 			Needs: []capability.Need{
 				{Name: capability.NeedSourceRead, Reason: "clone the repository and fetch the pull request's head"},
-				{Name: capability.NeedModelAccess, Reason: "ask the reviewers' models, with the key under `api-key` (or Pi's whole `models.json`)"},
+				{Name: capability.NeedModelAccess, Reason: "ask the reviewers' models, with the key under `api-key`: bind `project.reviewSecret`, which the plugin's setting feeds, or a Secret of yours carrying Pi's whole `models.json`"},
 				{Name: capability.NeedForgeRead, Reason: "read the pull request, its discussion, the issues it cites and its checks, under the key `token`"},
 			},
 			Produces:  []capability.Product{capability.ProductResults},

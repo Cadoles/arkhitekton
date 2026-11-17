@@ -663,7 +663,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// The built-in plugins' settings first, the installed plugins' answers over them.
 				WithProjectSettings(mergedSettings(builtinSettings(db, carriedPlugins()), answers.projectSettings())).
 				// A plugin switched off by an administrator stops its pipelines.
-				WithPluginGate(pluginGate(db))
+				WithPluginGate(pluginGate(db)).
+				// The Secrets a sealed setting feeds, the review's model key, written before the run that
+				// mounts them.
+				WithProjectedSecrets(projectedSecretsFor(cluster, cfg, pipelines, db,
+					secretResolver{registry: inForce.Registries(), store: db, cipher: cipher}))
 
 			// Installing a plugin, for the same reason: pulled and verified here, it is put in force at once
 			// rather than at the next reload.
@@ -1220,6 +1224,19 @@ func projectKeys(
 	logger.Info("per-project deploy keys",
 		"namespace", namespace, "service_accounts", accounts)
 	return deploykeys.NewIssuer(owner, mounter)
+}
+
+// projectedSecretsFor writes the Secrets of sealed settings with the deploy keys' owner and
+// mounter: the same namespace, the same service accounts, the same rule of never reading back.
+func projectedSecretsFor(
+	cluster *tekton.Client, cfg config.Config, pipelines *catalog.Catalog, db *store.DB, resolver secretResolver,
+) settingSecrets {
+	namespace := cfg.Tekton.Namespace
+	return settingSecrets{
+		resolve: resolver.ResolveSecret, projects: db,
+		owner:   deploykeys.NewOwner(cluster.Kube, namespace),
+		mounter: deploykeys.NewMounter(cluster.Kube, namespace, pipelines.ServiceAccounts()...),
+	}
 }
 
 // libraryInstaller opens what is needed to put the reference libraries in place.
