@@ -166,7 +166,7 @@ A model is named by its whole id on `endpoint`, a slash included (`team/model`);
 | Binding | What the operator provides |
 |---|---|
 | `source-read` | the project's deploy key: the head is fetched as `refs/pull/<n>/head` |
-| `model-access` | `project.reviewSecret`: before each review, the worker opens the `apiKey` setting (the project's, or the instance's) and writes it as `api-key` into the project's Secret `arkhitekton-project-<slug>-review`, which it makes mountable. Bound instead to a Secret of one's own, a `models.json` in it replaces the provider the settings describe with Pi's own configuration, several providers for instance; it reads the key as `$REVIEW_API_KEY` |
+| `model-access` | `project.reviewSecret`: before each review, the worker opens the `apiKey` setting (the project's, or the instance's) and writes it as `api-key` into the project's Secret `arkhitekton-project-<uid>-review`, named from the project's id, which it makes mountable. Bound instead to a Secret of one's own, a `models.json` in it replaces the provider the settings describe with Pi's own configuration, several providers for instance; it reads the key as `$REVIEW_API_KEY` |
 | `forge-read` | a Secret whose `token` is a forge token with read access to the repository and its issues, and nothing more |
 
 The pipeline writes Conclave's configuration from the settings, and imposes on it what is not a
