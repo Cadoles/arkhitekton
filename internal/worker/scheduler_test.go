@@ -295,6 +295,9 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	if settings[projectRepoKey] != expected {
 		t.Errorf("repository = %q, expected the project's", settings[projectRepoKey])
 	}
+	if settings[projectForgeKey] != "https://forge.example.fr" {
+		t.Errorf("forge = %q, expected the project's", settings[projectForgeKey])
+	}
 	// The old key carries the same value, for as long as a catalogue names it.
 
 	withoutForge := int64(8)
