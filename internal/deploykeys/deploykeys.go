@@ -99,7 +99,43 @@ var ErrNameTaken = errors.New("a secret already carries this name and was not cr
 // hence a valid Kubernetes resource name with no escaping. The prefix makes ownership readable
 // without consulting the labels.
 func SecretName(slug string) string {
-	return "arkhitekton-project-" + slug + "-git"
+	return KindGit.Name(slug)
+}
+
+// Kind is a sort of Secret the dashboard keeps for a project. The set is closed: its fields are
+// unexported, so that no caller composes a name the dashboard does not own.
+type Kind struct {
+	suffix     string
+	secretType corev1.SecretType
+}
+
+var (
+	// KindGit is a project's deploy key.
+	KindGit = Kind{suffix: "git", secretType: corev1.SecretTypeSSHAuth}
+	// KindReview is the key of the models a project's AI review asks, copied from the plugin's sealed
+	// setting before each review.
+	KindReview = Kind{suffix: "review", secretType: corev1.SecretTypeOpaque}
+)
+
+// Name returns the name of a project's Secret of this kind. The prefix `arkhitekton-project-` is
+// the dashboard's: what carries it is written by it, and by nobody else.
+func (k Kind) Name(slug string) string {
+	return "arkhitekton-project-" + slug + "-" + k.suffix
+}
+
+func (o *Owner) secret(kind Kind, slug string, data map[string][]byte) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kind.Name(slug),
+			Namespace: o.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": ManagedBy,
+				"arkhitekton/project":          slug,
+			},
+		},
+		Type: kind.secretType,
+		Data: data,
+	}
 }
 
 // Pair is a freshly generated key pair.
@@ -166,18 +202,7 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 	}
 
 	name := SecretName(slug)
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: o.namespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": ManagedBy,
-				"arkhitekton/project":          slug,
-			},
-		},
-		Type: corev1.SecretTypeSSHAuth,
-		Data: secretData(pair.Private),
-	}
+	secret := o.secret(KindGit, slug, secretData(pair.Private))
 
 	secrets := o.kube.CoreV1().Secrets(o.namespace)
 
@@ -202,6 +227,26 @@ func (o *Owner) Create(ctx context.Context, slug, comment string, known bool) (s
 	default:
 		return "", fmt.Errorf("creating the key of project %q: %w", slug, err)
 	}
+}
+
+// Put writes a project's Secret of a kind whose content the dashboard holds elsewhere, a sealed
+// setting: created, or replaced as it is when it exists. Without `get`, it is never read, and the
+// prefix of its name is what says it is ours. The deploy key keeps [Owner.Create], which refuses a
+// Secret the database does not know.
+func (o *Owner) Put(ctx context.Context, kind Kind, slug string, data map[string][]byte) (string, error) {
+	if kind.suffix == "" || kind == KindGit {
+		return "", fmt.Errorf("a Secret of kind %q is not written from a setting", kind.suffix)
+	}
+	secret := o.secret(kind, slug, data)
+	secrets := o.kube.CoreV1().Secrets(o.namespace)
+	_, err := secrets.Create(ctx, secret, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		_, err = secrets.Update(ctx, secret, metav1.UpdateOptions{})
+	}
+	if err != nil {
+		return "", fmt.Errorf("writing the %s Secret of project %q: %w", kind.suffix, slug, err)
+	}
+	return secret.Name, nil
 }
 
 // Delete removes a project's Secret.
@@ -258,7 +303,12 @@ func NewMounter(kube kubernetes.Interface, namespace string, accounts ...string)
 // compared before writing so as not to produce one `patch` per start-up on a service account
 // that has not moved.
 func (m *Mounter) Allow(ctx context.Context, slug string) error {
-	name := SecretName(slug)
+	return m.AllowKind(ctx, KindGit, slug)
+}
+
+// AllowKind makes a project's Secret of a kind mountable.
+func (m *Mounter) AllowKind(ctx context.Context, kind Kind, slug string) error {
+	name := kind.Name(slug)
 
 	var problems []error
 	for _, target := range m.accounts {
