@@ -61,6 +61,7 @@ type Services struct {
 	Plugins          Plugins
 	ProjectPipelines ProjectPipelines
 	QueueLimits      QueueLimits
+	ScoreWeights     ScoreWeights
 	Bindings         Bindings
 	StatusMappings   StatusMappings
 	Automations      Automations

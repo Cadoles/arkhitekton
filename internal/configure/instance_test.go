@@ -101,6 +101,7 @@ func (i instance) services() Services {
 		Plugins:          Plugins{Store: i.db, Registry: i.registry, Cipher: i.cipher, Logger: quiet()},
 		ProjectPipelines: ProjectPipelines{Store: i.db, Catalog: i.catalog, Logger: quiet()},
 		QueueLimits:      QueueLimits{Store: i.db, Logger: quiet()},
+		ScoreWeights:     ScoreWeights{Store: i.db, Logger: quiet()},
 		Bindings:         Bindings{Store: i.db, Registry: i.registry, Catalog: i.catalog, Logger: quiet()},
 		StatusMappings:   StatusMappings{Store: i.db, Logger: quiet()},
 		Automations: Automations{Store: i.db, Schedules: i.db, Catalog: i.catalog, Registry: i.registry,
@@ -147,6 +148,9 @@ func configured(t *testing.T) instance {
 	}
 	if err := s.QueueLimits.Set(ctx, actor, "php/static-tests", 2); err != nil {
 		t.Fatalf("queue limit: %v", err)
+	}
+	if err := s.ScoreWeights.Set(ctx, actor, "mse/rgaa-audit", 0); err != nil {
+		t.Fatalf("score weight: %v", err)
 	}
 	if _, err := s.StatusMappings.Set(ctx, actor, project, "En recette", "client-test"); err != nil {
 		t.Fatalf("status: %v", err)

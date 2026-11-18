@@ -27,6 +27,7 @@ type ExportStore interface {
 	PluginSources(ctx context.Context) ([]store.PluginSource, error)
 	AcceptedSources(ctx context.Context) ([]string, error)
 	QueueLimits(ctx context.Context) (map[string]int, error)
+	ScoreWeights(ctx context.Context) (map[string]float64, error)
 	CapabilityBindings(ctx context.Context) ([]store.CapabilityBinding, error)
 	ListProjects(ctx context.Context) ([]store.Project, error)
 	ProjectPipelines(ctx context.Context, projectID int64) (map[string]store.ProjectPipeline, error)
@@ -163,6 +164,14 @@ func (e Exporter) instance(ctx context.Context, out *Exported, secrets map[strin
 	}
 	if len(limits) > 0 {
 		instance.QueueLimits = limits
+	}
+
+	weights, err := e.Store.ScoreWeights(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(weights) > 0 {
+		instance.ScoreWeights = weights
 	}
 
 	bindings, err := e.Store.CapabilityBindings(ctx)

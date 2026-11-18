@@ -368,7 +368,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		dashhttp.NewPullsHandler(db, inForce.Catalogs(), cfg.Registry.Project, logger).WithResults(testsHandler).Routes,
 		// The bindings an administrator records for what the catalogue file does not bind.
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
-			sources.checkBinding, reloader.Reload, logger).Routes,
+			sources.checkBinding, reloader.Reload, logger).WithWeights(db).Routes,
 		// The plugins an administrator installs from a registry, pulled and verified by the worker.
 		dashhttp.NewInstallationsHandler(db, sources.checkActivation, reloader.Reload, logger).Routes,
 		// And the routes their programs serve, checked here before the program sees them.

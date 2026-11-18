@@ -114,3 +114,47 @@ func (s ProjectPipelines) Clear(ctx context.Context, actor string, project store
 	audit(ctx, logger, s.Store, actor, "project.pipeline", project.Slug+"/"+kind, map[string]any{"enabled": nil})
 	return nil
 }
+
+// ScoreWeightStore is what setting the weights needs.
+type ScoreWeightStore interface {
+	SetScoreWeight(ctx context.Context, kind string, weight float64, by string) error
+	ClearScoreWeight(ctx context.Context, kind string) error
+	Auditor
+}
+
+// MaxScoreWeight bounds a weight: the score normalises the weights of what was measured, so a
+// weight reads as a share of a hundred.
+const MaxScoreWeight = 100
+
+// ScoreWeights sets each pipeline's weight in the score, which lives in the database: whether a
+// RGAA audit counts is decided on a screen, not by redeploying.
+type ScoreWeights struct {
+	Store  ScoreWeightStore
+	Logger *slog.Logger
+}
+
+// Set sets a pipeline's weight; zero leaves it out of the score.
+func (s ScoreWeights) Set(ctx context.Context, actor, kind string, weight float64) error {
+	if kind == "" {
+		return refuse(http.StatusBadRequest, "Missing pipeline", "")
+	}
+	if weight < 0 || weight > MaxScoreWeight || weight != weight {
+		return refuse(http.StatusBadRequest, "Invalid weight", fmt.Sprintf("expected between 0 and %d", MaxScoreWeight))
+	}
+	logger := loggerOr(s.Logger)
+	if err := s.Store.SetScoreWeight(ctx, kind, weight, actor); err != nil {
+		return failure(logger, "Cannot set", err, "kind", kind)
+	}
+	audit(ctx, logger, s.Store, actor, store.AuditScoreWeight, kind, map[string]any{"weight": weight})
+	return nil
+}
+
+// Clear returns a pipeline to its nature's weight.
+func (s ScoreWeights) Clear(ctx context.Context, actor, kind string) error {
+	logger := loggerOr(s.Logger)
+	if err := s.Store.ClearScoreWeight(ctx, kind); err != nil {
+		return failure(logger, "Cannot set", err, "kind", kind)
+	}
+	audit(ctx, logger, s.Store, actor, store.AuditScoreWeight, kind, map[string]any{"weight": nil})
+	return nil
+}

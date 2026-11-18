@@ -137,6 +137,7 @@ func runConfigApply(
 		Plugins:          configure.Plugins{Store: db, Registry: registry, Cipher: cipher, Logger: logger},
 		ProjectPipelines: configure.ProjectPipelines{Store: db, Catalog: pipelines, Logger: logger},
 		QueueLimits:      configure.QueueLimits{Store: db, Logger: logger},
+		ScoreWeights:     configure.ScoreWeights{Store: db, Logger: logger},
 		Bindings: configure.Bindings{
 			Store: db, Registry: registry, Catalog: pipelines, Check: sources.checkBinding, Reload: reload,
 			Logger: logger,

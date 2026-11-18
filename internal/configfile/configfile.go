@@ -53,6 +53,9 @@ type Instance struct {
 	Plugins map[string]InstancePlugin `json:"plugins,omitempty"`
 	// QueueLimits are the queues' ceilings, by kind. A kind absent keeps its catalogue ceiling.
 	QueueLimits map[string]int `json:"queueLimits,omitempty"`
+	// ScoreWeights are the pipelines' weights in the score, by kind: between 0 (out of the score)
+	// and 100. A kind absent weighs its nature's default.
+	ScoreWeights map[string]float64 `json:"scoreWeights,omitempty"`
 	// CapabilityBindings are the bindings recorded in the database, by capability ref, in the
 	// catalogue file's shape. The catalogue file's own bindings stay in the file.
 	CapabilityBindings map[string]json.RawMessage `json:"capabilityBindings,omitempty"`
@@ -227,6 +230,9 @@ var envPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // MaxQueueLimit mirrors the ceiling the screen accepts.
 const MaxQueueLimit = 20
 
+// MaxScoreWeight bounds a pipeline's weight in the score.
+const MaxScoreWeight = 100
+
 // Validate refuses what cannot be applied whatever the instance: malformed names, duplicates,
 // plans or schedules that are wrong in themselves. Each problem names its path.
 func (s Set) Validate() error {
@@ -260,6 +266,11 @@ func (i Instance) validate() error {
 	for kind, max := range i.QueueLimits {
 		if max < 1 || max > MaxQueueLimit {
 			problems = append(problems, fmt.Errorf("instance: spec.queueLimits.%s: expected between 1 and %d", kind, MaxQueueLimit))
+		}
+	}
+	for kind, weight := range i.ScoreWeights {
+		if weight < 0 || weight > MaxScoreWeight {
+			problems = append(problems, fmt.Errorf("instance: spec.scoreWeights.%s: expected between 0 and %d", kind, MaxScoreWeight))
 		}
 	}
 	for ref, binding := range i.CapabilityBindings {

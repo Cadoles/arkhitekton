@@ -398,3 +398,29 @@ func TestAResolvedSecretIsWrittenOnlyWhenItChanged(t *testing.T) {
 		t.Errorf("token = %q (%v), want the new value, sealed", opened, err)
 	}
 }
+
+// A pipeline's weight is written when it changes, and only then; pruned, an undeclared one returns
+// to its nature's.
+func TestAScoreWeightIsAppliedOnce(t *testing.T) {
+	i := configured(t)
+	set := read(t, i.export(t))
+	set.Instance.ScoreWeights["mse/rgaa-audit"] = 10
+
+	applier := i.applier(nil)
+	ops, _ := planOps(t, applier, set, false)
+	if got := descriptions(ops); got != "~ score weight mse/rgaa-audit: 10" {
+		t.Fatalf("plan:\n%s", got)
+	}
+	if err := applier.Execute(context.Background(), ops); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if again, _ := planOps(t, applier, set, false); len(again) != 0 {
+		t.Errorf("after the change:\n%s", descriptions(again))
+	}
+
+	delete(set.Instance.ScoreWeights, "mse/rgaa-audit")
+	ops, _ = planOps(t, applier, set, true)
+	if got := descriptions(ops); !strings.Contains(got, "- score weight mse/rgaa-audit") {
+		t.Errorf("prune plan:\n%s", got)
+	}
+}

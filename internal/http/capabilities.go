@@ -12,6 +12,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
 )
@@ -43,7 +44,21 @@ type CapabilitiesHandler struct {
 	check func(ctx context.Context, binding catalog.Binding) error
 	// reload applies a recorded binding on this replica at once; the others follow the counter.
 	reload func(ctx context.Context) error
-	logger *slog.Logger
+	// weights reads and sets each pipeline's weight in the score. Nil: the weights are not served.
+	weights ScoreWeightStore
+	logger  *slog.Logger
+}
+
+// ScoreWeightStore is what setting the pipelines' weights needs.
+type ScoreWeightStore interface {
+	ScoreWeights(ctx context.Context) (map[string]float64, error)
+	configure.ScoreWeightStore
+}
+
+// WithWeights serves the pipelines' weights in the score beside their bindings.
+func (h *CapabilitiesHandler) WithWeights(weights ScoreWeightStore) *CapabilitiesHandler {
+	h.weights = weights
+	return h
 }
 
 func NewCapabilitiesHandler(
@@ -63,6 +78,14 @@ func (h *CapabilitiesHandler) Routes(mux *http.ServeMux, m *Middleware) {
 	mux.Handle("PUT /admin/capabilities/{plugin}/{name}/binding", Chain(http.HandlerFunc(h.Bind),
 		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
 	mux.Handle("DELETE /admin/capabilities/{plugin}/{name}/binding", Chain(http.HandlerFunc(h.Unbind),
+		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
+	if h.weights == nil {
+		return
+	}
+	// A weight is not part of the binding: a capability the file binds has its weight set here too.
+	mux.Handle("PUT /admin/capabilities/{plugin}/{name}/weight", Chain(http.HandlerFunc(h.SetWeight),
+		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
+	mux.Handle("DELETE /admin/capabilities/{plugin}/{name}/weight", Chain(http.HandlerFunc(h.ClearWeight),
 		m.Authenticate, m.Require(auth.PermAdmin), m.CSRF))
 }
 
@@ -95,6 +118,12 @@ type capabilityView struct {
 	Binding json.RawMessage `json:"binding,omitempty"`
 	// Unavailable is why the catalogue cannot launch it, empty when it can.
 	Unavailable string `json:"unavailable,omitempty"`
+	// Weight is the weight set for it in the score, absent when none is: it then weighs
+	// DefaultWeight, its nature's, zero being out of the score.
+	Weight        *float64 `json:"weight,omitempty"`
+	DefaultWeight float64  `json:"default_weight"`
+	// Group is the nature of its results, which gives the default weight.
+	Group string `json:"group,omitempty"`
 }
 
 // List returns every pipeline capability that can be launched, and how it is bound.
@@ -108,6 +137,14 @@ func (h *CapabilitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 	stored := map[string]json.RawMessage{}
 	for _, binding := range recorded {
 		stored[binding.Ref] = binding.Binding
+	}
+
+	weights := map[string]float64{}
+	if h.weights != nil {
+		if weights, err = h.weights.ScoreWeights(r.Context()); err != nil {
+			writeProblem(w, http.StatusInternalServerError, "Cannot read the weights", "")
+			return
+		}
 	}
 
 	views := []capabilityView{}
@@ -145,6 +182,13 @@ func (h *CapabilitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		if pipeline, found := pipelines.Find(view.Ref); found {
 			view.Unavailable = pipeline.Unavailable
+		}
+		view.Group = declared.Spec.Group
+		if signal, known := results.SignalOf(results.Group(view.Group)); known {
+			view.DefaultWeight = results.WeightOf(nil, signal)
+		}
+		if weight, set := weights[view.Ref]; set {
+			view.Weight = &weight
 		}
 		views = append(views, view)
 	}
@@ -193,4 +237,46 @@ func (h *CapabilitiesHandler) service() configure.Bindings {
 	return configure.Bindings{
 		Store: h.store, Registry: h.registry, Catalog: h.catalog, Check: h.check, Reload: h.reload, Logger: h.logger,
 	}
+}
+
+// weightRequest carries a pipeline's weight in the score.
+type weightRequest struct {
+	Weight *float64 `json:"weight"`
+}
+
+// SetWeight sets a pipeline's weight in the score; zero leaves it out.
+func (h *CapabilitiesHandler) SetWeight(w http.ResponseWriter, r *http.Request) {
+	ref, err := h.service().Ref(r.PathValue("plugin") + "/" + r.PathValue("name"))
+	if err != nil {
+		writeRefusal(w, err)
+		return
+	}
+	var request weightRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&request); err != nil || request.Weight == nil {
+		writeProblem(w, http.StatusBadRequest, "Unreadable weight", "expected {\"weight\": 0 to 100}")
+		return
+	}
+	identity, _ := IdentityFrom(r.Context())
+	service := configure.ScoreWeights{Store: h.weights, Logger: h.logger}
+	if err := service.Set(r.Context(), identity.Subject, ref.String(), *request.Weight); err != nil {
+		writeRefusal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ref": ref.String(), "weight": *request.Weight})
+}
+
+// ClearWeight returns a pipeline to its nature's weight.
+func (h *CapabilitiesHandler) ClearWeight(w http.ResponseWriter, r *http.Request) {
+	ref, err := h.service().Ref(r.PathValue("plugin") + "/" + r.PathValue("name"))
+	if err != nil {
+		writeRefusal(w, err)
+		return
+	}
+	identity, _ := IdentityFrom(r.Context())
+	service := configure.ScoreWeights{Store: h.weights, Logger: h.logger}
+	if err := service.Clear(r.Context(), identity.Subject, ref.String()); err != nil {
+		writeRefusal(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

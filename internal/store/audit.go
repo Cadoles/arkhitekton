@@ -46,6 +46,8 @@ const (
 	// A queue's ceiling decides what the cluster accepts to run at once. Raising it commits
 	// the machine, lowering it lengthens every verification: both deserve to be attributed.
 	AuditQueueLimit = "queue.limit"
+	// AuditScoreWeight: a pipeline's weight in the score, set or cleared.
+	AuditScoreWeight = "score.weight"
 	// Declaring a repository says what the dashboard drives, and removing it takes that away.
 	// The access check is recorded too: it is the trace that says since when a repository was
 	// known to be unreachable.
