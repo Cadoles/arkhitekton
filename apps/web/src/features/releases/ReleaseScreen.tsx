@@ -2,6 +2,7 @@ import { useState, type ComponentType } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { JobError } from './JobError'
 import { TestsPanel } from './TestsPanel'
+import { LaunchPipelineButton } from './LaunchPipeline'
 import { attachmentURL, releaseSubject } from './tests'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
@@ -118,6 +119,13 @@ function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
           <>
             <StatusBadge style={status.release(release.state)} />
             <ReleaseBadges release={release} />
+            <span className="ml-auto">
+              <LaunchPipelineButton
+                subject={releaseSubject(release.tag)}
+                disabled={release.state === 'draft'}
+                disabledReason="Un brouillon n'a encore rien construit"
+              />
+            </span>
           </>
         )}
       </div>

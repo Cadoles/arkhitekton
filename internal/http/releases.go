@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1327,6 +1328,96 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"kind": kind, "job_id": jobID, "revision": revision,
 	})
+}
+
+// runRequest names the pipeline launched on a release and what the release does not fill.
+type runRequest struct {
+	Kind   string            `json:"kind"`
+	Params map[string]string `json:"params"`
+}
+
+// Run launches any pipeline of the catalogue on a release, as on a pull request.
+//
+// What the release determines is filled here and cannot be overridden: the revision built, its
+// tag, the images built under it. The request carries the rest (an environment for an end-to-end
+// campaign), and what is still missing is refused with its name rather than failing at scheduling.
+func (h *ReleasesHandler) Run(w http.ResponseWriter, r *http.Request) {
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
+		return
+	}
+	project, err := requestProjectRecord(w, r, h.store)
+	if err != nil {
+		return
+	}
+	tag := r.PathValue("tag")
+	record, err := h.store.GetRelease(r.Context(), project.ID, tag)
+	if err != nil {
+		if errors.Is(err, store.ErrReleaseNotFound) {
+			writeProblem(w, http.StatusNotFound, "Release not found", tag)
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the release", "")
+		return
+	}
+	if record.State == string(release.StateDraft) {
+		writeProblem(w, http.StatusConflict, "Cannot launch",
+			fmt.Sprintf("release %q is a draft: nothing is built yet", tag))
+		return
+	}
+
+	var request runRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
+		return
+	}
+	pipeline, found := catalog.Of(h.catalog).Find(request.Kind)
+	if !found {
+		writeProblem(w, http.StatusBadRequest, "Unknown run type", request.Kind)
+		return
+	}
+	if len(request.Params) > maxLaunchParams {
+		writeProblem(w, http.StatusBadRequest, "Too many parameters", strconv.Itoa(maxLaunchParams)+" at most")
+		return
+	}
+
+	// The commit that was built, never the branch it came from: that may have moved.
+	revision := record.GitCommit
+	if revision == "" {
+		revision = record.GitRef
+	}
+	params := map[string]string{}
+	for name, value := range request.Params {
+		if !paramName.MatchString(name) {
+			writeProblem(w, http.StatusBadRequest, "Invalid parameter name", name)
+			return
+		}
+		params[name] = value
+	}
+	for _, input := range pipeline.Inputs() {
+		if value := input.FromContext(revision, record.Tag, h.registryProject, ""); value != "" {
+			params[input.Name] = value
+		}
+	}
+	for _, name := range pipeline.RequiredInputs() {
+		if params[name] == "" {
+			writeProblem(w, http.StatusBadRequest, "Missing required parameter", name)
+			return
+		}
+	}
+
+	projectID := project.ID
+	jobID, err := h.store.Enqueue(r.Context(), store.JobRequest{
+		Kind: pipeline.Kind, Params: params, RequestedBy: identity.Subject,
+		ReleaseID: &record.ID, ProjectID: &projectID,
+	})
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot enqueue", "")
+		return
+	}
+	h.audit(r, store.AuditReleaseRun, tag, map[string]any{"kind": pipeline.Kind, "job": jobID})
+	writeJSON(w, http.StatusAccepted, map[string]any{"id": jobID, "kind": pipeline.Kind, "params": params})
 }
 
 func imageReference(registryProject, name, tag string) string {

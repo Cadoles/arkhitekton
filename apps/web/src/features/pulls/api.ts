@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import { projectPath } from '../../lib/project'
 import type { PipelineStatus } from '../../lib/status'
@@ -65,21 +65,6 @@ export function usePull(number: number | undefined) {
 
 /** Lance un pipeline sur la tête de la PR. Le serveur remplit la révision, l'étiquette et les
  *  images de la PR ; `params` porte le reste. */
-export function useLaunchOnPull(number: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ kind, params }: { kind: string; params: Record<string, string> }) =>
-      request<{ id: number; kind: string; params: Record<string, string> }>(projectPath(`/pulls/${number}/launch`), {
-        method: 'POST',
-        body: JSON.stringify({ kind, params }),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['pulls', number] })
-      void queryClient.invalidateQueries({ queryKey: ['queue'] })
-    },
-  })
-}
-
 /** La dernière revue IA de la PR : son verdict, ses remarques, la revue telle qu'écrite. Les
  *  remarques hors du périmètre de la PR arrivent écartées (`suppressed`). */
 export type PullReview = {

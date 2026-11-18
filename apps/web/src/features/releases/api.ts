@@ -397,10 +397,37 @@ export function useReplay(subject: ResultSubject) {
   const queryClient = useQueryClient()
 
   return useMutation({
+    // Tout pipeline se relance, et non plus les seules vérifications : une
+    // release lance ce qu'on veut, comme une pull request.
     mutationFn: (kind: string) =>
-      subject.kind === 'release'
-        ? request<unknown>(projectPath(`${subject.path}/verify/${encodeURIComponent(kind)}`), { method: 'POST' })
-        : request<unknown>(projectPath(`${subject.path}/launch`), { method: 'POST', body: JSON.stringify({ kind }) }),
+      request<unknown>(projectPath(`${subject.path}/${launchRoute(subject)}`), {
+        method: 'POST',
+        body: JSON.stringify({ kind }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: subject.key })
+      void queryClient.invalidateQueries({ queryKey: [...subject.key, 'tests'] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
+}
+
+/** Où un sujet lance un pipeline : `run` pour une release, dont `launch` lance
+ *  le brouillon ; `launch` pour une pull request. */
+export function launchRoute(subject: ResultSubject): string {
+  return subject.kind === 'release' ? 'run' : 'launch'
+}
+
+/** Lance un pipeline sur une release ou une pull request, avec ce que le sujet
+ *  ne remplit pas. */
+export function useLaunchOn(subject: ResultSubject) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { kind: string; params: Record<string, string> }) =>
+      request<{ id: number; kind: string }>(projectPath(`${subject.path}/${launchRoute(subject)}`), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: subject.key })
       void queryClient.invalidateQueries({ queryKey: [...subject.key, 'tests'] })
