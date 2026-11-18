@@ -168,6 +168,7 @@ spec:
     mse:
       install: {reference: forge.example/mse-plugin}
   queueLimits: {mse/integration-tests: 1}
+  scoreWeights: {mse/rgaa-audit: 0}   # out of the score; absent, a pipeline weighs its nature's
 ---
 apiVersion: arkhitekton.config/v1
 kind: Project

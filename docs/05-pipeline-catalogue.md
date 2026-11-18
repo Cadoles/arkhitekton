@@ -25,7 +25,9 @@ podTemplate: {}              # optional, the pull secrets of every pipeline pod
 
 There is no other way to declare a pipeline: a pipeline enters the dashboard only through a
 plugin. A catalogue that binds no available capability stops start-up. The former `score:` key is
-refused: a plan step's `weight` sets the release score.
+refused. A pipeline's weight in the score is not part of its binding: it is set from the
+Administration screen's capabilities tab, or under `scoreWeights` in the versioned configuration
+(doc 10), and defaults to its nature's (§5.8).
 
 `podTemplate` is `{ imagePullSecrets: [name] }` or `{ imagePullSecretsConfigKey:
 pipeline.imagePullSecret }`. An entry's own `podTemplate` replaces it entirely, with no merge; a
@@ -243,3 +245,28 @@ could report.
 Nothing else. A pipeline that honours this contract is usable by hand, outside
 Arkhitekton, which is deliberate: runs created outside the dashboard are observed rather
 than driven, and remain readable.
+
+## 5.8 Results and the score
+
+A release's or a pull request's results show **one tile per pipeline launched** on it, by hand
+(*Lancer un pipeline*, on either page) or by an automation, in the order they were first launched.
+A pipeline launched again keeps its tile, which shows its latest result. Nothing is announced
+before it runs: with nothing launched, the section is not shown. Results an outside runner left
+(a k6 campaign) take a tile too. A build, a re-tag and the AI review, which has its own section,
+take none.
+
+Each tile weighs, in that order:
+
+1. the weight an administrator set for its pipeline, between 0 and 100;
+2. otherwise its nature's: unit tests 25, integration 20, end-to-end 20, static analysis 10,
+   security 15, load 10;
+3. otherwise nothing.
+
+A tile weighing nothing is **out of the score**: measured and shown, it counts for nothing. An
+accessibility audit is, until it is given a weight. The score is the weighted mean of the tiles
+measured, the weights renormalised over them. A tile launched but not yet measured is named
+beside the score, which is computed without it.
+
+The weights are those in force when the score is read: changing one changes the score of every
+release. A plan step's `weight` is still read, so that plans recorded before stay valid, but no
+longer counts.
