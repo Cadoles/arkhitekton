@@ -55,13 +55,24 @@ export function ReleaseHeaderBlock() {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <Header tag={tag ?? ''} release={release} />
-      <Link
-        to="/releases"
-        className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-      >
-        <Icon name="arrow-left" className="size-4" />
-        Toutes les releases
-      </Link>
+      {/* À droite, avec le retour à la liste : dans l'en-tête, qui ne prend que
+          la largeur de son contenu, le bouton tombait au milieu de la ligne. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {release && (
+          <LaunchPipelineButton
+            subject={releaseSubject(release.tag)}
+            disabled={release.state === 'draft'}
+            disabledReason="Un brouillon n'a encore rien construit"
+          />
+        )}
+        <Link
+          to="/releases"
+          className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          <Icon name="arrow-left" className="size-4" />
+          Toutes les releases
+        </Link>
+      </div>
     </div>
   )
 }
@@ -112,20 +123,15 @@ export const ExecutionsBlock = withRelease(Executions)
  */
 function Header({ tag, release }: { tag: string; release?: ReleaseDetail }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    // La place libre lui revient : ses repères se replient en dessous plutôt que
+    // de renvoyer les boutons à la ligne.
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="font-mono text-2xl font-semibold text-zinc-900">{release?.tag ?? tag}</h1>
         {release && (
           <>
             <StatusBadge style={status.release(release.state)} />
             <ReleaseBadges release={release} />
-            <span className="ml-auto">
-              <LaunchPipelineButton
-                subject={releaseSubject(release.tag)}
-                disabled={release.state === 'draft'}
-                disabledReason="Un brouillon n'a encore rien construit"
-              />
-            </span>
           </>
         )}
       </div>
