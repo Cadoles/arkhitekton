@@ -303,7 +303,8 @@ describe("le plan d'une release", () => {
 })
 
 /*
- * Le poids d'un geste au score (doc 15 §15.6).
+ * Le poids au score ne se règle plus sur un geste : il appartient au pipeline,
+ * dans Administration, Capacités.
  */
 
 describe('le poids au score', () => {
@@ -311,33 +312,13 @@ describe('le poids au score', () => {
     vi.unstubAllGlobals()
   })
 
-  it("ne se saisit que dans une étape de vérification", async () => {
+  it("ne se saisit plus sur un geste", async () => {
     armer([])
     render(<AutomationsScreen />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Modifier' }))
-
-    // Une seule saisie de poids : celle du geste de vérification. Le geste de
-    // construction n'en a pas — un poids que rien ne lit est pire qu'un champ
-    // absent, et le serveur le refuse.
-    const poids = await screen.findAllByLabelText(/Poids au score/)
-    expect(poids).toHaveLength(1)
-    expect(poids[0]).toHaveValue(40)
-  })
-
-  it("distingue un poids vide d'un poids nul", async () => {
-    armer([])
-    render(<AutomationsScreen />)
-
-    await userEvent.click(await screen.findByRole('button', { name: 'Modifier' }))
-    const champ = await screen.findByLabelText(/Poids au score/)
-
-    await userEvent.clear(champ)
-    // Vide : le geste reprend la pondération d'origine. Ce n'est pas zéro.
-    expect(await screen.findByText(/pondération d'origine/)).toBeInTheDocument()
-
-    await userEvent.type(champ, '0')
-    expect(await screen.findByText(/ne note pas la release/)).toBeInTheDocument()
+    expect(await screen.findAllByText('Nom du geste')).not.toHaveLength(0)
+    expect(screen.queryByLabelText(/Poids au score/)).not.toBeInTheDocument()
   })
 })
 

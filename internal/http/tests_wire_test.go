@@ -50,6 +50,20 @@ func (wireTestStore) ListReleaseLoadResults(context.Context, int64) ([]store.Loa
 	return nil, nil
 }
 
+func (wireTestStore) ListJobsIn(context.Context, store.Scope) ([]store.ReleaseJob, error) {
+	return nil, nil
+}
+
+func (wireTestStore) LatestFindingsOf(context.Context, store.Scope, string) (store.SecurityAudit, error) {
+	return store.SecurityAudit{}, store.ErrAuditNotFound
+}
+
+func (wireTestStore) ListLoadResults(context.Context, store.Scope) ([]store.LoadResult, error) {
+	return nil, nil
+}
+
+func (wireTestStore) ScoreWeights(context.Context) (map[string]float64, error) { return nil, nil }
+
 func serveTests(t *testing.T, path, pattern string, handler stdhttp.HandlerFunc) map[string]any {
 	t.Helper()
 	mux := stdhttp.NewServeMux()

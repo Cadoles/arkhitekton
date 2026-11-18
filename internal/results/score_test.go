@@ -289,3 +289,14 @@ func TestAStepWithoutAWeightTakesItsSignals(t *testing.T) {
 		t.Errorf("declared zero weight = %v — the default overwrote it", got)
 	}
 }
+
+// A tile out of the score that is not measured yet is not said to be missing from it.
+func TestAnUnmeasuredTileOutOfTheScoreRedistributesNothing(t *testing.T) {
+	breakdown := Score([]Measure{
+		{Key: "unit", Signal: SignalUnit, Weight: 25, Value: 100, Measured: true},
+		{Key: "rgaa", Weight: 0},
+	})
+	if breakdown.Score != 100 || len(breakdown.Redistributed) != 0 || len(breakdown.Signals) != 2 {
+		t.Errorf("breakdown = %+v", breakdown)
+	}
+}

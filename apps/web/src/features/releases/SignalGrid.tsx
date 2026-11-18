@@ -153,13 +153,18 @@ function SignalTile({
       </p>
 
       <div className="mt-auto flex items-center gap-2 pt-1">
-        {signal.measured && !running && (
-          // Le poids **effectif**, après redistribution : c'est lui qui explique
-          // la contribution réelle au score, et le poids déclaré induirait en
-          // erreur dès qu'un signal manque.
-          <span className="font-mono text-xs text-zinc-400">
-            poids {Math.round(signal.weight)} %
-          </span>
+        {signal.declared === 0 ? (
+          // Mesurée et affichée, mais sans poids : un audit RGAA se lit sans
+          // peser sur la livraison tant qu'un administrateur ne lui en donne pas.
+          <span className="text-xs text-zinc-400">hors score</span>
+        ) : (
+          signal.measured &&
+          !running && (
+            // Le poids **effectif**, après redistribution : c'est lui qui explique
+            // la contribution réelle au score, et le poids déclaré induirait en
+            // erreur dès qu'un signal manque.
+            <span className="font-mono text-xs text-zinc-400">poids {Math.round(signal.weight)} %</span>
+          )
         )}
 
         {kind && canReplay && (
@@ -217,7 +222,9 @@ function SignalTile({
           {detail === 'reports' && group && (
             <FamilyDetail subject={subject} group={group} runName={runningJob?.run_name} />
           )}
-          {detail === 'security' && <SecurityDetail subject={subject} runName={runningJob?.run_name} />}
+          {detail === 'security' && (
+            <SecurityDetail subject={subject} runName={runningJob?.run_name} capability={signal.ref} />
+          )}
           {/* La charge n'a pas de pipeline que le dashboard lance : ses campagnes
               viennent d'un runner extérieur (B16), d'où l'absence de frise. */}
           {detail === 'bench' && <BenchDetail tag={subject.label} />}

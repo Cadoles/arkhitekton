@@ -220,6 +220,20 @@ func (s *pullTestStore) ProjectBySlug(ctx context.Context, slug string) (store.P
 	return s.fixture.ProjectBySlug(ctx, slug)
 }
 
+func (s *pullTestStore) ListJobsIn(ctx context.Context, _ store.Scope) ([]store.ReleaseJob, error) {
+	return s.fixture.ListPullRequestJobs(ctx, 0)
+}
+
+func (s *pullTestStore) LatestFindingsOf(ctx context.Context, scope store.Scope, _ string) (store.SecurityAudit, error) {
+	return s.fixture.LatestSecurityAuditIn(ctx, scope)
+}
+
+func (s *pullTestStore) ListLoadResults(ctx context.Context, scope store.Scope) ([]store.LoadResult, error) {
+	return s.fixture.ListLoadResults(ctx, scope)
+}
+
+func (s *pullTestStore) ScoreWeights(context.Context) (map[string]float64, error) { return nil, nil }
+
 func (s *pullTestStore) GetAttachment(context.Context, int64) (store.ResultAttachment, error) {
 	return s.fixture.attached, nil
 }

@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/bench"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -29,6 +27,7 @@ type TestStore interface {
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
+	scoreStore
 	ResultAttachments(ctx context.Context, resultID int64) ([]store.ResultAttachment, error)
 	GetAttachment(ctx context.Context, id int64) (store.ResultAttachment, error)
 }
@@ -198,240 +197,6 @@ func worstStatus(a, b string) string {
 	default:
 		return a
 	}
-}
-
-// score composes a release's score from what was measured.
-func (h *TestsHandler) score(
-	ctx context.Context, releaseID int64, reports []store.TestResult,
-) (results.Breakdown, error) {
-	return computeScore(ctx, h.store, releaseID, reports, catalog.Of(h.catalog))
-}
-
-// scoreStore is what computing the score needs.
-//
-// An interface rather than a concrete type because two handlers call it: the tests one,
-// for a release's screen, and the releases one, for the list's badge. The same figure must
-// come out of both, and two implementations would have diverged.
-type scoreStore interface {
-	LatestSecurityAudit(ctx context.Context, releaseID int64) (store.SecurityAudit, error)
-	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
-	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
-	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
-}
-
-func computeScore(
-	ctx context.Context, source scoreStore, releaseID int64,
-	reports []store.TestResult, registry *catalog.Catalog,
-) (results.Breakdown, error) {
-	// The steps first: that is the intended axis, and the only one able to separate two
-	// campaigns of the same nature.
-	measures, err := stepMeasures(ctx, source, releaseID, reports, registry)
-	if err != nil {
-		return results.Breakdown{}, err
-	}
-
-	if measures == nil {
-		// The release has no plan. It predates plans, or its tests were launched by hand from the
-		// queue. Its score is computed by family, as before — losing it would be worse than
-		// computing it on an axis that no longer exists.
-		if measures, err = familyMeasures(ctx, source, releaseID, reports, registry); err != nil {
-			return results.Breakdown{}, err
-		}
-	}
-
-	return results.Score(measures), nil
-}
-
-// familyMeasures returns one component per family, for a release with no plan.
-//
-// Each family is looked up explicitly rather than derived from a loop over the reports: a
-// missing family must produce a "did not run" measure, and a loop over what exists would
-// produce nothing at all — hence a score computed over a silent subset.
-func familyMeasures(
-	ctx context.Context, source scoreStore, releaseID int64, reports []store.TestResult,
-	registry *catalog.Catalog,
-) ([]results.Measure, error) {
-	// The last report of each tool, then the sum per family.
-	//
-	// Keeping a single report per family lost the families with several tools. Static analysis
-	// has two, and only the more recent of them entered the score: a release with forty errors
-	// from one and a clean result from the other showed 100 as soon as the clean one concluded
-	// last.
-	byGroup := map[string]results.Report{}
-	seen := map[string]bool{}
-	seenTool := map[string]bool{}
-	// The pipeline that produced a group's latest report: the one to re-run, whatever else the
-	// catalogue shows under that group.
-	kinds := map[string]string{}
-
-	for _, report := range reports {
-		if kinds[report.Group] == "" {
-			kinds[report.Group] = report.Capability
-		}
-		key := report.Group + "/" + report.Tool
-		if seenTool[key] {
-			continue
-		}
-		seenTool[key] = true
-		seen[report.Group] = true
-
-		combined := byGroup[report.Group]
-		combined.Total += report.Total
-		combined.Passed += report.Passed
-		combined.Failed += report.Failed
-		combined.Skipped += report.Skipped
-		combined.Flaky += report.Flaky
-		combined.Status = worstStatus(combined.Status, report.Status)
-		byGroup[report.Group] = combined
-	}
-
-	// Static analysis violations are counted as cases, not as passing tests: the scoring rule
-	// is not the same.
-	staticViolations, staticRan := 0, seen[string(results.GroupStatic)]
-	if staticRan {
-		staticViolations = byGroup[string(results.GroupStatic)].Failed
-	}
-
-	raw := []results.Measure{
-		results.FromReport(results.SignalUnit,
-			byGroup[string(results.GroupUnit)], seen[string(results.GroupUnit)]),
-		results.FromReport(results.SignalIntegration,
-			byGroup[string(results.GroupIntegration)], seen[string(results.GroupIntegration)]),
-		results.FromReport(results.SignalE2E,
-			byGroup[string(results.GroupE2E)], seen[string(results.GroupE2E)]),
-		results.FromStatic(staticViolations, staticRan),
-	}
-
-	security, err := securityMeasure(ctx, source, releaseID)
-	if err != nil {
-		return nil, err
-	}
-	raw = append(raw, security)
-
-	performance, err := benchMeasure(ctx, source, releaseID)
-	if err != nil {
-		return nil, err
-	}
-	raw = append(raw, performance)
-
-	// The identity and the weight, which the measuring functions do not set: they say what was
-	// measured, not what it is worth in the score.
-	measures := make([]results.Measure, 0, len(raw))
-	for _, measure := range raw {
-		measure.Key = results.SignalKey(measure.Signal)
-		measure.Label = signalLabels[measure.Signal]
-		measure.Weight = results.WeightOf(nil, measure.Signal)
-		// The group of the fallback, derived from the signal, and the pipeline to re-run, the one
-		// the catalogue shows under that group: here and nowhere else, because this is the only path
-		// with no step to say them. Performance names none: its campaigns come from an outside runner
-		// the dashboard does not trigger.
-		measure.Group = signalGroups[measure.Signal]
-		if measure.Signal != results.SignalPerformance {
-			measure.Ref = kinds[string(measure.Group)]
-			if measure.Ref == "" {
-				measure.Ref = registry.KindOfGroup(string(measure.Group))
-			}
-		}
-		measure.Shape = defaultShape(measure.Group)
-		measures = append(measures, measure)
-	}
-	return measures, nil
-}
-
-// signalLabels names the fallback components by group, in French.
-//
-// Written here because they have no declaration: they are natures, not steps. A step
-// carries the label somebody gave it.
-//
-// signalGroups completes the per-family fallback: the report family to open.
-var signalGroups = map[results.Signal]results.Group{
-	results.SignalUnit:        results.GroupUnit,
-	results.SignalIntegration: results.GroupIntegration,
-	results.SignalE2E:         results.GroupE2E,
-	results.SignalCode:        results.GroupStatic,
-	results.SignalSecurity:    results.GroupSecurity,
-	results.SignalPerformance: results.GroupLoad,
-}
-
-var signalLabels = map[results.Signal]string{
-	results.SignalUnit:        "Tests unitaires",
-	results.SignalIntegration: "Tests d'intégration",
-	results.SignalE2E:         "Tests E2E",
-	results.SignalCode:        "Qualité du code",
-	results.SignalSecurity:    "Sécurité",
-	results.SignalPerformance: "Performance",
-}
-
-// securityMeasure returns the security signal of the latest audit.
-//
-// The audit decides for itself whether it is measurable: a failed scanner produces zero
-// findings, exactly like a clean audit, and only its descriptor tells them apart. Counting
-// it as clean would be the most expensive possible error on this signal.
-func securityMeasure(
-	ctx context.Context, source scoreStore, releaseID int64,
-) (results.Measure, error) {
-	audit, err := source.LatestSecurityAudit(ctx, releaseID)
-	if err != nil {
-		if errors.Is(err, store.ErrAuditNotFound) {
-			return results.FromSecurity(0, 0, false), nil
-		}
-		return results.Measure{}, err
-	}
-
-	if !audit.Measured() {
-		return results.Measure{Signal: results.SignalSecurity,
-			Detail: "audit incomplet : " + strings.Join(audit.FailedScanners, ", ") + " did not conclude"}, nil
-	}
-
-	// The counters come from the summary report, which already excludes findings suppressed by
-	// exception. An exception is a dated human decision: honouring it here is what makes the
-	// score actionable rather than endured.
-	return results.FromSecurity(audit.Critical, audit.High, true), nil
-}
-
-// benchMeasure returns the performance signal of the most recent campaign.
-func benchMeasure(
-	ctx context.Context, source scoreStore, releaseID int64,
-) (results.Measure, error) {
-	campaigns, err := source.ListReleaseLoadResults(ctx, releaseID)
-	if err != nil {
-		return results.Measure{}, err
-	}
-	if len(campaigns) == 0 {
-		return results.FromBench("", false), nil
-	}
-
-	campaign := campaigns[0]
-	conditions := bench.Conditions{
-		Exclusive: campaign.Exclusive, ConcurrentJobs: campaign.ConcurrentJobs,
-	}
-	if !conditions.Comparable() {
-		return results.FromBench("", false), nil
-	}
-
-	measures, err := source.ListResultMeasures(ctx, campaign.ID)
-	if err != nil {
-		return results.Measure{}, err
-	}
-	baselines, err := source.Baselines(ctx, campaign.Scenario)
-	if err != nil {
-		return results.Measure{}, err
-	}
-
-	summary := bench.Summary{Scenario: campaign.Scenario}
-	values := map[string]float64{}
-	for _, measure := range measures {
-		summary.Measures = append(summary.Measures, bench.Measure{
-			Metric: measure.Metric, Value: measure.Value,
-			LowerBetter: measure.LowerBetter, Volume: measure.Volume,
-		})
-	}
-	for metric, baseline := range baselines {
-		values[metric] = baseline.Value
-	}
-
-	verdict := bench.Worst(bench.Compare(summary, values, conditions))
-	return results.FromBench(string(verdict), true), nil
 }
 
 type caseDiffPayload struct {
@@ -612,7 +377,9 @@ func (h *TestsHandler) Security(w http.ResponseWriter, r *http.Request) {
 
 // writeSecurity answers a subject's latest audit and its findings.
 func (h *TestsHandler) writeSecurity(w http.ResponseWriter, r *http.Request, source resultSource) {
-	audit, err := source.audit(r.Context())
+	// A tile names its pipeline: two pipelines may audit into the security group, and each tile
+	// opens its own audit. Without one, the group's latest.
+	audit, err := source.audit(r.Context(), r.URL.Query().Get("capability"))
 	if err != nil {
 		if errors.Is(err, store.ErrAuditNotFound) {
 			// No audit is a legitimate state, distinct from an empty audit: say so rather than return
@@ -707,7 +474,8 @@ func attachmentPayloadOf(attachment store.ResultAttachment) attachmentPayload {
 // resultSource reads one subject's results: a release's, or a pull request's.
 type resultSource interface {
 	results(ctx context.Context) ([]store.TestResult, error)
-	audit(ctx context.Context) (store.SecurityAudit, error)
+	// audit returns the latest security audit, or a pipeline's when one is named.
+	audit(ctx context.Context, capability string) (store.SecurityAudit, error)
 	// diff compares a group's latest report with what came before it; false when nothing did.
 	diff(ctx context.Context, group string) ([]store.CaseDiff, bool, error)
 	score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error)
@@ -744,7 +512,10 @@ func (s releaseResults) results(ctx context.Context) ([]store.TestResult, error)
 	return s.handler.store.ListReleaseTestResults(ctx, s.release.ID)
 }
 
-func (s releaseResults) audit(ctx context.Context) (store.SecurityAudit, error) {
+func (s releaseResults) audit(ctx context.Context, capability string) (store.SecurityAudit, error) {
+	if capability != "" {
+		return s.handler.store.LatestFindingsOf(ctx, store.ReleaseScope(s.release.ID), capability)
+	}
 	return s.handler.store.LatestSecurityAudit(ctx, s.release.ID)
 }
 
@@ -758,7 +529,7 @@ func (s releaseResults) diff(ctx context.Context, group string) ([]store.CaseDif
 }
 
 func (s releaseResults) score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error) {
-	return s.handler.score(ctx, s.release.ID, reports)
+	return computeScore(ctx, s.handler.store, store.ReleaseScope(s.release.ID), reports, catalog.Of(s.handler.catalog))
 }
 
 func (s releaseResults) owns(attachment store.ResultAttachment) bool {
@@ -834,7 +605,10 @@ func (s pullResults) results(ctx context.Context) ([]store.TestResult, error) {
 	return s.handler.pulls.ListTestResults(ctx, s.scope)
 }
 
-func (s pullResults) audit(ctx context.Context) (store.SecurityAudit, error) {
+func (s pullResults) audit(ctx context.Context, capability string) (store.SecurityAudit, error) {
+	if capability != "" {
+		return s.handler.store.LatestFindingsOf(ctx, s.scope, capability)
+	}
 	return s.handler.pulls.LatestSecurityAuditIn(ctx, s.scope)
 }
 
@@ -847,37 +621,9 @@ func (s pullResults) diff(ctx context.Context, group string) ([]store.CaseDiff, 
 }
 
 func (s pullResults) score(ctx context.Context, reports []store.TestResult) (results.Breakdown, error) {
-	measures, err := familyMeasures(ctx, pullScores{handler: s.handler, scope: s.scope}, 0, reports,
-		catalog.Of(s.handler.catalog))
-	if err != nil {
-		return results.Breakdown{}, err
-	}
-	return results.Score(measures), nil
+	return computeScore(ctx, s.handler.store, s.scope, reports, catalog.Of(s.handler.catalog))
 }
 
 func (s pullResults) owns(attachment store.ResultAttachment) bool {
 	return attachment.PullRequestID != nil && *attachment.PullRequestID == s.pull.ID
-}
-
-// pullScores gives the family score a pull request's audit and campaigns where it asks for a
-// release's: the computation is the same, only whose results it reads changes.
-type pullScores struct {
-	handler *TestsHandler
-	scope   store.Scope
-}
-
-func (s pullScores) LatestSecurityAudit(ctx context.Context, _ int64) (store.SecurityAudit, error) {
-	return s.handler.pulls.LatestSecurityAuditIn(ctx, s.scope)
-}
-
-func (s pullScores) ListReleaseLoadResults(ctx context.Context, _ int64) ([]store.LoadResult, error) {
-	return s.handler.pulls.ListLoadResults(ctx, s.scope)
-}
-
-func (s pullScores) ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error) {
-	return s.handler.store.ListResultMeasures(ctx, resultID)
-}
-
-func (s pullScores) Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error) {
-	return s.handler.store.Baselines(ctx, scenario)
 }

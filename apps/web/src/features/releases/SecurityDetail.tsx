@@ -18,8 +18,17 @@ import { SEVERITY_LABEL, useSecurity, type Finding, type SecurityReport, type Se
  * Sans cadre, comme `FamilyDetail` : il s'affiche dans la modale ouverte depuis
  * la tuile Sécurité du score.
  */
-export function SecurityDetail({ subject, runName }: { subject: ResultSubject | undefined; runName?: string }) {
-  const { data, isPending, error, refetch } = useSecurity(subject)
+export function SecurityDetail({
+  subject,
+  runName,
+  capability,
+}: {
+  subject: ResultSubject | undefined
+  runName?: string
+  /** Le pipeline dont la case s'ouvre ; absent, l'audit le plus récent. */
+  capability?: string
+}) {
+  const { data, isPending, error, refetch } = useSecurity(subject, capability)
   const [showSuppressed, setShowSuppressed] = useState(false)
 
   return (

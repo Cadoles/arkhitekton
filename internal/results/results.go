@@ -17,6 +17,8 @@ const (
 	GroupLoad        Group = "load"
 	// GroupBuild is a build's files, binaries for instance: kept with the release, never scored.
 	GroupBuild Group = "build"
+	// GroupReview is an AI review's remarks: shown in a section of their own, never as a tile.
+	GroupReview Group = "review"
 )
 
 // Report is a set of test results, counted.

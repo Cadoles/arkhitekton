@@ -174,6 +174,20 @@ func (db *DB) LatestSecurityAuditIn(ctx context.Context, scope Scope) (SecurityA
 // The group keeps two producers of findings apart: a review's remarks must not stand for the
 // security audit, in its tile nor in the score.
 func (db *DB) LatestFindingsIn(ctx context.Context, scope Scope, group string) (SecurityAudit, error) {
+	return db.latestFindings(ctx, scope, "fact_group", group)
+}
+
+// LatestFindingsOf returns a scope's most recent set of findings from one pipeline.
+//
+// Two pipelines may audit into one group, an image scan and the security audit: each tile reads
+// its own.
+func (db *DB) LatestFindingsOf(ctx context.Context, scope Scope, capability string) (SecurityAudit, error) {
+	return db.latestFindings(ctx, scope, "capability", capability)
+}
+
+// latestFindings reads the most recent audit whose result's `column` is `value`. The column is one
+// of the callers' constants.
+func (db *DB) latestFindings(ctx context.Context, scope Scope, column, value string) (SecurityAudit, error) {
 	var audit SecurityAudit
 	var status, policy []byte
 	var generatedAt, previousRunID *string
@@ -190,9 +204,9 @@ func (db *DB) LatestFindingsIn(ctx context.Context, scope Scope, group string) (
 		 -- audit. A loose join: the report outlives the purge of its projection,
 		 -- and an audit with no run stays readable.
 		 left join runs p on p.id = r.run_id
-		 where `+scope.on("r")+` and r.fact_group = $2
+		 where `+scope.on("r")+` and r.`+column+` = $2
 		 order by a.created_at desc
-		 limit 1`, scope.ID, group).
+		 limit 1`, scope.ID, value).
 		Scan(&audit.TestResultID, &audit.RunID, &generatedAt, &audit.Total,
 			&audit.Critical, &audit.High, &audit.Medium, &audit.Low, &audit.Suppressed,
 			&audit.DeltaNew, &audit.DeltaExisting, &audit.DeltaResolved,

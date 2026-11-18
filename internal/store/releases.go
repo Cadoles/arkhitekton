@@ -284,6 +284,11 @@ func (db *DB) ListPullRequestJobs(ctx context.Context, pullRequestID int64) ([]R
 	return db.listJobsOf(ctx, "pull_request_id", pullRequestID)
 }
 
+// ListJobsIn returns a release's or a pull request's jobs, the most recent first.
+func (db *DB) ListJobsIn(ctx context.Context, scope Scope) ([]ReleaseJob, error) {
+	return db.listJobsOf(ctx, scope.column, scope.ID)
+}
+
 // listJobsOf lists the jobs whose `column` is `id`. The column is one of the callers' constants.
 func (db *DB) listJobsOf(ctx context.Context, column string, releaseID int64) ([]ReleaseJob, error) {
 	rows, err := db.pool.Query(ctx,

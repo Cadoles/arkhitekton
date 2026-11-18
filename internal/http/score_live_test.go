@@ -74,7 +74,7 @@ func TestLiveTheScoreOfARealRelease(t *testing.T) {
 		t.Fatalf("results: %v", err)
 	}
 
-	breakdown, err := computeScore(ctx, db, release.ID, reports, registry)
+	breakdown, err := computeScore(ctx, db, store.ReleaseScope(release.ID), reports, registry)
 	if err != nil {
 		t.Fatalf("computing the score: %v", err)
 	}

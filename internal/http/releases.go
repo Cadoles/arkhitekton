@@ -68,6 +68,7 @@ type ReleaseStore interface {
 	ListReleaseLoadResults(ctx context.Context, releaseID int64) ([]store.LoadResult, error)
 	ListResultMeasures(ctx context.Context, resultID int64) ([]store.BenchMeasure, error)
 	Baselines(ctx context.Context, scenario string) (map[string]store.Baseline, error)
+	scoreStore
 }
 
 // ReleasePlanner opens a release's plan.
@@ -461,7 +462,7 @@ func (h *ReleasesHandler) scoreDigest(ctx context.Context, releaseID int64) *sco
 	if err != nil {
 		return nil
 	}
-	breakdown, err := computeScore(ctx, h.store, releaseID, reports, catalog.Of(h.scoreCatalog))
+	breakdown, err := computeScore(ctx, h.store, store.ReleaseScope(releaseID), reports, catalog.Of(h.scoreCatalog))
 	if err != nil {
 		return nil
 	}
