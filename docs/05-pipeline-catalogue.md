@@ -36,7 +36,8 @@ config key that resolves to nothing fails the run when it is created.
 ```yaml
 - ref: php/unit-tests       # plugin/capability
   verification: true         # (optional) overrides the capability's default
-  maxConcurrent: 1           # (optional) default 1 for an exclusive capability, 5 otherwise
+  maxConcurrent: 1           # (optional) default 1 for an exclusive capability, 5 otherwise;
+                             # a lock the capability declares (doc 06) applies on top
   timeout: 45m               # (optional) a Go duration, Tekton's default when absent; an invalid one fails the run, not start-up
   params: {}                 # see 5.3
   needs: {}                  # see 5.4

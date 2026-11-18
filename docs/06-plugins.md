@@ -621,7 +621,15 @@ pipelines:
     produces: [results]
     group: unit
     interpreter: native        # or reading: readings/unit-tests.yaml
+    exclusive: true            # (optional) one run of it at a time by default
+    lock: test-namespace       # (optional) held while it runs, see below
 ```
+
+**Locks.** `exclusive` bounds one pipeline's runs; a `lock` is shared between pipelines. Two
+pipelines of a plugin declaring the same lock never run together, whatever their ceilings: two
+pipelines deploying into one namespace wait for each other. The dashboard qualifies the name with
+the plugin's id, `<id>/<lock>`, so two plugins never share one by chance. A job waiting for a
+lock says so in the queue (`lock-held`).
 
 A manifest `arkhitekton.plugin/v1` is refused with a message: rebuild the plugin.
 
