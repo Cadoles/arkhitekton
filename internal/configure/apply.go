@@ -208,6 +208,15 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 			return services.QueueLimits.Set(ctx, actor, kind, max)
 		})
 	}
+	for _, kind := range sortedKeys(desired.ScoreWeights) {
+		weight := desired.ScoreWeights[kind]
+		if existing, recorded := current.ScoreWeights[kind]; recorded && existing == weight {
+			continue
+		}
+		p.add(fmt.Sprintf("~ score weight %s: %g", kind, weight), func(ctx context.Context) error {
+			return services.ScoreWeights.Set(ctx, actor, kind, weight)
+		})
+	}
 
 	if !p.prune {
 		return
@@ -227,6 +236,13 @@ func (p *planner) instance(desired configfile.Instance, current *configfile.Inst
 		if _, declared := desired.QueueLimits[kind]; !declared {
 			p.add("- queue limit "+kind, func(ctx context.Context) error {
 				return services.QueueLimits.Clear(ctx, actor, kind)
+			})
+		}
+	}
+	for _, kind := range sortedKeys(current.ScoreWeights) {
+		if _, declared := desired.ScoreWeights[kind]; !declared {
+			p.add("- score weight "+kind, func(ctx context.Context) error {
+				return services.ScoreWeights.Clear(ctx, actor, kind)
 			})
 		}
 	}

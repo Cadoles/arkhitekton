@@ -32,6 +32,12 @@ export type Capability = {
   binding?: Binding
   /** Pourquoi le catalogue ne peut pas la lancer ; vide quand il le peut. */
   unavailable?: string
+  /** Le poids réglé dans le score ; absent, elle pèse `default_weight`. */
+  weight?: number
+  /** Le poids de sa nature, zéro quand le score ne la connaît pas : hors score. */
+  default_weight: number
+  /** La nature de ses résultats : `unit`, `security`, `accessibility`… */
+  group?: string
 }
 
 export type SecretSource = { secretName?: string; configKey?: string }
@@ -82,6 +88,22 @@ export function useUnbindCapability() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (ref: string) => request<void>(bindingPath(ref), { method: 'DELETE' }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: KEY }),
+  })
+}
+
+function weightPath(ref: string) {
+  return bindingPath(ref).replace(/\/binding$/, '/weight')
+}
+
+/** Règle le poids d'un pipeline dans le score, ou le rend à sa nature (`null`). */
+export function useSetWeight() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ref, weight }: { ref: string; weight: number | null }) =>
+      weight === null
+        ? request<void>(weightPath(ref), { method: 'DELETE' })
+        : request<unknown>(weightPath(ref), { method: 'PUT', body: JSON.stringify({ weight }) }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: KEY }),
   })
 }

@@ -7,6 +7,7 @@ import {
   type Capability,
   useBindCapability,
   useCapabilities,
+  useSetWeight,
   useUnbindCapability,
 } from './capabilities'
 
@@ -166,6 +167,8 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
       {capability.unavailable && (
         <p className="text-xs text-warn-700">Indisponible : {capability.unavailable}</p>
       )}
+
+      <WeightField capability={capability} />
 
       {byFile ? (
         <p className="text-sm text-zinc-500">
@@ -428,4 +431,61 @@ const NEED_EXAMPLES: Record<string, { secretName: string; configKey: string }> =
 
 function placeholderOf(need: string, source: 'secretName' | 'configKey'): string {
   return NEED_EXAMPLES[need]?.[source] ?? ''
+}
+
+/**
+ * Le poids du pipeline dans le score.
+ *
+ * Hors de la liaison : une capacité liée par le fichier se pondère ici aussi.
+ * Vide, elle pèse ce que pèse sa nature ; zéro la met hors score, ses
+ * résultats restant affichés.
+ */
+export function WeightField({ capability }: { capability: Capability }) {
+  const setWeight = useSetWeight()
+  const [value, setValue] = useState(capability.weight === undefined ? '' : String(capability.weight))
+  const fallback =
+    capability.default_weight > 0
+      ? `${capability.default_weight} (sa nature${capability.group ? ` : ${capability.group}` : ''})`
+      : 'hors score'
+  const parsed = value.trim() === '' ? null : Number(value)
+  const invalid = parsed !== null && (!Number.isFinite(parsed) || parsed < 0 || parsed > 100)
+  const unchanged = parsed === (capability.weight ?? null)
+
+  return (
+    <form
+      className="flex flex-col gap-1"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!invalid) setWeight.mutate({ ref: capability.ref, weight: parsed })
+      }}
+    >
+      <label htmlFor={`${capability.ref}-weight`} className="text-sm text-zinc-700">
+        Poids dans le score
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={`${capability.ref}-weight`}
+          type="number"
+          min={0}
+          max={100}
+          step="any"
+          value={value}
+          placeholder={fallback}
+          onChange={(event) => setValue(event.target.value)}
+          className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+        />
+        <button
+          type="submit"
+          disabled={invalid || unchanged || setWeight.isPending}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+        >
+          {setWeight.isPending ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+      <p className="text-xs text-zinc-500">
+        Vide : {fallback}. 0 la met hors score : ses résultats s&apos;affichent sans compter.
+      </p>
+      {setWeight.isError && <p className="text-xs text-critical-700">{(setWeight.error as Error).message}</p>}
+    </form>
+  )
 }

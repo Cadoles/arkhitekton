@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mockFetch } from '../../test/http'
 import { render } from '../../test/render'
 import { CapabilityCard, bindingOf, draftOf } from './CapabilitiesScreen'
 import type { Capability } from './capabilities'
@@ -21,6 +22,8 @@ const gotest: Capability = {
   params: ['repo-url'],
   volumes: ['shared-data'],
   config_maps: [],
+  default_weight: 25,
+  group: 'unit',
 }
 
 /** Une capacité qui attend une politique de l'exploitation. */
@@ -114,5 +117,30 @@ describe('CapabilityCard', () => {
     await userEvent.type(screen.getByLabelText(/Besoin/), 'git-credentials')
     expect(screen.getByRole('button', { name: 'Enregistrer la liaison' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Délier' })).not.toBeInTheDocument()
+  })
+})
+
+describe('le poids dans le score', () => {
+  beforeEach(() => vi.unstubAllGlobals())
+
+  it("se règle même sur ce que lie le fichier, et dit ce qu'il vaut vide", async () => {
+    const calls = mockFetch([
+      { path: '/admin/capabilities/gotest/unit-tests/weight', method: 'PUT', body: { weight: 0 } },
+    ])
+    render(<CapabilityCard capability={{ ...gotest, bound_by: 'file' }} />)
+
+    const field = screen.getByLabelText('Poids dans le score')
+    expect(field).toHaveAttribute('placeholder', '25 (sa nature : unit)')
+    await userEvent.type(field, '0')
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    const sent = calls.find((call) => call.method === 'PUT')
+    expect(sent?.body).toEqual({ weight: 0 })
+  })
+
+  it('dit hors score pour une nature que le score ne connaît pas', () => {
+    render(<CapabilityCard capability={{ ...gotest, default_weight: 0, group: 'accessibility' }} />)
+
+    expect(screen.getByLabelText('Poids dans le score')).toHaveAttribute('placeholder', 'hors score')
   })
 })

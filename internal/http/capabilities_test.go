@@ -19,6 +19,24 @@ import (
 type bindingStore struct {
 	bindings map[string]json.RawMessage
 	audit    []string
+	weights  map[string]float64
+}
+
+func (s *bindingStore) ScoreWeights(context.Context) (map[string]float64, error) {
+	return s.weights, nil
+}
+
+func (s *bindingStore) SetScoreWeight(_ context.Context, kind string, weight float64, _ string) error {
+	if s.weights == nil {
+		s.weights = map[string]float64{}
+	}
+	s.weights[kind] = weight
+	return nil
+}
+
+func (s *bindingStore) ClearScoreWeight(_ context.Context, kind string) error {
+	delete(s.weights, kind)
+	return nil
 }
 
 func (s *bindingStore) CapabilityBindings(context.Context) ([]store.CapabilityBinding, error) {
@@ -53,7 +71,8 @@ func bindingFixture(t *testing.T) (*CapabilitiesHandler, *bindingStore, *int) {
 				Artifacts:  []capability.Artifact{{Name: "results", Param: "results-upload-url", Object: "r.json", Format: capability.FormatFile}},
 				Workspaces: []capability.Workspace{{Name: "git-credentials", Need: capability.NeedSourceRead}},
 				Needs:      []capability.Need{{Name: capability.NeedSourceRead, Reason: "clone"}},
-				Params:     map[string]capability.Param{"repo-url": {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"}}}}
+				Params:     map[string]capability.Param{"repo-url": {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"}},
+				Group:      name}}
 	}
 	registry, err := capabilities.New(
 		capability.Plugin{ID: "go", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{pipeline("unit", "go-unit")}},
@@ -76,7 +95,7 @@ func bindingFixture(t *testing.T) (*CapabilitiesHandler, *bindingStore, *int) {
 			}
 			return nil
 		},
-		func(context.Context) error { reloads++; return nil }, quietLogger())
+		func(context.Context) error { reloads++; return nil }, quietLogger()).WithWeights(bindings)
 	return handler, bindings, &reloads
 }
 
@@ -85,6 +104,8 @@ func callCapabilities(handler *CapabilitiesHandler, method, path, body string) *
 	mux.HandleFunc("GET /admin/capabilities", handler.List)
 	mux.HandleFunc("PUT /admin/capabilities/{plugin}/{name}/binding", handler.Bind)
 	mux.HandleFunc("DELETE /admin/capabilities/{plugin}/{name}/binding", handler.Unbind)
+	mux.HandleFunc("PUT /admin/capabilities/{plugin}/{name}/weight", handler.SetWeight)
+	mux.HandleFunc("DELETE /admin/capabilities/{plugin}/{name}/weight", handler.ClearWeight)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, asAdmin(httptest.NewRequest(method, path, strings.NewReader(body))))
 	return recorder
@@ -143,3 +164,37 @@ func TestABindingIsRefusedBeforeItIsRecorded(t *testing.T) {
 
 // noReading stands for a capability's interpreter, which these tests never call.
 type noReading struct{ capability.Interpreter }
+
+// A pipeline's weight is set and cleared from the screen, the file's capabilities included; the
+// list says what it weighs without one.
+func TestAPipelinesWeightIsSetFromTheScreen(t *testing.T) {
+	handler, bindings, _ := bindingFixture(t)
+	listed := func() map[string]capabilityView {
+		t.Helper()
+		var body struct {
+			Capabilities []capabilityView `json:"capabilities"`
+		}
+		_ = json.Unmarshal(callCapabilities(handler, http.MethodGet, "/admin/capabilities", "").Body.Bytes(), &body)
+		views := map[string]capabilityView{}
+		for _, view := range body.Capabilities {
+			views[view.Ref] = view
+		}
+		return views
+	}
+
+	if views := listed(); views["go/unit"].DefaultWeight != 25 || views["go/unit"].Weight != nil || views["php/static"].DefaultWeight != 10 {
+		t.Fatalf("defaults = %+v", views)
+	}
+	if recorder := callCapabilities(handler, http.MethodPut, "/admin/capabilities/php/static/weight", `{"weight": 10}`); recorder.Code != http.StatusOK {
+		t.Fatalf("a file-bound capability's weight: %d %s", recorder.Code, recorder.Body)
+	}
+	if weight := listed()["php/static"].Weight; weight == nil || *weight != 10 || bindings.audit[len(bindings.audit)-1] != "score.weight:php/static" {
+		t.Errorf("weight = %v, audit = %v", weight, bindings.audit)
+	}
+	if recorder := callCapabilities(handler, http.MethodPut, "/admin/capabilities/php/static/weight", `{"weight": 120}`); recorder.Code != http.StatusBadRequest {
+		t.Errorf("a weight above 100 is refused: %d", recorder.Code)
+	}
+	if recorder := callCapabilities(handler, http.MethodDelete, "/admin/capabilities/php/static/weight", ""); recorder.Code != http.StatusNoContent || listed()["php/static"].Weight != nil {
+		t.Errorf("clearing: %d, weights %v", recorder.Code, bindings.weights)
+	}
+}
