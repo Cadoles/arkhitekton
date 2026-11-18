@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router'
 import { Card, EmptyState, Skeleton } from '../../components/primitives'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
+import { Select } from '../../components/Select'
 import { formatDateTime } from '../../lib/format'
 import type { Project } from './api'
 import {
@@ -692,10 +693,10 @@ function ReactionEditor({
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-zinc-700">Sur le fait</span>
-            <select
+            <Select
               value={draft.event_type}
               onChange={(change) => set('event_type', change.target.value)}
-              className="w-72 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+              className="w-72"
             >
               {catalogue.events.map((choice) => (
                 <option key={choice.type} value={choice.type}>
@@ -703,7 +704,7 @@ function ReactionEditor({
                   {choice.source ? ` (${choice.source})` : ''}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
 
           <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -804,12 +805,12 @@ function MatchEditor({
       ))}
 
       {fields.length > 0 && (
-        <select
+        <Select
           value=""
           onChange={(change) => {
             if (change.target.value) onChange({ ...match, [change.target.value]: '' })
           }}
-          className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+          className="w-56"
         >
           <option value="">ajouter une condition…</option>
           {fields
@@ -819,7 +820,7 @@ function MatchEditor({
                 {field}
               </option>
             ))}
-        </select>
+        </Select>
       )}
     </fieldset>
   )
@@ -861,7 +862,7 @@ function PlanEditor({
             <span className="text-xs font-medium text-zinc-700">Étape {index + 1}</span>
 
             {withRoles && (
-              <select
+              <Select
                 value={stage.role ?? ''}
                 onChange={(change) =>
                   setStage(index, {
@@ -877,7 +878,7 @@ function PlanEditor({
                     ),
                   })
                 }
-                className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-900"
+                size="xs"
               >
                 <option value="">sans rôle</option>
                 {catalogue.roles.map((choice) => (
@@ -885,7 +886,7 @@ function PlanEditor({
                     {choice.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
 
             <span className="text-xs text-zinc-400">
@@ -937,7 +938,7 @@ function PlanEditor({
               />
             ))}
 
-            <select
+            <Select
               value=""
               onChange={(change) => {
                 const choice = offerts.find(
@@ -960,7 +961,7 @@ function PlanEditor({
                   ],
                 })
               }}
-              className="w-72 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
+              className="w-72"
             >
               <option value="">ajouter un geste…</option>
               {offerts.map((choice) => (
@@ -970,7 +971,7 @@ function PlanEditor({
                   {choice.label} ({choice.source ?? (choice.kind === 'action' ? 'action' : 'pipeline')})
                 </option>
               ))}
-            </select>
+            </Select>
             {offerts.length === 0 && (
               <p className="text-xs text-zinc-500">
                 Aucun pipeline du catalogue ne produit ce que ce rôle exige
@@ -1034,17 +1035,17 @@ function GesteRow({
           {geste.kind === 'action' ? 'action' : 'pipeline'}
         </span>
 
-        <select
+        <Select
           value={geste.when ?? 'success'}
           onChange={(change) => onChange({ ...geste, when: change.target.value as Geste['when'] })}
-          className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-900"
+          size="xs"
         >
           <option value="success">si l'étape précédente a réussi</option>
           {/* Sur la première étape, `failure` ne partirait jamais : rien ne la
               précède. Le serveur le refuse, l'écran ne le propose pas. */}
           {!first && <option value="failure">si elle a échoué</option>}
           <option value="always">dans tous les cas</option>
-        </select>
+        </Select>
 
         <button
           type="button"

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { Icon } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
+import { Select } from '../../components/Select'
 import { EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
@@ -204,20 +205,20 @@ function LaunchModal({ number, onClose }: { number: number; onClose: () => void 
       >
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-zinc-700">Pipeline</span>
-          <select
+          <Select
             value={kind?.kind ?? ''}
             onChange={(event) => {
               setSelected(event.target.value)
               setValues({})
             }}
-            className="rounded-md border border-zinc-300 px-2 py-1.5"
+            size="md"
           >
             {kinds.map((entry) => (
               <option key={entry.kind} value={entry.kind}>
                 {entry.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
 
         <p className="text-xs text-zinc-500">
@@ -235,7 +236,7 @@ function LaunchModal({ number, onClose }: { number: number; onClose: () => void 
               value={values[input.name] ?? ''}
               onChange={(event) => setValues({ ...values, [input.name]: event.target.value })}
               list={input.suggest ? `suggest-${input.name}` : undefined}
-              className="rounded-md border border-zinc-300 px-2 py-1.5 font-mono"
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 font-mono text-zinc-900"
             />
             {input.suggest && (
               <datalist id={`suggest-${input.name}`}>
