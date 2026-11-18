@@ -83,6 +83,7 @@ creation, which is what migration 0071 records.
 | `runs` | `job_id`, `pipeline_name`, `pipelinerun_name`, `namespace`, `status`, `reason`, `results`, `observed`, `declared_tasks`, `interpreted_at`, `interpreted_by` |
 | `task_runs` | `run_id`, `name`, `display_name`, `status`, `reason`, `steps`, `pod_name`, `log_object`, `log_sealed` |
 | `queue_limits` | `kind`, `max_concurrent` — an administrator's override of the catalogue |
+| `score_weights` | `kind`, `weight` — a pipeline's weight in the score, set by an administrator; absent, its nature's |
 
 `runs.observed` distinguishes a run Arkhitekton created from one it merely watches.
 `runs.interpreted_at` says the run has been read into results; `reprocess` clears it.

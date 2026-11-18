@@ -85,6 +85,7 @@ All scoped to a project; the permission is checked **in that project**.
 | `DELETE /projects/{project}/releases/{tag}` | `release:create` |
 | `POST /projects/{project}/releases/{tag}/build` | `release:create` |
 | `POST /projects/{project}/releases/{tag}/verify/{kind}` | `release:create` |
+| `POST /projects/{project}/releases/{tag}/run` | `pipeline:run` |
 | `POST /projects/{project}/releases/{tag}/release` | `release:create:final` |
 | `GET /projects/{project}/releases/{tag}/notes` | authenticated |
 | `POST /projects/{project}/releases/{tag}/notes/{issue}` | `release:edit` |
@@ -99,6 +100,11 @@ draft that builds (`{"git_ref": "…"}`), `DELETE` removes a draft, and `notes/d
 its note again; each answers `409` once the release is launched. Launching or deleting also
 requires the permission the release's kind declares, as creating it does (a final:
 `release:create:final`).
+
+`run` queues any pipeline `{kind, params}` on a launched release: the revision built, the
+release's tag and the images built under it are filled and cannot be overridden, and a missing
+input is refused with its name (`400`); a draft answers `409`. `verify/{kind}` re-runs a
+verification with nothing but what the release fills, and stays for compatibility.
 
 A release's deliverables are a plugin's routes, under `/projects/{project}/plugins/{plugin}/…`:
 the Mstore plugin's delivery note is produced with `release:export`, the permission a plugin route
@@ -119,9 +125,10 @@ names for it.
 `…/tests/{group}`, `…/attachments/{id}` and `…/security`, all `read`. A pull request also has
 `…/review`, `read`: its latest result of the `review` group, with its findings, its attributes
 (`verdict`, `head`, `reviewers`, `questions`, `failed`, `models`) and its files, or
-`{"reviewed": false}`. The security routes read the `security` group only. A group is compared with the
-previous report on the same request (its previous push) rather than with a previous release, and the
-score is computed by family: no release plan weighs a request's steps.
+`{"reviewed": false}`. The security routes read the `security` group only, and `?capability=` reads
+one pipeline's audit, as a tile opens it (a release's route takes it too). A group is compared with
+the previous report on the same request (its previous push) rather than with a previous release.
+The score is a release's: one tile per pipeline launched (doc 05 §5.8).
 
 | Route | Permission | Purpose |
 |---|---|---|
@@ -206,7 +213,7 @@ role, for the reason a reaction's does not: it aims at no release.
 | `GET /admin/roles` · `POST /admin/roles` · `DELETE /admin/roles/{subject}` | `admin` |
 | `GET /admin/audit` | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
-| `GET /admin/capabilities` · `PUT /admin/capabilities/{plugin}/{name}/binding` (an entry of doc 05 §5.2, YAML or JSON; `400` when invalid or naming a service account, `404` for an unknown capability, `409` when the catalogue file binds it) · `DELETE …/binding` | `admin` |
+| `GET /admin/capabilities` · `PUT /admin/capabilities/{plugin}/{name}/binding` (an entry of doc 05 §5.2, YAML or JSON; `400` when invalid or naming a service account, `404` for an unknown capability, `409` when the catalogue file binds it) · `DELETE …/binding` · `PUT …/weight` (`{"weight": 0 to 100}`, zero out of the score, file-bound capabilities included) · `DELETE …/weight` (back to its nature's); the list carries each capability's `weight`, `default_weight` and `group` | `admin` |
 | `GET /admin/plugins/installations` (the installations, and under `plugins` each plugin's source: repository, pinned, latest version found, `update_available`, `major`) · `POST /admin/plugins/installations` (`{"reference": "registry/repository"}`, followed, or with a tag or `@sha256:…`, pinned; queues the job, `202`; `409` when a plugin is installed from that repository, unless `"mode"` is `"install"`, beside it, or `"update"`, in its place) | `admin` |
 | `POST /admin/plugins/{plugin}/update` (installs the newer version found in place of the active one, `202`; `409` when the plugin is pinned or up to date) · `POST /admin/plugins/{plugin}/check` (checks its repository within seconds, `202`) · `PUT /admin/plugins/{plugin}/source` (`{"pinned": true\|false}`) | `admin` |
 | `POST /admin/plugins/installations/{id}/activate` (`409` when the capabilities would not build with it) | `admin` |

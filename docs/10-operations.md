@@ -168,6 +168,7 @@ spec:
     mstore:
       install: {reference: forge.example/mstore-plugin}
   queueLimits: {mstore/integration-tests: 1}
+  scoreWeights: {mstore/rgaa-audit: 0}   # out of the score; absent, a pipeline weighs its nature's
 ---
 apiVersion: arkhitekton.config/v1
 kind: Project
