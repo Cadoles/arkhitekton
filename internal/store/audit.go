@@ -36,13 +36,15 @@ const (
 	AuditReleaseDraftUpdate = "release.draft.update"
 	AuditReleaseDraftDelete = "release.draft.delete"
 	AuditReleaseVerify      = "release.verify"
-	AuditReleaseNoteAdd     = "release.note.add"
-	AuditReleaseNoteRemove  = "release.note.remove"
-	AuditReleaseNoteDetect  = "release.note.detect"
-	AuditReleasePromote     = "release.promote"
-	AuditReleaseActions     = "release.actions"
-	AuditJobEnqueue         = "job.enqueue"
-	AuditJobCancel          = "job.cancel"
+	// AuditReleaseRun: a pipeline launched by hand on a release.
+	AuditReleaseRun        = "release.run"
+	AuditReleaseNoteAdd    = "release.note.add"
+	AuditReleaseNoteRemove = "release.note.remove"
+	AuditReleaseNoteDetect = "release.note.detect"
+	AuditReleasePromote    = "release.promote"
+	AuditReleaseActions    = "release.actions"
+	AuditJobEnqueue        = "job.enqueue"
+	AuditJobCancel         = "job.cancel"
 	// A queue's ceiling decides what the cluster accepts to run at once. Raising it commits
 	// the machine, lowering it lengthens every verification: both deserve to be attributed.
 	AuditQueueLimit = "queue.limit"

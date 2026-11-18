@@ -1336,6 +1336,51 @@ func TestRerunningOneKindAcceptsOnlyVerifications(t *testing.T) {
 	}
 }
 
+// Any pipeline is launched on a release by hand: what the release determines is filled, what it
+// does not is asked, and a draft has nothing to launch on.
+func TestAPipelineIsLaunchedOnARelease(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0"] = store.Release{ID: 42, Tag: "1.8.0", State: "verified", GitCommit: "abc123def456"}
+	fake.releases["1.9.0"] = store.Release{ID: 43, Tag: "1.9.0", State: "draft"}
+	handler := newReleasesHandler(t, fake)
+	fake.pipelines.Pipelines = append(fake.pipelines.Pipelines, catalog.Pipeline{
+		Kind: "e2e-tests", PipelineRef: "e2e", Params: map[string]catalog.Param{
+			"revision":    {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
+			"environment": {Source: catalog.SourceInput, Required: true},
+		},
+	})
+
+	run := func(tag, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/releases/"+tag+"/run", strings.NewReader(body))
+		request.SetPathValue("tag", tag)
+		recorder := httptest.NewRecorder()
+		handler.Run(recorder, asRole(request, auth.RoleReleaser))
+		return recorder
+	}
+
+	if recorder := run("1.8.0", `{"kind":"e2e-tests"}`); recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(recorder.Body.String(), "environment") {
+		t.Errorf("a missing input is named: %d %s", recorder.Code, recorder.Body)
+	}
+	recorder := run("1.8.0", `{"kind":"e2e-tests","params":{"environment":"recette","revision":"main"}}`)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body)
+	}
+	if len(fake.jobs) != 1 || fake.jobs[0].ReleaseID == nil || *fake.jobs[0].ReleaseID != 42 ||
+		fake.jobs[0].Params["revision"] != "abc123def456" || fake.jobs[0].Params["environment"] != "recette" {
+		t.Errorf("job = %+v: the release fills its revision, the request the rest", fake.jobs)
+	}
+	if recorder := run("1.9.0", `{"kind":"e2e-tests","params":{"environment":"recette"}}`); recorder.Code != http.StatusConflict {
+		t.Errorf("a draft launches nothing: %d", recorder.Code)
+	}
+	if recorder := run("1.8.0", `{"kind":"unknown"}`); recorder.Code != http.StatusBadRequest {
+		t.Errorf("an unknown pipeline is refused: %d", recorder.Code)
+	}
+	if len(fake.jobs) != 1 {
+		t.Errorf("a refusal queues nothing: %+v", fake.jobs)
+	}
+}
+
 // ProjectBySlug resolves the project named in the path. Only one here: these tests are
 // about what the handler does with the project, not about resolving it.
 func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {

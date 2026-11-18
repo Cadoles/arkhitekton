@@ -121,6 +121,10 @@ func NewAPIRouter(
 	// image does not move.
 	mux.Handle("POST /projects/{project}/releases/{tag}/verify/{kind}", Chain(http.HandlerFunc(releases.Verify),
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseCreate)))
+	// Launching any pipeline on a release, by hand: running pipelines, as on a pull request or from
+	// the queue.
+	mux.Handle("POST /projects/{project}/releases/{tag}/run", Chain(http.HandlerFunc(releases.Run),
+		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermPipelineRun)))
 
 	// The release note is read with the release and edited like the manual actions:
 	// `release:edit` and not `release:create:final`. Composing the note is the work of

@@ -1,18 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link, useParams } from 'react-router'
 import { CollapsibleSection } from '../../components/CollapsibleSection'
 import { Icon } from '../../components/Icon'
-import { Modal } from '../../components/Modal'
-import { Select } from '../../components/Select'
 import { EmptyState, ErrorState, Skeleton, StatusBadge } from '../../components/primitives'
 import { formatDateTime } from '../../lib/format'
 import { status } from '../../lib/status'
-import { hasAtLeast, useSession } from '../auth/session'
-import { useQueue, type Kind } from '../queue/api'
 import { JobError } from '../releases/JobError'
+import { LaunchPipelineButton } from '../releases/LaunchPipeline'
 import { TestsPanel } from '../releases/TestsPanel'
 import { pullSubject } from '../releases/tests'
-import { useLaunchOnPull, usePull, type PullDetail } from './api'
+import { usePull, type PullDetail } from './api'
 import { ReviewSection } from './ReviewSection'
 
 /*
@@ -22,18 +19,6 @@ import { ReviewSection } from './ReviewSection'
  * Les résultats sont ceux des pipelines lancés sur la PR, à la main ou par une automatisation
  * sur ses faits. Chaque famille se compare à la poussée précédente de la même PR.
  */
-
-/** Ce que la PR remplit : son numéro, la révision de sa tête, son étiquette, les images construites
- *  dessous. Une image se suggère sous `image:<dépôt>`. */
-function filledByHead(suggest: string | undefined): boolean {
-  return (
-    suggest === 'pull-request' ||
-    suggest === 'git-ref' ||
-    suggest === 'release-tag' ||
-    suggest === 'image' ||
-    Boolean(suggest?.startsWith('image:'))
-  )
-}
 
 export function PullScreen() {
   const { number } = useParams()
@@ -63,7 +48,11 @@ function PullPage({ detail }: { detail: PullDetail }) {
           </h1>
           <StatusBadge style={status.pull(pull.state)} />
           <span className="ml-auto">
-            <LaunchButton number={pull.number} disabled={!pull.head_sha} />
+            <LaunchPipelineButton
+              subject={subject}
+              disabled={!pull.head_sha}
+              disabledReason="La forge ne donne aucun commit pour cette pull request"
+            />
           </span>
         </div>
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
@@ -149,128 +138,3 @@ function PullPage({ detail }: { detail: PullDetail }) {
     </div>
   )
 }
-
-function LaunchButton({ number, disabled }: { number: number; disabled: boolean }) {
-  const session = useSession()
-  const [open, setOpen] = useState(false)
-  const canLaunch = session.kind === 'authenticated' && hasAtLeast(session.identity.role, 'operator')
-  if (!canLaunch) return null
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        title={disabled ? 'La forge ne donne aucun commit pour cette pull request' : undefined}
-        className="flex items-center gap-1.5 rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        <Icon name="beaker" className="size-4" />
-        Lancer un pipeline
-      </button>
-      {open && <LaunchModal number={number} onClose={() => setOpen(false)} />}
-    </>
-  )
-}
-
-function LaunchModal({ number, onClose }: { number: number; onClose: () => void }) {
-  const { data } = useQueue()
-  const launch = useLaunchOnPull(number)
-  const kinds = useMemo(() => data?.kinds ?? [], [data])
-  const [selected, setSelected] = useState('')
-  const [values, setValues] = useState<Record<string, string>>({})
-
-  const kind: Kind | undefined = kinds.find((entry) => entry.kind === selected) ?? kinds[0]
-  // Ce que la tête de la PR remplit n'est pas demandé : le serveur l'impose.
-  const asked = (kind?.inputs ?? []).filter((input) => !filledByHead(input.suggest))
-
-  const submit = () => {
-    if (!kind) return
-    const params: Record<string, string> = {}
-    for (const input of asked) {
-      const value = values[input.name]?.trim()
-      if (value) params[input.name] = value
-    }
-    launch.mutate({ kind: kind.kind, params }, { onSuccess: onClose })
-  }
-
-  return (
-    <Modal title={`Lancer un pipeline sur #${number}`} onClose={onClose}>
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(event) => {
-          event.preventDefault()
-          submit()
-        }}
-      >
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700">Pipeline</span>
-          <Select
-            value={kind?.kind ?? ''}
-            onChange={(event) => {
-              setSelected(event.target.value)
-              setValues({})
-            }}
-            size="md"
-          >
-            {kinds.map((entry) => (
-              <option key={entry.kind} value={entry.kind}>
-                {entry.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-
-        <p className="text-xs text-zinc-500">
-          Le numéro de la pull request, la révision de sa tête, son étiquette et les images construites dessous
-          sont remplis par la pull request.
-        </p>
-
-        {asked.map((input) => (
-          <label key={input.name} className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-zinc-700">
-              {input.name}
-              {input.required && <span className="text-critical-700"> *</span>}
-            </span>
-            <input
-              value={values[input.name] ?? ''}
-              onChange={(event) => setValues({ ...values, [input.name]: event.target.value })}
-              list={input.suggest ? `suggest-${input.name}` : undefined}
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 font-mono text-zinc-900"
-            />
-            {input.suggest && (
-              <datalist id={`suggest-${input.name}`}>
-                {(data?.suggestions[input.suggest] ?? []).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </datalist>
-            )}
-          </label>
-        ))}
-
-        {launch.isError && (
-          <p className="flex items-start gap-1 text-sm text-critical-700">
-            <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
-            {(launch.error as Error).message}
-          </p>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm">
-            Annuler
-          </button>
-          <button
-            type="submit"
-            disabled={!kind || launch.isPending}
-            className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-          >
-            {launch.isPending ? 'Lancement…' : 'Lancer'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
