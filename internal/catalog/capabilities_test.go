@@ -24,7 +24,7 @@ func deployRegistry(t *testing.T) *capabilities.Registry {
 	registry, err := capabilities.New(capability.Plugin{ID: "mse", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name: "integration-tests", Label: "Tests d'intégration", Interpreter: noFacts{},
 		Spec: capability.PipelineSpec{
-			PipelineRef: "php-integration-test", Exclusive: true, Verification: true, Group: "integration",
+			PipelineRef: "php-integration-test", Exclusive: true, Lock: "mse-pipeline", Verification: true, Group: "integration",
 			Produces: []capability.Product{capability.ProductResults},
 			Params: map[string]capability.Param{
 				"mse-repo":  {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
@@ -76,6 +76,10 @@ capabilities:
 	}
 	if pipeline.Params["mse-repo"].Key != "forge.mse.repoUrl" || pipeline.Params["image-tag"].Source != SourceInput {
 		t.Errorf("params = %+v", pipeline.Params)
+	}
+	// The plugin's id qualifies the lock: another plugin's `mse-pipeline` is another lock.
+	if pipeline.Lock != "mse/mse-pipeline" || parsed.Locks()["mse/integration-tests"] != "mse/mse-pipeline" {
+		t.Errorf("lock = %q, locks = %v", pipeline.Lock, parsed.Locks())
 	}
 	if pipeline.Uploads["results"].Group != "integration" {
 		t.Errorf("uploads = %+v", pipeline.Uploads)

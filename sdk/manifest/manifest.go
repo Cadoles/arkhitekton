@@ -207,6 +207,7 @@ type Pipeline struct {
 	Produces      []capability.Product `json:"produces"`
 	Verification  bool                 `json:"verification,omitempty"`
 	Exclusive     bool                 `json:"exclusive,omitempty"`
+	Lock          string               `json:"lock,omitempty"`
 	Group         string               `json:"group,omitempty"`
 	// Reading or Interpreter, exactly one when the pipeline publishes results: a declared reading,
 	// or `native`, the plugin's program.
@@ -489,6 +490,9 @@ func (p Pipeline) problems(at string) []error {
 	if !capability.ValidName(p.PipelineRef) {
 		problems = append(problems, fmt.Errorf("%s.pipelineRef %q: a Kubernetes name", at, p.PipelineRef))
 	}
+	if p.Lock != "" && !capability.ValidName(p.Lock) {
+		problems = append(problems, fmt.Errorf("%s.lock %q: a Kubernetes name", at, p.Lock))
+	}
 	files := append([]string{}, p.Tekton...)
 	for _, file := range []string{p.Reading} {
 		if file != "" {
@@ -682,7 +686,7 @@ func (m Manifest) Plugin() capability.Plugin {
 func (p Pipeline) spec() capability.PipelineSpec {
 	spec := capability.PipelineSpec{
 		PipelineRef: p.PipelineRef, ExternalTasks: p.ExternalTasks, Produces: p.Produces,
-		Verification: p.Verification, Exclusive: p.Exclusive, Group: p.Group,
+		Verification: p.Verification, Exclusive: p.Exclusive, Lock: p.Lock, Group: p.Group,
 	}
 	if len(p.Params) > 0 {
 		spec.Params = make(map[string]capability.Param, len(p.Params))

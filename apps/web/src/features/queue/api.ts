@@ -12,7 +12,7 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelle
  * `capacity`, `draining` — dont un, le drainage, qu'il fallait expliquer en
  * deux phrases parce que rien à l'écran ne le laissait deviner.
  */
-export type QueueReason = 'kind-busy' | 'capacity'
+export type QueueReason = 'kind-busy' | 'capacity' | 'lock-held'
 
 export type Job = {
   id: number
@@ -161,6 +161,10 @@ export function explainWait(job: Job, queue: Queue | undefined): string {
       // Le plafond global prime sur celui de la file, et régler la file n'y
       // changerait rien : le dire évite de chercher la place au mauvais endroit.
       return 'Le plafond global d’exécutions simultanées est atteint, toutes files confondues.'
+    case 'lock-held':
+      // Deux pipelines qui déploient au même endroit s'attendent, quels que soient
+      // leurs plafonds : régler la file n'y changerait rien.
+      return 'Attend qu’un autre pipeline libère l’environnement qu’ils partagent.'
     default:
       return 'En attente de son tour.'
   }

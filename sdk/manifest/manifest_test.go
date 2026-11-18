@@ -191,6 +191,22 @@ func TestAPluginMayAskToReadAModelAndTheForge(t *testing.T) {
 	}
 }
 
+func TestAPipelineMayHoldALockNamedLikeANamespace(t *testing.T) {
+	locked := strings.Replace(valid, `"pipelineRef": "go-unit-tests",`, `"pipelineRef": "go-unit-tests", "lock": "test-namespace",`, 1)
+	declared, err := Decode([]byte(locked))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock := declared.Plugin().Pipelines[0].Spec.Lock; lock != "test-namespace" {
+		t.Errorf("lock = %q", lock)
+	}
+
+	badly := strings.Replace(valid, `"pipelineRef": "go-unit-tests",`, `"pipelineRef": "go-unit-tests", "lock": "Test Namespace",`, 1)
+	if _, err := Decode([]byte(badly)); err == nil || !strings.Contains(err.Error(), "lock") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 const withProviders = `{
   "apiVersion": "arkhitekton.plugin/v2", "id": "forgery", "version": "1.0.0", "sdk": "1", "label": "Forgery",
   "perProject": true, "binary": "bin/plugin", "protocol": 1, "tracker": true, "forge": true,

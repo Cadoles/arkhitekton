@@ -305,6 +305,51 @@ func TestExplainQueuePrefersTheGlobalCeiling(t *testing.T) {
 	}
 }
 
+// Two kinds deploying into one namespace share a lock: whatever their ceilings, one waits for the
+// other, and a kind holding no lock is not held back by them.
+func TestKindsSharingALockNeverRunTogether(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	limits := caps(4, nil)
+	limits.Locks = map[string]string{"integration": "mse/mse-pipeline", "rgaa": "mse/mse-pipeline"}
+
+	enqueue(t, db, "integration", 100)
+	audit := enqueue(t, db, "rgaa", 100)
+	enqueue(t, db, "unit", 100)
+
+	first, err := claim(t, db, limits)
+	if err != nil || first.Kind != "integration" {
+		t.Fatalf("first = %+v, %v", first, err)
+	}
+	second, err := claim(t, db, limits)
+	if err != nil || second.Kind != "unit" {
+		t.Fatalf("second = %+v, %v: the lock held back a kind that does not share it", second, err)
+	}
+	if _, err := claim(t, db, limits); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("the audit ran beside the integration tests: %v", err)
+	}
+
+	if err := db.ExplainQueue(ctx, limits); err != nil {
+		t.Fatalf("explanation: %v", err)
+	}
+	waiting, err := db.GetJob(ctx, audit)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if waiting.QueueReason != ReasonLockHeld {
+		t.Errorf("reason = %q, expected %q", waiting.QueueReason, ReasonLockHeld)
+	}
+
+	if err := db.FinishJob(ctx, first.ID, JobSucceeded, ""); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	third, err := claim(t, db, limits)
+	if err != nil || third.ID != audit {
+		t.Errorf("third = %+v, %v: the audit should run once the lock is free", third, err)
+	}
+}
+
 // A setting replaces the catalogue's ceiling, and removing it gives it back.
 func TestASettingReplacesAndIsRemoved(t *testing.T) {
 	db := migrated(t)

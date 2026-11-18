@@ -279,6 +279,7 @@ func (s *Scheduler) limits(ctx context.Context) store.Limits {
 		PerKind: catalog.Of(s.catalog).Concurrency(),
 		Default: catalog.DefaultKindConcurrency,
 		Global:  catalog.Of(s.catalog).MaxConcurrentRuns,
+		Locks:   catalog.Of(s.catalog).Locks(),
 	}
 
 	overrides, err := s.queue.QueueLimits(ctx)
