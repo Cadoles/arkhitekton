@@ -62,7 +62,7 @@ func (h *ReleasesHandler) Dossier(ctx context.Context, projectID int64, tag stri
 	if dossier.Results, err = h.store.ListReleaseTestResults(ctx, release.ID); err != nil {
 		return native.Dossier{}, fmt.Errorf("the results of %s: %w", tag, err)
 	}
-	if dossier.Score, err = computeScore(ctx, h.store, release.ID, dossier.Results, catalog.Of(h.scoreCatalog)); err != nil {
+	if dossier.Score, err = computeScore(ctx, h.store, store.ReleaseScope(release.ID), dossier.Results, catalog.Of(h.scoreCatalog)); err != nil {
 		return native.Dossier{}, fmt.Errorf("the score of %s: %w", tag, err)
 	}
 

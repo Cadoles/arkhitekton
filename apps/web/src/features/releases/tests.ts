@@ -28,9 +28,8 @@ export type TestResult = {
 }
 
 export type SignalScore = {
-  /** Identifie le composant : le geste qui a mesuré — `geste:1.0` — ou la
-   *  famille, pour une release antérieure aux plans. C'est elle, et non le
-   *  signal, qui distingue deux campagnes de même nature. */
+  /** Identifie la case : le pipeline lancé — `pipeline:mse/e2e-tests` —, ou le
+   *  groupe pour un résultat qui ne nomme pas son pipeline — `group:unit`. */
   key: string
   /** Le nom du composant, dans les mots de qui l'a déclaré. */
   label: string
@@ -48,8 +47,8 @@ export type SignalScore = {
   /** Poids **effectif**, après redistribution des signaux non mesurés. C'est lui
    *  qui explique la contribution réelle au score. */
   weight: number
-  /** Poids saisi, avant redistribution. Sans lui une pondération ne se relit
-   *  pas : « 33 » ne dit pas si quelqu'un a écrit 20 ou 40. */
+  /** Poids réglé pour le pipeline, ou celui de sa nature, avant redistribution.
+   *  Zéro : la case est hors score, affichée sans compter. */
   declared: number
   measured: boolean
   detail?: string
@@ -270,10 +269,13 @@ export type SecurityReport = {
   findings?: Finding[]
 }
 
-export function useSecurity(subject: ResultSubject | undefined) {
+/** L'audit le plus récent, ou celui d'un pipeline : deux pipelines peuvent
+ *  auditer dans le groupe sécurité, et chaque case ouvre le sien. */
+export function useSecurity(subject: ResultSubject | undefined, capability?: string) {
+  const query = capability ? `?capability=${encodeURIComponent(capability)}` : ''
   return useQuery({
-    queryKey: [...(subject?.key ?? ['releases', undefined]), 'security'],
-    queryFn: () => request<SecurityReport>(projectPath(`${(subject as ResultSubject).path}/security`)),
+    queryKey: [...(subject?.key ?? ['releases', undefined]), 'security', capability ?? ''],
+    queryFn: () => request<SecurityReport>(projectPath(`${(subject as ResultSubject).path}/security${query}`)),
     enabled: Boolean(subject),
   })
 }

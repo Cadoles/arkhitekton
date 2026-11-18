@@ -198,39 +198,44 @@ func Score(measures []Measure) Breakdown {
 
 	breakdown := Breakdown{}
 
-	// A zero totalWeight covers two cases at once: nothing was measured, or everything
-	// measured weighs zero. In both, no score is computable — and returning zero would
-	// be a judgement, the harshest possible, on a release nobody evaluated.
-	if totalWeight == 0 {
-		for _, measure := range measures {
-			breakdown.Signals = append(breakdown.Signals, retired(measure))
-			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
-		}
-		return breakdown
-	}
-
 	var weighted float64
 	for _, measure := range measures {
-		if !measure.Measured {
+		switch {
+		case !measure.Measured:
 			breakdown.Signals = append(breakdown.Signals, retired(measure))
-			breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
-			continue
+			// Out of the score, it had nothing to redistribute.
+			if measure.Weight > 0 {
+				breakdown.Redistributed = append(breakdown.Redistributed, measure.Key)
+			}
+		case measure.Weight == 0 || totalWeight == 0:
+			// Out of the score, deliberately: measured and shown, weighing nothing.
+			breakdown.Signals = append(breakdown.Signals, SignalScore{
+				Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+				Ref: measure.Ref, Group: measure.Group, Shape: measure.Shape,
+				Value: measure.Value, Measured: true, Detail: measure.Detail,
+			})
+		default:
+			// The effective weight is the component's share of what was measured. That is the
+			// redistribution: by renormalisation, without arbitrarily reassigning the missing
+			// weight to a neighbour.
+			effective := measure.Weight / totalWeight * 100
+			weighted += measure.Value * measure.Weight / totalWeight
+
+			breakdown.Signals = append(breakdown.Signals, SignalScore{
+				Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
+				Ref: measure.Ref, Group: measure.Group, Shape: measure.Shape,
+				Value: measure.Value, Weight: effective, Declared: measure.Weight,
+				Measured: true, Detail: measure.Detail,
+			})
 		}
-
-		// The effective weight is the component's share of what was measured. That is the
-		// redistribution: by renormalisation, without arbitrarily reassigning the missing
-		// weight to a neighbour.
-		effective := measure.Weight / totalWeight * 100
-		weighted += measure.Value * measure.Weight / totalWeight
-
-		breakdown.Signals = append(breakdown.Signals, SignalScore{
-			Key: measure.Key, Label: measure.Label, Signal: measure.Signal,
-			Ref: measure.Ref, Group: measure.Group, Shape: measure.Shape,
-			Value: measure.Value, Weight: effective, Declared: measure.Weight,
-			Measured: true, Detail: measure.Detail,
-		})
 	}
 
+	// A zero totalWeight covers two cases at once: nothing was measured, or everything measured
+	// weighs zero. In both, no score is computable, and returning zero would be a judgement, the
+	// harshest possible, on a subject nobody evaluated.
+	if totalWeight == 0 {
+		return breakdown
+	}
 	breakdown.Score = int(math.Round(weighted))
 	breakdown.Measured = true
 	return breakdown

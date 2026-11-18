@@ -503,41 +503,6 @@ type GesteRef struct {
 	Position int
 }
 
-// ResultGestes returns, for each result of a release, the step that produced it.
-//
-// Indexed by the result's identifier and not by run: that is the key security audits
-// and load campaigns carry, and they must attach to the same step as the test
-// reports.
-//
-// A result with no step does not appear: it comes from a manual launch from the
-// queue, which no plan caused. It counts in the test screens, not in a release's
-// score — the score covers what the automation measured.
-func (db *DB) ResultGestes(ctx context.Context, releaseID int64) (map[int64]GesteRef, error) {
-	const query = `
-		select r.id, s.stage, s.position
-		from test_results r
-		join runs p on p.id = r.run_id
-		join plan_steps s on s.job_id = p.job_id
-		where r.release_id = $1`
-
-	rows, err := db.pool.Query(ctx, query, releaseID)
-	if err != nil {
-		return nil, fmt.Errorf("steps of the results of release %d: %w", releaseID, err)
-	}
-	defer rows.Close()
-
-	gestes := map[int64]GesteRef{}
-	for rows.Next() {
-		var id int64
-		var ref GesteRef
-		if err := rows.Scan(&id, &ref.Stage, &ref.Position); err != nil {
-			return nil, err
-		}
-		gestes[id] = ref
-	}
-	return gestes, rows.Err()
-}
-
 // ReleaseArtifacts returns what a release's automation produced.
 //
 // A release's screen asks "what was produced for this tag?", not "what did run 6

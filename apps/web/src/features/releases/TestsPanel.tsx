@@ -43,6 +43,8 @@ export function TestsPanel({
   if (!resolved) return null
   if (isPending) return <Skeleton className="h-48 w-full" />
   if (!data) return null
+  // Rien de lancé, rien à montrer : la section apparaît avec le premier test.
+  if (data.score.signals.length === 0) return null
 
   return <ScoreCard subject={resolved} score={data.score} jobs={jobs} />
 }
@@ -93,11 +95,11 @@ function ScoreCard({
             <p className="flex items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600">
               <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-warn-700" />
               <span>
-                Score calculé sur {score.signals.length - score.redistributed.length} composant(s)
-                sur {score.signals.length}. Non mesurés :{' '}
-                {/* Les libellés viennent des composants eux-mêmes : `redistributed`
-                    porte des **clés** de geste — `geste:1.0` — et les afficher en
-                    brut nommerait une position au lieu d'un pipeline. */}
+                Score calculé sans {score.redistributed.length} pipeline(s) lancé(s) mais pas
+                encore mesuré(s) :{' '}
+                {/* Les libellés viennent des cases elles-mêmes : `redistributed`
+                    porte des **clés** — `pipeline:mse/e2e-tests` — qu'afficher en
+                    brut rendrait illisibles. */}
                 {score.redistributed
                   .map((key) => score.signals.find((entry) => entry.key === key)?.label ?? key)
                   .join(', ')}

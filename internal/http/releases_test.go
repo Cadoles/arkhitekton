@@ -1229,6 +1229,22 @@ func (f *fakeReleaseStore) Baselines(context.Context, string) (map[string]store.
 	return map[string]store.Baseline{}, nil
 }
 
+func (f *fakeReleaseStore) ListJobsIn(context.Context, store.Scope) ([]store.ReleaseJob, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) LatestFindingsOf(context.Context, store.Scope, string) (store.SecurityAudit, error) {
+	return store.SecurityAudit{}, store.ErrAuditNotFound
+}
+
+func (f *fakeReleaseStore) ListLoadResults(context.Context, store.Scope) ([]store.LoadResult, error) {
+	return nil, nil
+}
+
+func (f *fakeReleaseStore) ScoreWeights(context.Context) (map[string]float64, error) {
+	return nil, nil
+}
+
 // The release note: these tests do not cover it, detection being exercised in
 // internal/worker. An empty note is the expected behaviour for a release with no issue
 // linked.

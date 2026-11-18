@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { setProjects } from '../../lib/project'
 import { mockFetch } from '../../test/http'
@@ -64,8 +64,37 @@ describe("la page d'une pull request", () => {
     expect(await screen.findByText('Ajoute la recherche')).toBeInTheDocument()
     expect(screen.getByText('pr-12-abcdef0')).toBeInTheDocument()
     expect(screen.getByText('Construction')).toBeInTheDocument()
-    await screen.findByText(/Rien n'a été mesuré/)
-    expect(calls.some((call) => call.url.includes('/projects/shop/pulls/12/tests'))).toBe(true)
+    await waitFor(() => expect(calls.some((call) => call.url.includes('/projects/shop/pulls/12/tests'))).toBe(true))
+    // Rien de lancé qui produise des résultats : la section n'apparaît pas.
+    expect(screen.queryByText(/Rien n'a été mesuré/)).not.toBeInTheDocument()
+  })
+
+  it('ajoute une case par pipeline lancé, hors score quand il ne pèse rien', async () => {
+    mockFetch([
+      { path: '/me', body: { subject: 's', username: 'admin', role: 'admin', projects: [{ slug: 'shop', label: 'Shop' }] } },
+      { path: '/pulls/12/review', body: notReviewed },
+      {
+        path: '/pulls/12/tests',
+        body: {
+          results: [],
+          score: {
+            value: 100, measured: true, health: 'healthy', redistributed: [],
+            signals: [
+              { key: 'pipeline:php/unit-tests', label: 'Tests unitaires', signal: 'unit', ref: 'php/unit-tests', group: 'unit',
+                shape: 'cases', value: 100, weight: 100, declared: 25, measured: true, detail: '7/7 passed', health: 'healthy' },
+              { key: 'pipeline:mse/rgaa-audit', label: 'Audit RGAA', signal: '', ref: 'mse/rgaa-audit', group: 'accessibility',
+                shape: 'cases', value: 80, weight: 0, declared: 0, measured: true, detail: '8/10 passed', health: 'warn' },
+            ],
+          },
+        },
+      },
+      { path: '/pulls/12', body: pull },
+    ])
+    render(<PullScreen />)
+
+    expect(await screen.findByText('Audit RGAA')).toBeInTheDocument()
+    expect(screen.getByText('hors score')).toBeInTheDocument()
+    expect(screen.getByText('poids 100 %')).toBeInTheDocument()
   })
 
   it("lance un pipeline en ne demandant que ce que la tête ne remplit pas", async () => {
@@ -134,11 +163,11 @@ describe("la page d'une pull request", () => {
   })
 
   it("ne montre rien de la revue tant qu'aucune n'a été faite", async () => {
-    arm()
+    const calls = arm()
     render(<PullScreen />)
 
     expect(await screen.findByText('Ajoute la recherche')).toBeInTheDocument()
-    await screen.findByText(/Rien n'a été mesuré/)
+    await waitFor(() => expect(calls.some((call) => call.url.includes('/pulls/12/review'))).toBe(true))
     expect(screen.queryByText('Revue IA')).not.toBeInTheDocument()
   })
 })
