@@ -30,6 +30,9 @@ const (
 	// ReasonCapacity: the global ceiling is reached, across every queue. It protects the
 	// cluster and prevails over the per-kind ceilings.
 	ReasonCapacity = "capacity"
+	// ReasonLockHeld: a running job holds the lock this one shares with it, two pipelines
+	// deploying into one namespace.
+	ReasonLockHeld = "lock-held"
 )
 
 // Limits carries the effective ceilings, per kind.
@@ -46,6 +49,9 @@ type Limits struct {
 	// Global bounds the total across every queue. Without it, seven queues of five places
 	// would allow thirty-five simultaneous runs, which no cluster of this project holds.
 	Global int
+	// Locks gives the lock a kind holds while it runs. A job whose lock a running job holds,
+	// of whatever kind, waits.
+	Locks map[string]string
 }
 
 // Of returns a kind's effective ceiling.
@@ -69,6 +75,25 @@ func (l Limits) arrays() ([]string, []int32) {
 	}
 	return kinds, limits
 }
+
+// lockArrays returns the locks in the shape `unnest` expects.
+func (l Limits) lockArrays() ([]string, []string) {
+	kinds := make([]string, 0, len(l.Locks))
+	locks := make([]string, 0, len(l.Locks))
+	for kind, lock := range l.Locks {
+		kinds = append(kinds, kind)
+		locks = append(locks, lock)
+	}
+	return kinds, locks
+}
+
+// lockHeld is true of a queued job `j` whose lock a running job holds, given the CTEs `running`
+// and `locks`.
+const lockHeld = `exists (
+		    select 1 from running r
+		    join locks held on held.kind = r.kind
+		    join locks wanted on wanted.kind = j.kind
+		    where held.lock = wanted.lock)`
 
 // JobRequest describes a launch request.
 type JobRequest struct {
@@ -193,6 +218,9 @@ func (db *DB) ClaimNext(
 		with limits as (
 		    select * from unnest($2::text[], $3::int[]) as l(kind, max_concurrent)
 		),
+		locks as (
+		    select * from unnest($5::text[], $6::text[]) as k(kind, lock)
+		),
 		running as (
 		    select kind from jobs where state = 'running'
 		)
@@ -208,14 +236,16 @@ func (db *DB) ClaimNext(
 		  and (select count(*) from running) < $1
 		  and (select count(*) from running r where r.kind = j.kind)
 		      < coalesce((select l.max_concurrent from limits l where l.kind = j.kind), $4)
+		  and not ` + lockHeld + `
 		order by j.priority, j.requested_at
 		for update of j skip locked
 		limit 1`
 
 	kinds, perKind := limits.arrays()
+	lockKinds, locks := limits.lockArrays()
 
 	var params []byte
-	err = transaction.QueryRow(ctx, query, limits.Global, kinds, perKind, limits.Default).Scan(
+	err = transaction.QueryRow(ctx, query, limits.Global, kinds, perKind, limits.Default, lockKinds, locks).Scan(
 		&job.ID, &job.Kind, &job.Priority, &params,
 		&job.RequestedBy, &job.RequestedAt, &job.Attempt, &job.ReleaseID,
 		&job.ProjectID, &job.ConcurrentAtStart)
@@ -431,6 +461,9 @@ func (db *DB) ExplainQueue(ctx context.Context, limits Limits) error {
 		with limits as (
 		    select * from unnest($2::text[], $3::int[]) as l(kind, max_concurrent)
 		),
+		locks as (
+		    select * from unnest($5::text[], $6::text[]) as k(kind, lock)
+		),
 		running as (
 		    select kind from jobs where state = 'running'
 		),
@@ -447,6 +480,7 @@ func (db *DB) ExplainQueue(ctx context.Context, limits Limits) error {
 		        when (select count(*) from running r where r.kind = j.kind)
 		             >= coalesce((select l.max_concurrent from limits l where l.kind = j.kind), $4)
 		             then 'kind-busy'
+		        when ` + lockHeld + ` then 'lock-held'
 		        else null
 		    end,
 		    updated_at = now()
@@ -454,7 +488,8 @@ func (db *DB) ExplainQueue(ctx context.Context, limits Limits) error {
 		where j.state = 'queued'`
 
 	kinds, perKind := limits.arrays()
-	if _, err := db.pool.Exec(ctx, query, limits.Global, kinds, perKind, limits.Default); err != nil {
+	lockKinds, locks := limits.lockArrays()
+	if _, err := db.pool.Exec(ctx, query, limits.Global, kinds, perKind, limits.Default, lockKinds, locks); err != nil {
 		return fmt.Errorf("explaining the queue: %w", err)
 	}
 	return nil

@@ -156,6 +156,10 @@ type PipelineSpec struct {
 	Verification bool
 	// Exclusive runs one at a time by default.
 	Exclusive bool
+	// Lock names what the pipeline holds while it runs, shared with the plugin's other pipelines
+	// declaring it: two pipelines deploying into one namespace never run together. The dashboard
+	// prefixes it with the plugin's id.
+	Lock string
 	// ObservedPipelines are Tekton Pipelines whose runs this capability reads although the dashboard
 	// did not launch them.
 	ObservedPipelines []string

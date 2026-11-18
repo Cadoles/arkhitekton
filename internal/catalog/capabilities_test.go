@@ -24,7 +24,7 @@ func deployRegistry(t *testing.T) *capabilities.Registry {
 	registry, err := capabilities.New(capability.Plugin{ID: "mstore", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name: "integration-tests", Label: "Tests d'intégration", Interpreter: noFacts{},
 		Spec: capability.PipelineSpec{
-			PipelineRef: "php-integration-test", Exclusive: true, Verification: true, Group: "integration",
+			PipelineRef: "php-integration-test", Exclusive: true, Lock: "mstore-pipeline", Verification: true, Group: "integration",
 			Produces: []capability.Product{capability.ProductResults},
 			Params: map[string]capability.Param{
 				"mstore-repo":  {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
@@ -76,6 +76,10 @@ capabilities:
 	}
 	if pipeline.Params["mstore-repo"].Key != "forge.mstore.repoUrl" || pipeline.Params["image-tag"].Source != SourceInput {
 		t.Errorf("params = %+v", pipeline.Params)
+	}
+	// The plugin's id qualifies the lock: another plugin's `mstore-pipeline` is another lock.
+	if pipeline.Lock != "mstore/mstore-pipeline" || parsed.Locks()["mstore/integration-tests"] != "mstore/mstore-pipeline" {
+		t.Errorf("lock = %q, locks = %v", pipeline.Lock, parsed.Locks())
 	}
 	if pipeline.Uploads["results"].Group != "integration" {
 		t.Errorf("uploads = %+v", pipeline.Uploads)

@@ -209,6 +209,10 @@ type Pipeline struct {
 	// A ceiling answers the only question asked — how many may run together — and
 	// reads without walking the whole catalogue.
 	MaxConcurrent int `json:"maxConcurrent,omitempty"`
+	// Lock is what the kind holds while it runs, `<plugin>/<name>`, shared with the kinds
+	// declaring the same: two pipelines deploying into one namespace wait for each other, whatever
+	// their ceilings. Empty: nothing is shared.
+	Lock string `json:"lock,omitempty"`
 	// Timeout bounds execution. Empty means Tekton's default.
 	Timeout string `json:"timeout,omitempty"`
 	// ServiceAccountName is not decorative: a pipeline that deploys into an
@@ -755,6 +759,17 @@ func (c *Catalog) Concurrency() map[string]int {
 		limits[pipeline.Kind] = pipeline.Concurrency()
 	}
 	return limits
+}
+
+// Locks gives the lock each kind holds, for the kinds that hold one.
+func (c *Catalog) Locks() map[string]string {
+	locks := map[string]string{}
+	for _, pipeline := range c.Pipelines {
+		if pipeline.Lock != "" {
+			locks[pipeline.Kind] = pipeline.Lock
+		}
+	}
+	return locks
 }
 
 // Find returns a kind's entry.

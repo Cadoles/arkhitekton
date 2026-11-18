@@ -220,6 +220,9 @@ func resolveBinding(registry *capabilities.Registry, binding Binding) (Pipeline,
 	if pipeline.MaxConcurrent == 0 && spec.Exclusive {
 		pipeline.MaxConcurrent = ExclusiveKindConcurrency
 	}
+	if spec.Lock != "" {
+		pipeline.Lock = ref.Plugin + "/" + spec.Lock
+	}
 	for _, product := range spec.Produces {
 		pipeline.Produces = append(pipeline.Produces, Product(product))
 	}
