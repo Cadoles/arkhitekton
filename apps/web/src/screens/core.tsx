@@ -17,6 +17,7 @@ import {
 } from '../features/admin/ProjectTabs'
 import { ProjectsScreen } from '../features/admin/ProjectsScreen'
 import { UsersScreen } from '../features/admin/UsersScreen'
+import { StatsScreen } from '../features/stats/StatsScreen'
 import { QueueScreen } from '../features/queue/QueueScreen'
 import {
   ArtifactsBlock,
@@ -87,6 +88,7 @@ export function registerCoreComponents(): void {
     runs: RunsScreen,
     run: RunScreen,
     queue: QueueScreen,
+    stats: StatsScreen,
     projects: ProjectsScreen,
     plugins: PluginsScreen,
     capabilities: PipelinesScreen,

@@ -140,6 +140,18 @@ The score is a release's: one tile per pipeline launched (doc 05 §5.8).
 | `GET /projects/{project}/pulls/{number}` | `read` | A pull request, the jobs launched on it and the plans its facts opened |
 | `POST /projects/{project}/pulls/{number}/launch` | `pipeline:run` | Queues `{kind, params}` on the head: the revision, the request's tag `pr-<n>-<commit>` and the images built under it are filled and cannot be overridden |
 
+**Statistics.** `GET /stats`, signed in, counts the releases launched and the pipelines finished
+over a period: `range` is `30d` or `90d`, cut by week, or `12m`, cut by month (default `30d`). With
+`project` (a slug), that project, `403` unless the caller is an operator in it; without, every
+project the caller is an operator in (`pipeline:run`). The answer carries `range`, `bucket` (`week`
+or `month`), `since` (the first bucket's start, a Monday or the first of a month, UTC), the
+`projects` counted, `releases` (`total`, `by_state` and `by_kind` as `{key, label, count}`, and
+`buckets`, every week or month of the period with its `count` and `by_state`, empty ones included)
+and `pipelines`, one per kind (`kind`, the catalogue's `label`, `runs`, `succeeded`, `failed`,
+`cancelled`, `median_seconds` of the runs that started). A draft is not counted, nor a job attached
+to no project, nor a core task (`release-notes`): a pipeline's kind names its plugin. Plugins bring
+no indicator of their own: what they record stays on their screens.
+
 ## 7.7 Versions and issues
 
 | Route | Permission |
