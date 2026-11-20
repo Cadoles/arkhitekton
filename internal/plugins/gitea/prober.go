@@ -53,7 +53,10 @@ func (p Prober) Probe(ctx context.Context, repository, publicKey string) (provid
 		return provider.Probe{}, errors.New("the repository is empty: no default branch")
 	}
 
-	probe := provider.Probe{DefaultBranch: branch}
+	probe := provider.Probe{
+		DefaultBranch: branch,
+		KeysURL:       strings.TrimRight(p.URL, "/") + "/" + strings.Trim(repository, "/") + "/settings/keys",
+	}
 	probe.KeyPresent, probe.KeyNote = p.checkKey(ctx, client, publicKey)
 	return probe, nil
 }

@@ -196,6 +196,10 @@ type Project struct {
 	DeployKeyCreatedAt *time.Time
 	// DeployKeyError is why the worker could not set the key, empty once it could.
 	DeployKeyError string
+	// KeyNote is what the last check found about the key; KeysURL, where the forge lists the
+	// repository's deploy keys, to paste it there.
+	KeyNote string
+	KeysURL string
 	// UID identifies the project for good: its Secrets are named from it, so that a slug renamed or
 	// reused never points at another project's.
 	UID       string
@@ -270,7 +274,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
-		        deploy_key_error, uid::text,
+		        deploy_key_error, key_note, keys_url, uid::text,
 		        created_by, created_at, updated_at
 		 from projects order by label`)
 	if err != nil {
@@ -297,7 +301,7 @@ func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
-		        deploy_key_error, uid::text,
+		        deploy_key_error, key_note, keys_url, uid::text,
 		        created_by, created_at, updated_at
 		 from projects where id = $1`, id)
 	if err != nil {
@@ -380,7 +384,7 @@ func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 		        stack, multi_stage, tracker_project, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
-		        deploy_key_error, uid::text,
+		        deploy_key_error, key_note, keys_url, uid::text,
 		        created_by, created_at, updated_at
 		 from projects where slug = $1`, slug)
 	if err != nil {
@@ -407,7 +411,7 @@ func scanProject(rows pgx.Rows) (Project, error) {
 		&project.TrackerProject, &targets,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
-		&project.DeployKeyActive, &project.DeployKeyError, &project.UID,
+		&project.DeployKeyActive, &project.DeployKeyError, &project.KeyNote, &project.KeysURL, &project.UID,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("reading a project: %w", err)
@@ -616,23 +620,44 @@ func (db *DB) SecretDeleted(ctx context.Context, name string) error {
 	return nil
 }
 
-// RecordProjectCheck records the result of an access check.
+// ProjectProbe is what a check of a project found.
+type ProjectProbe struct {
+	OK   bool
+	Note string
+	// KeyPresent is nil when the question could not be asked: the previous state then stays.
+	KeyPresent *bool
+	KeyNote    string
+	KeysURL    string
+}
+
+// RecordProjectProbe records a check, and says whether the access or the key changed state.
 //
-// Kept rather than recomputed on display: the call leaves the dashboard, and redoing
-// it every time the screen opens would pay a forge round trip for information that
-// changes once a quarter.
-func (db *DB) RecordProjectCheck(ctx context.Context, id int64, ok bool, note string) error {
-	tag, err := db.pool.Exec(ctx,
-		`update projects
-		 set checked_at = now(), check_ok = $2, check_note = $3, updated_at = now()
-		 where id = $1`, id, ok, note)
+// The key's state is left as it is when the question could not be asked: overwriting it to false
+// would cut the builds of a project whose key may well be in place.
+func (db *DB) RecordProjectProbe(ctx context.Context, id int64, probe ProjectProbe) (bool, error) {
+	var changed bool
+	err := db.pool.QueryRow(ctx,
+		`with previous as (
+		     select check_ok, deploy_key_active from projects where id = $1 for update
+		 ), updated as (
+		     update projects p
+		     set checked_at = now(), check_ok = $2, check_note = $3, key_note = $5,
+		         keys_url = coalesce(nullif($6, ''), p.keys_url),
+		         deploy_key_active = coalesce($4, p.deploy_key_active), updated_at = now()
+		     where p.id = $1
+		     returning p.check_ok, p.deploy_key_active
+		 )
+		 select previous.check_ok is distinct from updated.check_ok
+		        or previous.deploy_key_active is distinct from updated.deploy_key_active
+		 from previous, updated`,
+		id, probe.OK, probe.Note, probe.KeyPresent, probe.KeyNote, probe.KeysURL).Scan(&changed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrProjectNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("access verdict of project %d: %w", id, err)
+		return false, fmt.Errorf("check of project %d: %w", id, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrProjectNotFound
-	}
-	return nil
+	return changed, nil
 }
 
 // normaliseTargets discards empty stages.
@@ -788,28 +813,6 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 		pending = append(pending, entry)
 	}
 	return pending, rows.Err()
-}
-
-// ActivateDeployKey records that a project's key opens its repository.
-//
-// An observation, not a declaration. The only caller is the access check, which has
-// just read the forge's deploy keys and found — or not — the project's. Pasting the
-// public half stays a human gesture; confirming it no longer is.
-//
-// The distinction has a concrete effect: a manual confirmation stayed true after the
-// key had been removed from the repository, and pipelines then failed on an SSH
-// error that nothing connected to the screen asserting the contrary.
-func (db *DB) ActivateDeployKey(ctx context.Context, projectID int64, active bool) error {
-	tag, err := db.pool.Exec(ctx,
-		`update projects set deploy_key_active = $2, updated_at = now() where id = $1`,
-		projectID, active)
-	if err != nil {
-		return fmt.Errorf("activating the key of project %d: %w", projectID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrProjectNotFound
-	}
-	return nil
 }
 
 // RegistrySecret returns the registry secret a project names.

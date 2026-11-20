@@ -30,16 +30,6 @@ type fakeProjectStore struct {
 	rotations []int64
 }
 
-func (f *fakeProjectStore) ActivateDeployKey(_ context.Context, id int64, active bool) error {
-	project, known := f.projects[id]
-	if !known {
-		return store.ErrProjectNotFound
-	}
-	project.DeployKeyActive = active
-	f.projects[id] = project
-	return nil
-}
-
 func (f *fakeProjectStore) RequestKeyRotation(_ context.Context, id int64) error {
 	if _, known := f.projects[id]; !known {
 		return store.ErrProjectNotFound
@@ -77,6 +67,10 @@ func (f *fakeProjectStore) CreateProject(_ context.Context, project store.Projec
 	id := f.next
 	f.next++
 	project.ID = id
+	if project.Slug == "" {
+		// The database derives it from the repository.
+		project.Slug = strings.ToLower(project.Repository[strings.LastIndex(project.Repository, "/")+1:])
+	}
 	f.projects[id] = project
 	return id, nil
 }
@@ -99,16 +93,24 @@ func (f *fakeProjectStore) DeleteProject(_ context.Context, id int64) error {
 	return nil
 }
 
-func (f *fakeProjectStore) RecordProjectCheck(_ context.Context, id int64, ok bool, note string) error {
+func (f *fakeProjectStore) RecordProjectProbe(_ context.Context, id int64, probe store.ProjectProbe) (bool, error) {
 	project, found := f.projects[id]
 	if !found {
-		return store.ErrProjectNotFound
+		return false, store.ErrProjectNotFound
 	}
-	project.CheckOK = &ok
-	project.CheckNote = note
+	changed := project.CheckOK == nil || *project.CheckOK != probe.OK
+	ok := probe.OK
+	project.CheckOK, project.CheckNote, project.KeyNote = &ok, probe.Note, probe.KeyNote
+	if probe.KeysURL != "" {
+		project.KeysURL = probe.KeysURL
+	}
+	if probe.KeyPresent != nil {
+		changed = changed || project.DeployKeyActive != *probe.KeyPresent
+		project.DeployKeyActive = *probe.KeyPresent
+	}
 	f.projects[id] = project
-	f.checks = append(f.checks, ok)
-	return nil
+	f.checks = append(f.checks, probe.OK)
+	return changed, nil
 }
 
 func (f *fakeProjectStore) Audit(_ context.Context, _, action, _ string, _ map[string]any) error {
@@ -247,7 +249,8 @@ func TestAnUnreachableRepositoryIsACheck(t *testing.T) {
 	if payload.OK || payload.Note == "" {
 		t.Errorf("check = %+v — the reason must accompany the failure", payload)
 	}
-	if len(fake.checks) != 1 || fake.checks[0] {
+	// The declaration checked once, the button once more.
+	if len(fake.checks) != 2 || fake.checks[1] {
 		t.Errorf("checks = %v", fake.checks)
 	}
 }
@@ -260,11 +263,46 @@ func TestASuccessfulTestRecordsTheBranch(t *testing.T) {
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
 	}
-	if len(fake.checks) != 1 || !fake.checks[0] {
+	if len(fake.checks) != 2 || !fake.checks[1] {
 		t.Fatalf("checks = %v", fake.checks)
 	}
 	if !strings.Contains(fake.projects[1].CheckNote, "main") {
 		t.Errorf("note = %q, expected the default branch", fake.projects[1].CheckNote)
+	}
+}
+
+// A repository just declared is checked at once, and the screen is told where to go; checking it
+// again finds nothing new to record in the audit log.
+func TestADeclaredRepositoryIsCheckedAtOnce(t *testing.T) {
+	fake := newFakeProjectStore()
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
+
+	recorder := createProject(t, handler, `{"repository":"CNOUS/mse"}`)
+	var created struct {
+		ID   int64  `json:"id"`
+		Slug string `json:"slug"`
+	}
+	_ = json.Unmarshal(recorder.Body.Bytes(), &created)
+	if recorder.Code != http.StatusCreated || created.Slug == "" {
+		t.Fatalf("code %d, body %s", recorder.Code, recorder.Body)
+	}
+	if len(fake.checks) != 1 || !fake.checks[0] {
+		t.Errorf("checks = %v", fake.checks)
+	}
+
+	probes := func() int {
+		count := 0
+		for _, action := range fake.audits {
+			if action == store.AuditProjectProbe {
+				count++
+			}
+		}
+		return count
+	}
+	before := probes()
+	probe(t, handler, "1")
+	if probes() != before {
+		t.Errorf("a check that changed nothing was recorded in the audit log: %v", fake.audits)
 	}
 }
 

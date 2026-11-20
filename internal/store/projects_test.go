@@ -99,13 +99,18 @@ func TestACorrectionDropsEmptyStages(t *testing.T) {
 	}
 }
 
+func recordCheck(db *DB, ctx context.Context, id int64, ok bool, note string) error {
+	_, err := db.RecordProjectProbe(ctx, id, ProjectProbe{OK: ok, Note: note})
+	return err
+}
+
 func TestTheAccessVerdictIsKept(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
 
-	if err := db.RecordProjectCheck(ctx, id, false, "404 on /repos/CNOUS/mse"); err != nil {
+	if err := recordCheck(db, ctx, id, false, "404 on /repos/CNOUS/mse"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
@@ -118,7 +123,7 @@ func TestTheAccessVerdictIsKept(t *testing.T) {
 	}
 
 	// A second check replaces the first: it is a verdict, not a log.
-	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
+	if err := recordCheck(db, ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("second check: %v", err)
 	}
 	read, _ = db.GetProject(ctx, id)
@@ -137,7 +142,7 @@ func TestAMissingProjectIsToldApartFromAnError(t *testing.T) {
 	if err := db.DeleteProject(ctx, 4242); !errors.Is(err, ErrProjectNotFound) {
 		t.Errorf("deleting a missing project: %v", err)
 	}
-	if err := db.RecordProjectCheck(ctx, 4242, true, ""); !errors.Is(err, ErrProjectNotFound) {
+	if err := recordCheck(db, ctx, 4242, true, ""); !errors.Is(err, ErrProjectNotFound) {
 		t.Errorf("verdict on a missing project: %v", err)
 	}
 }
@@ -220,7 +225,7 @@ func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 	ctx := context.Background()
 
 	id := project(t, db, "vcarroy/mse-test-project")
-	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
+	if err := recordCheck(db, ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
@@ -251,7 +256,7 @@ func TestACorrectionKeepingTheRepositoryKeepsTheCheck(t *testing.T) {
 	ctx := context.Background()
 
 	id := project(t, db, "CNOUS/mse")
-	if err := db.RecordProjectCheck(ctx, id, true, "default branch: main"); err != nil {
+	if err := recordCheck(db, ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
@@ -482,7 +487,8 @@ func TestAProjectsSecretsFollowItsIDNotItsSlug(t *testing.T) {
 	if err := db.SetDeployKey(ctx, id, "ssh-ed25519 AAAA", secret); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ActivateDeployKey(ctx, id, true); err != nil {
+	present := true
+	if _, err := db.RecordProjectProbe(ctx, id, ProjectProbe{OK: true, KeyPresent: &present}); err != nil {
 		t.Fatal(err)
 	}
 	read, _ = db.GetProject(ctx, id)
@@ -531,5 +537,42 @@ func TestAReleasesFailedJobSaysWhy(t *testing.T) {
 	jobs, err := db.ListReleaseJobs(ctx, releaseID)
 	if err != nil || len(jobs) != 1 || jobs[0].Error != "the project has no active deploy key" {
 		t.Errorf("jobs = %+v, %v", jobs, err)
+	}
+}
+
+// A check says whether the access or the key changed; the key's state stays when the question
+// could not be asked, and so does where to paste it when the forge did not say.
+func TestACheckSaysWhetherAnythingChanged(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+	id := project(t, db, "team/app")
+	if err := db.SetDeployKey(ctx, id, "ssh-ed25519 AAAA", "arkhitekton-project-x-git"); err != nil {
+		t.Fatal(err)
+	}
+
+	present, absent := true, false
+	steps := []struct {
+		probe   ProjectProbe
+		changed bool
+		active  bool
+	}{
+		{ProjectProbe{OK: true, KeyPresent: &absent, KeyNote: "absent", KeysURL: "https://forge/team/app/settings/keys"}, true, false},
+		{ProjectProbe{OK: true, KeyPresent: &absent, KeyNote: "absent"}, false, false},
+		{ProjectProbe{OK: true, KeyPresent: &present, KeyNote: "present"}, true, true},
+		{ProjectProbe{OK: true, KeyNote: "keys unreadable"}, false, true},
+	}
+	for index, step := range steps {
+		changed, err := db.RecordProjectProbe(ctx, id, step.probe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read, _ := db.GetProject(ctx, id)
+		if changed != step.changed || read.DeployKeyActive != step.active || read.KeyNote != step.probe.KeyNote ||
+			read.KeysURL != "https://forge/team/app/settings/keys" {
+			t.Errorf("step %d: changed %v, project %+v", index, changed, read)
+		}
+	}
+	if _, err := db.RecordProjectProbe(ctx, 4242, ProjectProbe{}); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("a missing project: %v", err)
 	}
 }

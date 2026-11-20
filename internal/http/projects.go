@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,9 +38,8 @@ type ProjectStore interface {
 	CreateProject(ctx context.Context, project store.Project) (int64, error)
 	UpdateProject(ctx context.Context, project store.Project) error
 	DeleteProject(ctx context.Context, id int64) error
-	RecordProjectCheck(ctx context.Context, id int64, ok bool, note string) error
+	RecordProjectProbe(ctx context.Context, id int64, probe store.ProjectProbe) (bool, error)
 	RequestKeyRotation(ctx context.Context, projectID int64) error
-	ActivateDeployKey(ctx context.Context, projectID int64, active bool) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 }
 
@@ -190,6 +190,10 @@ type projectPayload struct {
 	DeployKeyActive bool `json:"deploy_key_active"`
 	// DeployKeyError is why the worker could not set the key, empty once it could.
 	DeployKeyError string `json:"deploy_key_error,omitempty"`
+	// KeyNote is what the last check found about the key; KeysURL, the forge's page listing the
+	// repository's deploy keys, where to paste it.
+	KeyNote string `json:"key_note,omitempty"`
+	KeysURL string `json:"keys_url,omitempty"`
 	// UID is the project's unique id, which its Secrets are named from: `kubectl` finds them by it.
 	UID       string `json:"uid"`
 	CreatedBy string `json:"created_by"`
@@ -249,6 +253,7 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
 		DeployKey: project.DeployKeyPublic, DeployKeyCreatedAt: project.DeployKeyCreatedAt,
 		DeployKeyActive: project.DeployKeyActive, DeployKeyError: project.DeployKeyError,
+		KeyNote: project.KeyNote, KeysURL: project.KeysURL,
 		UID: project.UID,
 	}
 }
@@ -342,9 +347,20 @@ func (h *ProjectsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The project's key is set by the worker, which alone talks to the cluster. The project is
-	// usable immediately: meanwhile its pipelines mount the deployment's shared key.
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+	// Access is checked at once, the screen arriving on the project to put it in service. A forge
+	// that does not answer does not fail the declaration: the project's page says so and asks
+	// again. The key is not there yet: the worker, which alone talks to the cluster, sets it
+	// within a minute.
+	if h.prober != nil {
+		if _, err := h.checks().Check(r.Context(), identity.Subject, id); err != nil {
+			slog.Default().Warn("checking a project just declared", "project", id, "error", err)
+		}
+	}
+	slug := ""
+	if project, err := h.store.GetProject(r.Context(), id); err == nil {
+		slug = project.Slug
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "slug": slug})
 }
 
 // RotateDeployKey asks for a project's key to be replaced.
@@ -464,66 +480,28 @@ func (h *ProjectsHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := h.store.GetProject(r.Context(), id)
+	result, err := h.checks().Check(r.Context(), identity.Subject, id)
 	if err != nil {
-		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Project not found", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot test", "")
+		writeRefusal(w, err)
 		return
 	}
-
-	if h.prober == nil {
-		// Neither green nor red: the check did not happen. Recording it as a failure would send
-		// someone hunting for an access problem where there is only a missing token.
-		writeProblem(w, http.StatusServiceUnavailable, "Test unavailable",
-			"no forge is configured: switch a forge plugin on and set its URL and token")
-		return
-	}
-
-	probe, probeErr := h.prober.Probe(r.Context(), project.Repository, project.DeployKeyPublic)
-	note := ""
-	if probeErr != nil {
-		note = probeErr.Error()
-	} else {
-		note = "default branch: " + probe.DefaultBranch
-	}
-
-	if err := h.store.RecordProjectCheck(r.Context(), id, probeErr == nil, note); err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot record the check", "")
-		return
-	}
-
-	// The key's fate, observed and not declared.
-	//
-	// It used to be confirmed by hand: someone pasted the public half into the repository's
-	// settings, then came to say so. An intention, therefore, with the flaw of intentions —
-	// it stayed true after the key had been removed from the repository, and the pipelines
-	// failed on an SSH error that nothing connected to the screen asserting the contrary.
-	//
-	// Silence is respected: when the question could not be asked, the previous state is
-	// left as it is. Overwriting it to false would cut the builds of a project whose key
-	// may well be in place, for the sole reason that the token may not read the
-	// repository's keys.
-	if probe.KeyPresent != nil {
-		if err := h.store.ActivateDeployKey(r.Context(), id, *probe.KeyPresent); err != nil {
-			writeProblem(w, http.StatusInternalServerError, "Cannot check the key", "")
-			return
-		}
-	}
-
-	_ = h.store.Audit(r.Context(), identity.Subject, store.AuditProjectProbe, project.Repository,
-		map[string]any{"ok": probeErr == nil, "cle_presente": probe.KeyPresent})
-
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   probeErr == nil,
-		"note": note,
+		"ok":   result.OK,
+		"note": result.Note,
 		// Three states returned as they are: null means "the question could not be asked",
 		// which the screen must say differently from an absence.
-		"key_present": probe.KeyPresent,
-		"key_note":    probe.KeyNote,
+		"key_present": result.KeyPresent,
+		"key_note":    result.KeyNote,
 	})
+}
+
+// checks checks this handler's projects, with the instance's forge.
+func (h *ProjectsHandler) checks() configure.Checks {
+	checks := configure.Checks{Store: h.store}
+	if h.prober != nil {
+		checks.Prober = h.prober
+	}
+	return checks
 }
 
 func projectID(w http.ResponseWriter, r *http.Request) (int64, bool) {
