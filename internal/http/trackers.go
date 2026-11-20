@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
@@ -65,6 +66,12 @@ func (t projectTracker) view() *trackerVw {
 		return nil
 	}
 	return &trackerVw{ID: t.tracker.Plugin.ID, Label: t.tracker.Plugin.Label}
+}
+
+// tracked says whether the project is followed in its tracker: a tracker plugin is switched on
+// for it, and names the project there. Its versions then come from the tracker.
+func (t projectTracker) tracked() bool {
+	return t.found && strings.TrimSpace(t.tracker.Settings["project"]) != ""
 }
 
 // source is the synchronisation's cursor: the tracker plugin's identifier.

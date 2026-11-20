@@ -27,7 +27,7 @@ import (
 
 // ReleaseStore is what the release handlers need from the database.
 type ReleaseStore interface {
-	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
+	EnsureVersion(ctx context.Context, projectID int64, name string, tracked bool) (int64, error)
 	CreateRelease(ctx context.Context, release store.Release) (int64, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
 	GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
@@ -118,6 +118,8 @@ type ReleasesHandler struct {
 	deployments func(context.Context, int64) (map[string][]string, error)
 	// promotions returns a release's requested promotions. Nil: none.
 	promotions func(context.Context, int64, int64) ([]ReleasePromotion, error)
+	// releaseFiles names the files a launch commits before the tag. Nil: none.
+	releaseFiles func(ctx context.Context, projectID, releaseID int64, tag, gitRef string) ([]ReleaseFile, []string)
 	// scoreCatalog serves the score, and for the same reason as in the tests handler: to
 	// name the family of a step that produced nothing. The list's badge and a release's
 	// screen must show the same figure, so they must start from the same catalogue.
@@ -690,7 +692,8 @@ func (h *ReleasesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	line := versionLine(parsed)
-	versionID, err := h.store.EnsureVersion(r.Context(), project.ID, line)
+	tracked := trackerOf(r.Context(), h.trackers, project.ID).tracked()
+	versionID, err := h.store.EnsureVersion(r.Context(), project.ID, line, tracked)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Version unavailable", "")
 		return
@@ -849,9 +852,9 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		// an immutable point. Optional and said so: with no forge configured, the release
 		// still launches, with a caveat.
 		//
-		// A project that keeps its version in a file has it committed first, and the release is
-		// anchored on that commit: what is built then carries the version it announces.
-		versioned, versionWarnings := h.commitVersion(r.Context(), project, record)
+		// The files a plugin gives, a version file for instance, are committed first, and the
+		// release is anchored on that commit: what is built then carries the version it announces.
+		versioned, versionWarnings := h.commitReleaseFiles(r.Context(), project, record)
 		warnings = append(warnings, versionWarnings...)
 		if versioned != "" {
 			record.GitCommit = versioned
@@ -1657,28 +1660,53 @@ func (h *ReleasesHandler) anchorCommit(ctx context.Context, projectID int64, ref
 	return commit, nil
 }
 
-// commitVersion writes the release's tag to the project's version file, on the branch the release
-// builds, and returns the commit it made. Empty when the project keeps no version file, when the
-// file already carries the tag, or when the commit failed, which is a caveat: the release is then
-// anchored on the branch as it stands.
-func (h *ReleasesHandler) commitVersion(ctx context.Context, project store.Project, record store.Release) (string, []string) {
-	if strings.TrimSpace(project.VersionFile) == "" || h.forges == nil {
+// ReleaseFile is a file a release's launch commits on its branch, path relative to the root.
+type ReleaseFile struct {
+	Path    string
+	Content string
+}
+
+// WithReleaseFiles wires what names the files a release's launch commits: the plugins' hook. Nil:
+// none, and the release is anchored on the branch as it stands.
+func (h *ReleasesHandler) WithReleaseFiles(
+	files func(ctx context.Context, projectID, releaseID int64, tag, gitRef string) ([]ReleaseFile, []string),
+) *ReleasesHandler {
+	h.releaseFiles = files
+	return h
+}
+
+// commitReleaseFiles commits the files the project's plugins give, a version file for instance, on
+// the branch the release builds, and returns the last commit made. Empty when there is none to
+// commit, when they already carry their content, or when the commits failed, which are caveats:
+// the release is then anchored on the branch as it stands.
+func (h *ReleasesHandler) commitReleaseFiles(ctx context.Context, project store.Project, record store.Release) (string, []string) {
+	if h.releaseFiles == nil || h.forges == nil {
 		return "", nil
+	}
+	files, warnings := h.releaseFiles(ctx, project.ID, record.ID, record.Tag, record.GitRef)
+	if len(files) == 0 {
+		return "", warnings
 	}
 	writer, err := h.forges.TagWriter(ctx, project.ID)
 	if err != nil {
-		return "", []string{project.VersionFile + " not updated: no forge to write to: " + err.Error()}
+		return "", append(warnings, "release files not committed: no forge to write to: "+err.Error())
 	}
-	files, ok := writer.(provider.FileWriter)
+	committer, ok := writer.(provider.FileWriter)
 	if !ok {
-		return "", []string{project.VersionFile + " not updated: the project's forge cannot commit a file"}
+		return "", append(warnings, "release files not committed: the project's forge cannot commit a file")
 	}
-	commit, err := files.CommitFile(ctx, record.GitRef, project.VersionFile, record.Tag+"\n",
-		"chore(release): "+record.Tag)
-	if err != nil {
-		return "", []string{project.VersionFile + " not updated on " + record.GitRef + ": " + err.Error()}
+	commit := ""
+	for _, file := range files {
+		made, err := committer.CommitFile(ctx, record.GitRef, file.Path, file.Content, "chore(release): "+record.Tag)
+		if err != nil {
+			warnings = append(warnings, file.Path+" not updated on "+record.GitRef+": "+err.Error())
+			continue
+		}
+		if made != "" {
+			commit = made
+		}
 	}
-	return commit, nil
+	return commit, warnings
 }
 
 // tagRelease sets the release's git tag on its commit.

@@ -60,17 +60,21 @@ func (f *fakeSyncStore) ReprojectIssues(context.Context, int64) (int64, error) {
 	return f.moved, nil
 }
 
-// ProjectBySlug resolves the path's project. The tracker it declares — or does not — is what
-// the screen now reads to say "configured".
+// ProjectBySlug resolves the path's project.
 func (f *fakeSyncStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
 	if slug != "mstore" {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	project := store.Project{ID: 7, Slug: "mstore"}
+	return store.Project{ID: 7, Slug: "mstore"}, nil
+}
+
+// tracker is the project's tracker plugin: naming the project in it, or not, is what the screen
+// reads to say "configured".
+func (f *fakeSyncStore) tracker() fixedTracker {
 	if f.tracked {
-		project.TrackerProject = "mstore-dev"
+		return fixedTracker{id: "redmine", project: "mstore-dev"}
 	}
-	return project, nil
+	return fixedTracker{id: "redmine"}
 }
 
 // syncRequest composes a request carrying the project in its path.
@@ -104,7 +108,7 @@ func TestTheStateCarriesTheWholeMappingAndNotOnlyTheUnknowns(t *testing.T) {
 		// No unknown status: the real situation after the bootstrap.
 		unmapped: nil,
 	}
-	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
+	handler := NewSyncAdminHandler(fake, fake.tracker())
 
 	recorder := httptest.NewRecorder()
 	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mstore/sync", ""))
@@ -171,7 +175,7 @@ func TestAProjectWithNoTrackerSaysNotConfigured(t *testing.T) {
 // tracker, and the screen would mix two rules without saying so.
 func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 	fake := &fakeSyncStore{tracked: true, moved: 17}
-	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
+	handler := NewSyncAdminHandler(fake, fake.tracker())
 
 	request := syncRequest(http.MethodPut, "/projects/mstore/sync/tracker/mapping/Livr%C3%A9", `{"bucket":"done"}`)
 	request.SetPathValue("status", "Livré")
@@ -206,7 +210,7 @@ func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 func TestAnInventedBucketIsRefused(t *testing.T) {
 	for _, bucket := range []string{"", "termine", "DONE", "en-cours"} {
 		fake := &fakeSyncStore{}
-		handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
+		handler := NewSyncAdminHandler(fake, fake.tracker())
 
 		request := syncRequest(http.MethodPut, "/projects/mstore/sync/tracker/mapping/X", `{"bucket":"`+bucket+`"}`)
 		request.SetPathValue("status", "X")
@@ -227,7 +231,7 @@ func TestAnInventedBucketIsRefused(t *testing.T) {
 // would keep relaunching.
 func TestResyncClearsTheCursorAndAnnouncesTheWait(t *testing.T) {
 	fake := &fakeSyncStore{}
-	handler := NewSyncAdminHandler(fake, fixedTracker{id: "redmine"})
+	handler := NewSyncAdminHandler(fake, fake.tracker())
 
 	recorder := httptest.NewRecorder()
 	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mstore/sync/tracker/resync", ""))

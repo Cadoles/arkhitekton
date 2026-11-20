@@ -35,6 +35,16 @@ func (testMapper) RESTMapping(gk schema.GroupKind, _ ...string) (*meta.RESTMappi
 	return &meta.RESTMapping{Resource: resource}, nil
 }
 
+// testResources are one Pipeline and one Task, like the ones plugins ship.
+func testResources() []Resource {
+	return []Resource{
+		{Kind: "Pipeline", Name: "php-unit-tests", Manifest: []byte(
+			"apiVersion: tekton.dev/v1\nkind: Pipeline\nmetadata:\n  name: php-unit-tests\nspec:\n  tasks: []\n")},
+		{Kind: "Task", Name: "unit-test", Manifest: []byte(
+			"apiVersion: tekton.dev/v1\nkind: Task\nmetadata:\n  name: unit-test\nspec:\n  steps: []\n")},
+	}
+}
+
 func installerFor(t *testing.T, objects ...runtime.Object) (*dynamicfake.FakeDynamicClient, *Installer) {
 	t.Helper()
 
@@ -44,7 +54,7 @@ func installerFor(t *testing.T, objects ...runtime.Object) (*dynamicfake.FakeDyn
 			pipelineGVR: "PipelineList",
 			taskGVR:     "TaskList",
 		}, objects...)
-	return client, NewInstaller(testLibrary(), client, testMapper{}, namespace)
+	return client, NewInstaller(client, testMapper{}, namespace)
 }
 
 func existing(kind, name string, labels map[string]string) *unstructured.Unstructured {
@@ -64,7 +74,7 @@ func existing(kind, name string, labels map[string]string) *unstructured.Unstruc
 func TestOnAFreshClusterTheLibraryIsInstalled(t *testing.T) {
 	client, installer := installerFor(t)
 
-	outcome, err := installer.Install(context.Background(), "php")
+	outcome, err := installer.InstallResources(context.Background(), testResources())
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -94,7 +104,7 @@ func TestAThirdPartysDefinitionIsNeverOverwritten(t *testing.T) {
 	client, installer := installerFor(t,
 		existing("Pipeline", "php-unit-tests", map[string]string{"app": "mstore-pipelines"}))
 
-	outcome, err := installer.Install(context.Background(), "php")
+	outcome, err := installer.InstallResources(context.Background(), testResources())
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -125,7 +135,7 @@ func TestADefinitionOfOursIsUpdated(t *testing.T) {
 		existing("Pipeline", "php-unit-tests",
 			map[string]string{"app.kubernetes.io/managed-by": ManagedBy}))
 
-	outcome, err := installer.Install(context.Background(), "php")
+	outcome, err := installer.InstallResources(context.Background(), testResources())
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -154,8 +164,8 @@ func TestTheInstallationIsIdempotent(t *testing.T) {
 	_, installer := installerFor(t)
 	ctx := context.Background()
 
-	first, _ := installer.Install(ctx, "php")
-	second, err := installer.Install(ctx, "php")
+	first, _ := installer.InstallResources(ctx, testResources())
+	second, err := installer.InstallResources(ctx, testResources())
 	if err != nil {
 		t.Fatalf("second install: %v", err)
 	}
@@ -166,21 +176,6 @@ func TestTheInstallationIsIdempotent(t *testing.T) {
 	if len(second.Updated) != len(first.Installed) {
 		t.Errorf("%d updates for %d resources installed",
 			len(second.Updated), len(first.Installed))
-	}
-}
-
-// A stack with no library is refused at installation as at declaration.
-func TestAnUnknownStackInstallsNothing(t *testing.T) {
-	client, installer := installerFor(t)
-
-	if _, err := installer.Install(context.Background(), "node"); err == nil {
-		t.Fatal("an unknown stack must be refused")
-	}
-
-	list, _ := client.Resource(pipelineGVR).Namespace(namespace).
-		List(context.Background(), metav1.ListOptions{})
-	if len(list.Items) != 0 {
-		t.Errorf("%d resource(s) installed for an unknown stack", len(list.Items))
 	}
 }
 

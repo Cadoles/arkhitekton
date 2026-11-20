@@ -14,10 +14,10 @@
 #     through its kustomization, like the migration Job. The dashboard does not modify them at
 #     run time.
 #
-#     It does write the **reference** implementations — a stack's Tasks, installed when a project
-#     declares it. It installs only what it names, marks what it owns, and never adopts a
-#     definition a third party maintains: on a cluster where another repository has already
-#     installed its own, it observes and withdraws.
+#     It does write what the plugins ship, PHP's or Go's Tasks for instance, installed with the
+#     plugin. It installs only what it names, marks what it owns, and never adopts a definition
+#     a third party maintains: on a cluster where another repository has already installed its
+#     own, it observes and withdraws.
 #
 # This file carries a hard-coded namespace, different from the rest of the repository's. It is
 # the reason why no `namespace:` transformer is declared in the kustomizations: it would move

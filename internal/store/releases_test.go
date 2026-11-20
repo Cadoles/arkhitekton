@@ -13,12 +13,12 @@ func TestEnsureVersionCreatesThenReuses(t *testing.T) {
 
 	// Without tracker synchronisation the table is empty, and no release could be created
 	// while the rest of the chain works.
-	first, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	first, err := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	if err != nil {
 		t.Fatalf("creation: %v", err)
 	}
 
-	second, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	second, err := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	if err != nil {
 		t.Fatalf("reuse: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestCreateAndGetRelease(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestFinalReleaseKeepsTheSourceImageVersion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 
 	sourceID, err := db.CreateRelease(ctx, Release{
 		ProjectID: testProjectID,
@@ -126,7 +126,7 @@ func TestManualActionsCarryTheirAuthorAndDate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	if _, err := db.CreateRelease(ctx, Release{
 		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
@@ -300,7 +300,7 @@ func TestAReleaseWithoutAProjectIsRefusedByTheDatabase(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.1")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.1", true)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestATagAlreadyTakenInTheProjectIsADuplicate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "3.2.1")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "3.2.1", true)
 	release := Release{
 		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "3.2.1-rc1", Kind: "pre", State: "draft",
@@ -353,7 +353,7 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	releaseID, _ := db.CreateRelease(ctx, Release{
 		ProjectID: testProjectID,
 		VersionID: versionID, Tag: "1.8.0", Kind: "final", State: "ready",
@@ -380,7 +380,7 @@ func TestGetReleaseByIDCarriesTheManualActions(t *testing.T) {
 func draftRelease(t *testing.T, db *DB, tag string) int64 {
 	t.Helper()
 	ctx := context.Background()
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	if err != nil {
 		t.Fatal(err)
 	}

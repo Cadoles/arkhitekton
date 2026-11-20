@@ -183,7 +183,7 @@ func ProjectTo(project store.Project) *pluginv1.Project {
 	return &pluginv1.Project{
 		Id: project.ID, Slug: project.Slug, Repository: project.Repository, Label: project.Label,
 		ForgeUrl: project.ForgeURL, Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
-		ImageRegistry: project.ImageRegistry, Stack: project.Stack, VersionScheme: project.VersionScheme,
+		ImageRegistry: project.ImageRegistry, VersionScheme: project.VersionScheme,
 		Targets: targets, MultiStage: project.MultiStage,
 	}
 }

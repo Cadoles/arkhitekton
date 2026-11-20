@@ -155,6 +155,33 @@ func (h pluginHooks) schemeCheck() func(context.Context, versionpkg.Scheme) erro
 	}
 }
 
+// releaseFiles gathers the files the project's plugins commit when a release launches. A plugin
+// that cannot answer is a caveat: the tag would otherwise miss a file without anyone knowing.
+func (h pluginHooks) releaseFiles() func(context.Context, int64, int64, string, string) ([]dashhttp.ReleaseFile, []string) {
+	return func(ctx context.Context, projectID, releaseID int64, tag, gitRef string) ([]dashhttp.ReleaseFile, []string) {
+		var files []dashhttp.ReleaseFile
+		var warnings []string
+		ctx, cancel := context.WithTimeout(ctx, hookTimeout)
+		defer cancel()
+		for id, client := range h.answering(ctx, manifest.HookReleaseFiles, projectID) {
+			answer, err := client.ReleaseFiles(ctx, &pluginv1.ReleaseFilesRequest{
+				ProjectId: projectID, ReleaseId: releaseID, Tag: tag, GitRef: gitRef,
+			})
+			if err != nil {
+				h.failed(id, manifest.HookReleaseFiles, err)
+				warnings = append(warnings, "plugin "+id+" did not give its release files: "+err.Error())
+				continue
+			}
+			for _, file := range answer.GetFiles() {
+				if file.GetPath() != "" {
+					files = append(files, dashhttp.ReleaseFile{Path: file.GetPath(), Content: file.GetContent()})
+				}
+			}
+		}
+		return files, warnings
+	}
+}
+
 func (h pluginHooks) projectSettings() func(context.Context, int64) (map[string]string, error) {
 	return func(ctx context.Context, projectID int64) (map[string]string, error) {
 		merged := map[string]string{}

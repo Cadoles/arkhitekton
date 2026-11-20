@@ -10,14 +10,16 @@ import (
 
 // fixedTracker is a project's tracker, whatever the project: a plugin of this identifier whose
 // links live under the URL given.
+// fixedTracker is a project's tracker plugin; project names the project in it, empty for an
+// untracked project.
 type fixedTracker struct {
-	id, url string
+	id, url, project string
 }
 
 func (f fixedTracker) TrackerPlugin(context.Context, int64) (connect.Tracker, error) {
 	return connect.Tracker{
 		Plugin:   capability.Plugin{ID: f.id, Label: "Suivi " + f.id, Tracker: linkTracker{}},
-		Settings: capability.Settings{"url": f.url},
+		Settings: capability.Settings{"url": f.url, "project": f.project},
 	}, nil
 }
 

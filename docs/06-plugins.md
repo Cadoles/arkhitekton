@@ -292,6 +292,7 @@ version is refused at the handshake.
 | `schemeCheck` | when a project's version scheme is saved |
 | `promotionFacts` | when a promotion job concludes; one plugin at most states it |
 | `projectSettings` | when a run is composed, for the configuration keys it adds |
+| `releaseFiles` | when a release is launched, before its tag: the files committed on its branch (Mstore's version file) |
 | its module | under the worker's lease, while a project switches the plugin on (§6.9) |
 | its tracker, its forge (`tracker: true`, `forge: true`) | as a compiled plugin's (§6.5) |
 | its probes (`probes:`) | at the cadence the manifest declares, under the worker's lease |

@@ -122,3 +122,59 @@ func TestPendingDeclarationsAreListed(t *testing.T) {
 		t.Errorf("declarations = %+v", pending)
 	}
 }
+
+// The deployment's tracker project lands in the tracker plugin's setting for its repository, and
+// does not replace one an administrator already set.
+func TestTheBootstrapNamesTheProjectInItsTracker(t *testing.T) {
+	db := migratedBare(t)
+	ctx := context.Background()
+
+	seeded := spec()
+	seeded.Projects = append(seeded.Projects, Project{
+		Repository: "team/theme", Label: "Theme", ForgeURL: "https://forge.example.fr", BuildContext: ".",
+		CreatedBy: "configuration",
+	})
+	seeded.Trackers = map[string]string{"team/mstore": "mstore-dev", "team/theme": "theme-dev"}
+	seeded.TrackerPluginID = "redmine"
+
+	// The theme's tracker is already set: the step runs after the projects, so it is set between the
+	// two by hand to stand for an administrator's choice.
+	if _, err := db.SeedProjects(ctx, seeded.Projects); err != nil {
+		t.Fatal(err)
+	}
+	theme, err := db.ProjectBySlug(ctx, "theme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetProjectPluginSettings(ctx, theme.ID, PluginSettings{
+		PluginID: "redmine", Enabled: true, Config: map[string]string{"project": "chosen"},
+	}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := db.Bootstrap(ctx, seeded)
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if report.TrackersApplied != 1 {
+		t.Errorf("trackers attached = %d, expected 1", report.TrackersApplied)
+	}
+	named := map[string]string{}
+	rows, err := db.Pool().Query(ctx,
+		`select p.slug, pp.config->>'project' from project_plugins pp join projects p on p.id = pp.project_id
+		 where pp.plugin_id = 'redmine'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slug, project string
+		if err := rows.Scan(&slug, &project); err != nil {
+			t.Fatal(err)
+		}
+		named[slug] = project
+	}
+	if named["mstore"] != "mstore-dev" || named["theme"] != "chosen" {
+		t.Errorf("tracker projects = %v", named)
+	}
+}

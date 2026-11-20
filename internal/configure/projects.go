@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
@@ -34,15 +33,8 @@ type ProjectInput struct {
 	RegistrySecret string
 	// VersionScheme names the shape of the project's tags. Empty means `semver`.
 	VersionScheme string
-	// VersionFile names the file a launch commits the tag to. Empty: none.
-	VersionFile string
-	// Stack names the stack whose reference library is installed. Empty: the project brings its
-	// own pipelines.
-	Stack string
-	// TrackerProject names the project in the tracking tool. Empty: no tracker.
-	TrackerProject string
-	MultiStage     bool
-	Targets        []TargetInput
+	MultiStage    bool
+	Targets       []TargetInput
 	// ReleaseKinds declares the release cycle. Empty: the default at creation, the recorded cycle
 	// at a correction.
 	ReleaseKinds release.Cycle
@@ -64,7 +56,6 @@ type Projects struct {
 	ImageRegistry string
 	// SchemeCheck refuses a version scheme the deployer cannot follow. Nil: no deployer objects.
 	SchemeCheck func(context.Context, version.Scheme) error
-	Library     *pipelines.Library
 	Logger      *slog.Logger
 }
 
@@ -107,7 +98,6 @@ func (s Projects) Normalise(ctx context.Context, input ProjectInput) (ProjectInp
 	}
 	input.Slug = strings.TrimSpace(input.Slug)
 	input.RegistrySecret = strings.TrimSpace(input.RegistrySecret)
-	input.TrackerProject = strings.TrimSpace(input.TrackerProject)
 
 	// The scheme and deployer coupling is refused here, at configuration time, and not discovered
 	// at the first deployment that does not leave.
@@ -129,14 +119,6 @@ func (s Projects) Normalise(ctx context.Context, input ProjectInput) (ProjectInp
 		if err := input.ReleaseKinds.Validate(scheme); err != nil {
 			return input, invalid("Invalid release cycle", err)
 		}
-	}
-
-	// The stack is refused at declaration time if no library covers it. Learning it here rather
-	// than at the first launch avoids finding a pipeline missing without knowing why, and the
-	// message says what to do: a project whose stack is not covered writes its own.
-	input.Stack = strings.TrimSpace(input.Stack)
-	if _, err := s.Library.For(input.Stack); err != nil {
-		return input, invalid("Unknown stack", err)
 	}
 
 	for index := range input.Targets {
@@ -210,8 +192,7 @@ func (input ProjectInput) project() store.Project {
 		Repository: input.Repository, Label: input.Label, ForgeURL: input.ForgeURL,
 		Dockerfile: input.Dockerfile, BuildContext: input.BuildContext, Slug: input.Slug,
 		ImageRegistry: input.ImageRegistry, RegistrySecret: input.RegistrySecret,
-		VersionScheme: input.VersionScheme, Stack: input.Stack, TrackerProject: input.TrackerProject,
-		MultiStage: input.MultiStage, Targets: targets, ReleaseKinds: input.ReleaseKinds,
-		VersionFile: strings.TrimSpace(input.VersionFile),
+		VersionScheme: input.VersionScheme,
+		MultiStage:    input.MultiStage, Targets: targets, ReleaseKinds: input.ReleaseKinds,
 	}
 }

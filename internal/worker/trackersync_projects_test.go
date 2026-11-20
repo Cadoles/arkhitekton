@@ -63,8 +63,8 @@ func newMultiStore() *multiStore {
 
 func (m *multiStore) ListProjects(context.Context) ([]store.Project, error) {
 	return []store.Project{
-		{ID: 1, Slug: "one", TrackerProject: "project-one"},
-		{ID: 2, Slug: "two", TrackerProject: "project-two"},
+		{ID: 1, Slug: "one"},
+		{ID: 2, Slug: "two"},
 	}, nil
 }
 
@@ -226,28 +226,6 @@ func TestAnUnreadableKeySaysSoWithoutQuotingTheValue(t *testing.T) {
 	}
 	if strings.Contains(reason, "key-one") {
 		t.Errorf("reason %q — it quotes the value", reason)
-	}
-}
-
-// The project's identifier in the tracker falls back to the `tracker_project` column.
-//
-// It predates the plugins, it is right, and a deployment whose bootstrap did not run must not
-// stop synchronising for that.
-func TestTheTrackerIdentifierFallsBackToTheColumn(t *testing.T) {
-	db := newMultiStore()
-	// The setting says nothing about the project: only the column knows it.
-	db.configs[1] = map[string]string{"url": "https://redmine.one.fr", "api_key": "sealed:key"}
-
-	var seenItems []capability.Target
-	connect := func(connection capability.Target) (TrackerReader, error) {
-		seenItems = append(seenItems, connection)
-		return &fakeRedmine{}, nil
-	}
-	runner, probe := trackerHarness(t, db, testOpener{}, connect)
-	runner.sweep(context.Background(), probe)
-
-	if len(seenItems) == 0 || seenItems[0].Settings["project"] != "project-one" {
-		t.Errorf("project targeted = %+v", seenItems)
 	}
 }
 

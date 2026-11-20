@@ -25,7 +25,7 @@ type VersionStore interface {
 	// EnsureVersion creates a project's version, or returns the one already carrying that
 	// name. Idempotent by name, which is the right behaviour for a manual declaration: asking
 	// for a version that exists must lead to it.
-	EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error)
+	EnsureVersion(ctx context.Context, projectID int64, name string, tracked bool) (int64, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	// GetProject serves the suggested tag: the project declares its version scheme and its
 	// cycle, hence what a form must offer.
@@ -143,13 +143,8 @@ func (h *VersionsHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tracked := false
-	if project, err := h.store.GetProject(r.Context(), currentID); err == nil {
-		tracked = strings.TrimSpace(project.TrackerProject) != ""
-	}
-
 	sync := syncStateView(state)
-	sync.Tracked = tracked
+	sync.Tracked = tracker.tracked()
 	sync.Tracker = tracker.view()
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -358,7 +353,7 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	if strings.TrimSpace(project.TrackerProject) != "" {
+	if trackerOf(r.Context(), h.trackers, project.ID).tracked() {
 		writeProblem(w, http.StatusConflict, "Tracked project",
 			"this project's versions come from its tracker, which is "+
 				"authoritative: declaring one here would stay awaiting an adoption "+
@@ -394,7 +389,7 @@ func (h *VersionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.store.EnsureVersion(r.Context(), project.ID, name)
+	id, err := h.store.EnsureVersion(r.Context(), project.ID, name, false)
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot create", "")
 		return

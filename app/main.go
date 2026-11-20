@@ -345,6 +345,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// and a switched-off plugin is not asked.
 		WithDeployments(answers.deployments()).
 		WithPromotions(answers.promotions()).
+		// The files a plugin commits before a release's tag: Mstore's version file.
+		WithReleaseFiles(answers.releaseFiles()).
 		WithTrackers(connections).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With
 		// none, the git_ref is kept as typed and the release says so.
@@ -517,7 +519,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// several replicas, and three concurrent catch-ups would write the same thing three times.
 	// The `api` reads the declaration, it does not compose it.
 	if err := worker.NewAutomationCatchUp(db, pipelines, logger).
-		WithStacks(referenceLibrary().Stacks()...).Run(ctx); err != nil {
+		WithStacks(carriedStacks()...).Run(ctx); err != nil {
 		return err
 	}
 
@@ -925,6 +927,7 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
 		Grants:          configuredGrants(cfg),
 		Projects:        configuredProjects(cfg),
+		Trackers:        configuredTrackers(cfg),
 		Plugins:         plugins,
 		TrackerPluginID: trackerPluginID,
 	})
@@ -1139,7 +1142,6 @@ func projectsHandler(
 	connections *connect.Connections,
 ) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
-		WithLibrary(referenceLibrary()).
 		WithForgeURL(cfg.Forge.URL).
 		WithImageRegistry(cfg.Registry.Project).
 		// The plugins that deploy refuse what they cannot route.
@@ -1152,6 +1154,17 @@ func projectsHandler(
 
 // configuredProjects returns the repositories the configuration names: the application, which is
 // built, and the pipelines' repository, followed with no image.
+// configuredTrackers names, by repository, the project the application is in its tracker. The only
+// one to have a tracker: the others are repositories cloned by pipelines, which carry neither
+// version nor release, so there is nothing to match.
+func configuredTrackers(cfg config.Config) map[string]string {
+	repository, _ := config.RepositoryFromCloneURL(projectSeedDefaults(cfg)["repoUrl"])
+	if repository == "" || strings.TrimSpace(cfg.Tracker.Project) == "" {
+		return nil
+	}
+	return map[string]string{repository: cfg.Tracker.Project}
+}
+
 func configuredProjects(cfg config.Config) []store.Project {
 	resolved := schedulerConfig(cfg)
 	project := projectSeedDefaults(cfg)
@@ -1159,16 +1172,12 @@ func configuredProjects(cfg config.Config) []store.Project {
 	declarations := []struct {
 		clone      string
 		label      string
-		tracker    string
 		dockerfile string
 		context    string
 	}{
 		{
-			clone: project["repoUrl"],
-			label: "Application",
-			// The only one to have a tracker: the others are repositories cloned by pipelines, which
-			// carry neither version nor release, so there is nothing to match.
-			tracker:    cfg.Tracker.Project,
+			clone:      project["repoUrl"],
+			label:      "Application",
 			dockerfile: project["dockerfile"],
 			context:    project["buildContext"],
 		},
@@ -1196,8 +1205,7 @@ func configuredProjects(cfg config.Config) []store.Project {
 
 		projects = append(projects, store.Project{
 			Repository: repository, Label: declaration.label, ForgeURL: forgeURL,
-			TrackerProject: declaration.tracker,
-			Dockerfile:     declaration.dockerfile, BuildContext: buildContext,
+			Dockerfile: declaration.dockerfile, BuildContext: buildContext,
 			ImageRegistry: registry,
 			// The author is the configuration itself, and saying so avoids attributing to someone a
 			// declaration nobody made.
@@ -1268,6 +1276,6 @@ func libraryInstaller(
 		return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 	}
 
-	return pipelinelib.NewInstaller(referenceLibrary(), dynamicClient,
+	return pipelinelib.NewInstaller(dynamicClient,
 		restmapper.NewDiscoveryRESTMapper(resources), cfg.Tekton.Namespace), nil
 }

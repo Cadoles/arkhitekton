@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
@@ -70,15 +69,6 @@ type ProjectsHandler struct {
 	// configuration's: that is where existing projects publish, and retyping it on every
 	// declaration would invite a typo.
 	imageRegistry string
-	// library knows the stacks the plugins bring a reference library for. Nil: every declared
-	// stack is refused.
-	library *pipelines.Library
-}
-
-// WithLibrary wires the stacks a project may declare.
-func (h *ProjectsHandler) WithLibrary(library *pipelines.Library) *ProjectsHandler {
-	h.library = library
-	return h
 }
 
 func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
@@ -153,18 +143,9 @@ type projectPayload struct {
 	// VersionScheme names the shape of the tags. An opaque scheme stays usable: it loses
 	// the next-version suggestion and range selection, and the screen must say so rather
 	// than compute something arbitrary.
-	VersionScheme string `json:"version_scheme"`
-	// VersionFile is the file a launch commits the tag to, on the branch built. Empty: none.
-	VersionFile string `json:"version_file"`
-	// Stack names the stack whose reference library is installed. Empty: the project brings
-	// its own pipelines, which is perfectly valid — the normative part is the contract, not
-	// the library.
-	Stack string `json:"stack"`
-	// TrackerProject names this project in the tracking tool. Empty: no tracker, and its
-	// versions are declared by hand.
-	TrackerProject string          `json:"tracker_project"`
-	MultiStage     bool            `json:"multi_stage"`
-	Targets        []targetPayload `json:"targets"`
+	VersionScheme string          `json:"version_scheme"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 	// CheckedAt absent: no check has happened. A state distinct from a check that failed,
 	// and which must not read like one.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -245,9 +226,6 @@ func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
 		ImageRegistry:  project.ImageRegistry,
 		RegistrySecret: project.RegistrySecret,
 		VersionScheme:  project.VersionScheme,
-		VersionFile:    project.VersionFile,
-		Stack:          project.Stack,
-		TrackerProject: project.TrackerProject,
 		MultiStage:     project.MultiStage, Targets: targets,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
@@ -281,19 +259,9 @@ type projectRequest struct {
 	ImageRegistry  string `json:"image_registry"`
 	RegistrySecret string `json:"registry_secret"`
 	// VersionScheme names the shape of this project's tags. Empty means `semver`.
-	VersionScheme string `json:"version_scheme"`
-	// VersionFile is the file a launch commits the tag to. Empty: none.
-	VersionFile string `json:"version_file"`
-	// Stack names the stack whose reference library will be installed. Empty: the project
-	// brings its own pipelines.
-	Stack string `json:"stack"`
-	// TrackerProject names this project in the tracking tool. Empty: no tracker, and its
-	// versions are declared by hand.
-	//
-	// Absent from this form until now, although the column has existed since
-	TrackerProject string          `json:"tracker_project"`
-	MultiStage     bool            `json:"multi_stage"`
-	Targets        []targetPayload `json:"targets"`
+	VersionScheme string          `json:"version_scheme"`
+	MultiStage    bool            `json:"multi_stage"`
+	Targets       []targetPayload `json:"targets"`
 	// ReleaseKinds declares the release cycle. Absent: the default at creation, the recorded
 	// cycle at a correction.
 	ReleaseKinds release.Cycle `json:"release_kinds,omitempty"`
@@ -303,7 +271,7 @@ type projectRequest struct {
 func (h *ProjectsHandler) service() configure.Projects {
 	return configure.Projects{
 		Store: h.store, ForgeURL: h.forgeURL, ImageRegistry: h.imageRegistry,
-		SchemeCheck: h.schemeCheck, Library: h.library,
+		SchemeCheck: h.schemeCheck,
 	}
 }
 
@@ -323,9 +291,8 @@ func decodeProject(w http.ResponseWriter, r *http.Request) (configure.ProjectInp
 		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
 		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext, Slug: request.Slug,
 		ImageRegistry: request.ImageRegistry, RegistrySecret: request.RegistrySecret,
-		VersionScheme: request.VersionScheme, Stack: request.Stack, TrackerProject: request.TrackerProject,
-		MultiStage: request.MultiStage, Targets: targets, ReleaseKinds: request.ReleaseKinds,
-		VersionFile: request.VersionFile,
+		VersionScheme: request.VersionScheme,
+		MultiStage:    request.MultiStage, Targets: targets, ReleaseKinds: request.ReleaseKinds,
 	}, true
 }
 

@@ -30,11 +30,8 @@ func Registry() (*capabilities.Registry, error) {
 	return capabilities.New(Plugins()...)
 }
 
-// Stacks are the reference libraries a project may declare. A distribution's extensions may add
-// to them, integration tests to `php` for instance.
-func Stacks() map[string][]capability.Manifest {
-	return map[string][]capability.Manifest{
-		"php": php.Manifests(),
-		"go":  golang.Manifests(),
-	}
+// Stacks are the language plugins: the automation catch-up chains their kinds only for the
+// language a project was built with before it declared its automation.
+func Stacks() []string {
+	return []string{php.ID, golang.ID}
 }

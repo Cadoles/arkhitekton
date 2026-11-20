@@ -137,10 +137,10 @@ func (h *SyncAdminHandler) State(w http.ResponseWriter, r *http.Request) {
 	sync := syncStateView(state)
 	sync.Tracker = tracker.view()
 	writeJSON(w, http.StatusOK, map[string]any{
-		// "Configured" is now read from the project: it declares its tracker, or it does not.
-		// Without that distinction the screen would say "never synchronised" of a project that
+		// "Configured" is read from the project's tracker plugin: it names the project, or it does
+		// not. Without that distinction the screen would say "never synchronised" of a project that
 		// simply has no tracker, and send someone hunting for a fault.
-		"configured": strings.TrimSpace(project.TrackerProject) != "",
+		"configured": tracker.tracked(),
 		"project":    project.Slug,
 		"sync":       sync,
 		"unmapped":   unmappedPayload,

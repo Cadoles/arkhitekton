@@ -580,7 +580,7 @@ func TestAQueuedJobSaysWhatItIsAbout(t *testing.T) {
 	ctx := context.Background()
 
 	project := int64(testProjectID)
-	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0", true)
 	releaseID, err := db.CreateRelease(ctx, Release{
 		ProjectID: testProjectID, VersionID: versionID, Tag: "1.8.0-rc1", Kind: "pre", State: "building",
 		GitRef: "abc", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",

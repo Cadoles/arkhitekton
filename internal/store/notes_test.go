@@ -202,9 +202,9 @@ func TestANoteDoesNotFetchAnotherProjectsIssue(t *testing.T) {
 	var second int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
-		                       tracker_project, created_by)
+		                       created_by)
 		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
-		         'autre-suivi', 'test')
+		         'test')
 		 returning id`).Scan(&second); err != nil {
 		t.Fatalf("second project: %v", err)
 	}

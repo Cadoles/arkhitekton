@@ -196,10 +196,9 @@ kind: Project
 metadata: {name: portal}
 spec:
   repository: team/portal
-  stack: php
-  versionFile: version.txt      # committed with the tag on the branch a release builds
   plugins:
-    mstore: {config: {deployer: flux}}
+    mstore: {config: {deployer: flux, versionFile: version.txt}}  # committed before a release's tag
+    redmine: {config: {project: portal}}                       # the project in the tracker
   pipelines: {mstore/e2e-tests: false}
   releaseAutomation:
     statuses: true              # each pipeline reported on the release's commit

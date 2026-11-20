@@ -17,12 +17,12 @@ describe('ProjectKey', () => {
     render(<ProjectKey project={{ ...project, deploy_key_error: 'a Secret already carries the name of this project’s key' }} />)
 
     expect(screen.getByText(/La clé n'a pas pu être posée : a Secret already carries/)).toBeInTheDocument()
-    expect(screen.queryByText(/sera posée au prochain passage/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Clé en préparation/)).not.toBeInTheDocument()
   })
 
-  it('promet la clé au prochain passage tant que rien n’a échoué', () => {
+  it('dit que la clé se prépare tant que rien n’a échoué', () => {
     render(<ProjectKey project={project} />)
 
-    expect(screen.getByText(/sera posée au prochain passage/)).toBeInTheDocument()
+    expect(screen.getByText(/Clé en préparation par le worker/)).toBeInTheDocument()
   })
 })

@@ -183,7 +183,10 @@ func (db *DB) SetReleaseState(ctx context.Context, id int64, state string) error
 //     version;
 //  3. creating a provisional version of origin `pending` — the fallback when the
 //     tracker does not know the number yet, recognisable and adopted later.
-func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (int64, error) {
+//
+// tracked says whether the project has a tracker: the caller knows it from the project's tracker
+// plugin, which this store does not know.
+func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string, tracked bool) (int64, error) {
 	id, err := db.FindVersionByName(ctx, projectID, name)
 	if err == nil {
 		return id, nil
@@ -222,13 +225,11 @@ func (db *DB) EnsureVersion(ctx context.Context, projectID int64, name string) (
 		// left as it is so existing rows keep one vocabulary. Neither tool nor external
 		// identifier: this version exists only in the dashboard.
 		`insert into versions (project_id, name, normalized_name, origin, status, synced_at)
-		 select $1, $2, $3,
-		        case when tracked then 'pending' else 'own' end,
-		        case when tracked then 'en-attente-de-synchronisation' else 'open' end,
-		        now()
-		 from (select coalesce(trim(tracker_project), '') <> '' as tracked
-		       from projects where id = $1) as p
-		 returning id`, projectID, name, release.NormalizeVersionName(name)).Scan(&id)
+		 values ($1, $2, $3,
+		         case when $4 then 'pending' else 'own' end,
+		         case when $4 then 'en-attente-de-synchronisation' else 'open' end,
+		         now())
+		 returning id`, projectID, name, release.NormalizeVersionName(name), tracked).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("creating provisional version %q: %w", name, err)
 	}

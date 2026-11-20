@@ -132,7 +132,7 @@ func runConfigApply(
 	services := configure.Services{
 		Projects: configure.Projects{
 			Store: db, ForgeURL: cfg.Forge.URL, ImageRegistry: cfg.Registry.Project,
-			Library: referenceLibrary(), Logger: logger,
+			Logger: logger,
 		},
 		Plugins:          configure.Plugins{Store: db, Registry: registry, Cipher: cipher, Logger: logger},
 		ProjectPipelines: configure.ProjectPipelines{Store: db, Catalog: pipelines, Logger: logger},

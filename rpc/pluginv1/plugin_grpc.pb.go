@@ -35,6 +35,7 @@ const (
 	Plugin_CheckScheme_FullMethodName            = "/arkhitekton.plugin.v1.Plugin/CheckScheme"
 	Plugin_Promoted_FullMethodName               = "/arkhitekton.plugin.v1.Plugin/Promoted"
 	Plugin_ProjectSettings_FullMethodName        = "/arkhitekton.plugin.v1.Plugin/ProjectSettings"
+	Plugin_ReleaseFiles_FullMethodName           = "/arkhitekton.plugin.v1.Plugin/ReleaseFiles"
 	Plugin_RunModule_FullMethodName              = "/arkhitekton.plugin.v1.Plugin/RunModule"
 	Plugin_Connect_FullMethodName                = "/arkhitekton.plugin.v1.Plugin/Connect"
 	Plugin_TrackerLinks_FullMethodName           = "/arkhitekton.plugin.v1.Plugin/TrackerLinks"
@@ -74,6 +75,9 @@ type PluginClient interface {
 	CheckScheme(ctx context.Context, in *Scheme, opts ...grpc.CallOption) (*Refusal, error)
 	Promoted(ctx context.Context, in *PromotedRequest, opts ...grpc.CallOption) (*Event, error)
 	ProjectSettings(ctx context.Context, in *ProjectRef, opts ...grpc.CallOption) (*Settings, error)
+	// ReleaseFiles returns the files a release's launch commits on the branch it builds, before its
+	// tag is set: the tag then carries them.
+	ReleaseFiles(ctx context.Context, in *ReleaseFilesRequest, opts ...grpc.CallOption) (*ReleaseFileList, error)
 	// RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
 	// the end: an error ends the module until the supervisor's next tick.
 	RunModule(ctx context.Context, in *ModuleState, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ModuleStatus], error)
@@ -200,6 +204,16 @@ func (c *pluginClient) ProjectSettings(ctx context.Context, in *ProjectRef, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Settings)
 	err := c.cc.Invoke(ctx, Plugin_ProjectSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginClient) ReleaseFiles(ctx context.Context, in *ReleaseFilesRequest, opts ...grpc.CallOption) (*ReleaseFileList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseFileList)
+	err := c.cc.Invoke(ctx, Plugin_ReleaseFiles_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -423,6 +437,9 @@ type PluginServer interface {
 	CheckScheme(context.Context, *Scheme) (*Refusal, error)
 	Promoted(context.Context, *PromotedRequest) (*Event, error)
 	ProjectSettings(context.Context, *ProjectRef) (*Settings, error)
+	// ReleaseFiles returns the files a release's launch commits on the branch it builds, before its
+	// tag is set: the tag then carries them.
+	ReleaseFiles(context.Context, *ReleaseFilesRequest) (*ReleaseFileList, error)
 	// RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
 	// the end: an error ends the module until the supervisor's next tick.
 	RunModule(*ModuleState, grpc.ServerStreamingServer[ModuleStatus]) error
@@ -491,6 +508,9 @@ func (UnimplementedPluginServer) Promoted(context.Context, *PromotedRequest) (*E
 }
 func (UnimplementedPluginServer) ProjectSettings(context.Context, *ProjectRef) (*Settings, error) {
 	return nil, status.Error(codes.Unimplemented, "method ProjectSettings not implemented")
+}
+func (UnimplementedPluginServer) ReleaseFiles(context.Context, *ReleaseFilesRequest) (*ReleaseFileList, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseFiles not implemented")
 }
 func (UnimplementedPluginServer) RunModule(*ModuleState, grpc.ServerStreamingServer[ModuleStatus]) error {
 	return status.Error(codes.Unimplemented, "method RunModule not implemented")
@@ -728,6 +748,24 @@ func _Plugin_ProjectSettings_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PluginServer).ProjectSettings(ctx, req.(*ProjectRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Plugin_ReleaseFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServer).ReleaseFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Plugin_ReleaseFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServer).ReleaseFiles(ctx, req.(*ReleaseFilesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1109,6 +1147,10 @@ var Plugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ProjectSettings",
 			Handler:    _Plugin_ProjectSettings_Handler,
+		},
+		{
+			MethodName: "ReleaseFiles",
+			Handler:    _Plugin_ReleaseFiles_Handler,
 		},
 		{
 			MethodName: "Connect",

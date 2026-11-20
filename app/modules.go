@@ -25,5 +25,5 @@ func carriedRegistry() (*capabilities.Registry, error) {
 	return registry, nil
 }
 
-// carriedStacks are the reference stacks a project may declare.
-func carriedStacks() map[string][]capability.Manifest { return builtin.Stacks() }
+// carriedStacks are the language plugins' prefixes.
+func carriedStacks() []string { return builtin.Stacks() }

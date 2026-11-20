@@ -128,7 +128,7 @@ func configured(t *testing.T) instance {
 		t.Fatalf("gitea: %v", err)
 	}
 	id, err := s.Projects.Create(ctx, actor, ProjectInput{
-		Repository: "team/portal", Slug: "portal", Stack: "",
+		Repository: "team/portal", Slug: "portal",
 		Targets:      []TargetInput{{Stage: "web", Image: "portal", Promote: true}, {Image: "cli"}},
 		ReleaseKinds: release.Cycle{{ID: "rc", Label: "RC", Mode: release.ModeBuild}},
 	})

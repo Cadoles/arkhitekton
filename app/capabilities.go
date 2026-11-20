@@ -27,11 +27,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
 )
 
-// referenceLibrary is what a project declaring a stack gets installed.
-func referenceLibrary() *pipelinelib.Library {
-	return pipelinelib.NewLibrary(carriedStacks())
-}
-
 // installedPlugins reads the installed plugins from their stored layer. Each layer is read and
 // compiled once: it is immutable, named by its digest, and a reload that read every layer again
 // would unpack every plugin each time a binding changes.

@@ -57,7 +57,7 @@ func (f *fakeVersionStore) GetProject(context.Context, int64) (store.Project, er
 	return f.project, nil
 }
 
-func (f *fakeVersionStore) EnsureVersion(_ context.Context, _ int64, name string) (int64, error) {
+func (f *fakeVersionStore) EnsureVersion(_ context.Context, _ int64, name string, _ bool) (int64, error) {
 	f.created = append(f.created, name)
 	return int64(len(f.created)), nil
 }
@@ -67,10 +67,14 @@ func (f *fakeVersionStore) Audit(_ context.Context, _, action, _ string, _ map[s
 	return nil
 }
 
-func declareVersion(t *testing.T, store *fakeVersionStore, body string) *httptest.ResponseRecorder {
+func declareVersion(t *testing.T, store *fakeVersionStore, body string, trackers ...Trackers) *httptest.ResponseRecorder {
 	t.Helper()
 
-	handler := NewVersionsHandler(store, nil)
+	var tracker Trackers
+	if len(trackers) > 0 {
+		tracker = trackers[0]
+	}
+	handler := NewVersionsHandler(store, tracker)
 
 	request := httptest.NewRequest(http.MethodPost, "/projects/app/versions",
 		strings.NewReader(body))
@@ -111,9 +115,8 @@ func TestAProjectWithNoTrackerDeclaresItsVersion(t *testing.T) {
 // come.
 func TestATrackedProjectRefusesTheManualDeclaration(t *testing.T) {
 	projects := untracked()
-	projects.project.TrackerProject = "mstore-dev"
 
-	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`)
+	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`, fixedTracker{id: "redmine", project: "mstore-dev"})
 
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, expected 409: %s", recorder.Code, recorder.Body)
@@ -197,9 +200,8 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 
 	for name, expected := range cases {
 		projects := untracked()
-		projects.project.TrackerProject = expected.tracker
 
-		handler := NewVersionsHandler(projects, nil)
+		handler := NewVersionsHandler(projects, fixedTracker{id: "redmine", project: expected.tracker})
 
 		request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
 		request.SetPathValue("project", "app")
@@ -228,7 +230,6 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 // The screens name the tracker by its plugin: they say "Redmine" only of Redmine.
 func TestTheListNamesTheTrackerPlugin(t *testing.T) {
 	projects := untracked()
-	projects.project.TrackerProject = "mstore-dev"
 	request := httptest.NewRequest(http.MethodGet, "/projects/app/versions", nil)
 	request.SetPathValue("project", "app")
 

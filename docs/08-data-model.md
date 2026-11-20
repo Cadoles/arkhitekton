@@ -28,11 +28,11 @@ for brevity.
 
 | Group | Columns |
 |---|---|
-| Identity | `uid`, `slug`, `label`, `repository`, `forge_url`, `tracker_project` |
-| Build | `dockerfile`, `build_context`, `multi_stage`, `targets`, `stack` |
+| Identity | `uid`, `slug`, `label`, `repository`, `forge_url` |
+| Build | `dockerfile`, `build_context`, `multi_stage`, `targets` |
 | Images | `image_registry`, `registry_secret` |
 | Deploy key | `deploy_key_public`, `deploy_key_secret`, `deploy_key_created_at`, `deploy_key_rotate_requested_at`, `deploy_key_active`, `deploy_key_error` |
-| Releases | `version_scheme`, `release_kinds`, `version_file` (committed with the tag at launch) |
+| Releases | `version_scheme`, `release_kinds` |
 | Health | `checked_at`, `check_ok`, `check_note`, `key_note` (what the last check found of the key), `keys_url` (the forge's page of the repository's deploy keys) |
 
 | Table | Purpose |
