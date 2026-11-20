@@ -364,6 +364,11 @@ with a timeout the deployment sets. The plugin never sees the database, and neve
 it talks to: the target comes from what an administrator typed. The deployment's `TRACKER_*`
 and `FORGE_*` variables only seed those settings.
 
+A forge's repository prober answers the access check (`provider.Probe`): the default branch,
+whether the project's deploy key is among the repository's (three states, `nil` when it cannot
+tell), and `KeysURL`, the page where an administrator pastes the key, which the project's page
+links to.
+
 At most one enabled plugin brings the instance's tracker, and one its forge: the
 administration screen refuses a second. An installed plugin that brings either is installed
 switched off: the administrator switches it on once the other is off. Its manifest sets
