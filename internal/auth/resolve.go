@@ -7,7 +7,10 @@ import "sort"
  *
  * At each scope (the instance, or one project), a role granted to the person wins over their
  * groups': it is what lets a member of a team be restricted. Failing one, the highest role among
- * their groups'. Then, as without groups, a project's role wins over the instance's.
+ * their groups'. Then, as without groups, a project's role wins over the instance's, with one
+ * exception: a group's role in a project applies only when it raises the person above what holds
+ * for them across the instance. Groups open access, they never take it away: a whole organisation
+ * made viewer of a project must not demote its administrators there.
  */
 
 // Grant is a role at a scope, given to a person (Group empty) or to a group.
@@ -72,6 +75,11 @@ func Resolve(personal, groups []Grant) Access {
 		}
 		if current, found := access.Projects[id]; !found || grant.Role.rank() > current.Role.rank() {
 			access.Projects[id] = candidate
+		}
+	}
+	for id, effective := range access.Projects {
+		if effective.Source != "" && effective.Role.rank() <= access.Global.Role.rank() {
+			delete(access.Projects, id)
 		}
 	}
 	return access

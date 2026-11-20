@@ -444,7 +444,8 @@ function GroupsCard() {
     <Card title={`Groupes (${granted.length})`}>
       <p className="mb-3 text-sm text-zinc-600">
         Un groupe est une organisation ou une équipe de la forge, que le fournisseur d&apos;identité met dans le jeton.
-        Son rôle vaut pour tous ses membres là où ils n&apos;en ont pas un à eux. Entrer dans un groupe ou en sortir
+        Son rôle vaut pour tous ses membres là où ils n&apos;en ont pas un à eux ; sur un projet, il ne s&apos;applique
+        que s&apos;il élève : un groupe ouvre des accès, il n&apos;en retire jamais. Entrer dans un groupe ou en sortir
         prend effet à la connexion suivante.
       </p>
       {isPending && <Skeleton className="h-16 w-full" />}
