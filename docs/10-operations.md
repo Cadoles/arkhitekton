@@ -73,7 +73,7 @@ does at its own pace is its own.
 
 **Putting a project in service.** Declaring a repository leads to its page, where a card follows
 the three steps: the dashboard reads the repository (checked at once), the worker prepares the
-project's deploy key (within a minute), an administrator pastes it into the repository's deploy
+project's deploy key (within seconds: the database wakes it), an administrator pastes it into the repository's deploy
 keys, read-only, from the link the card gives. The card checks the repository again every ten
 seconds until it finds the key, for ten minutes, then offers to check again; the hourly check
 keeps the list right afterwards. The dashboard never pastes the key itself: writing a key into a

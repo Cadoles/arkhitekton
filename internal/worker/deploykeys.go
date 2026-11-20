@@ -23,11 +23,10 @@ import (
  * receives one, a requested rotation runs, and a restart catches up what an outage interrupted.
  */
 
-// keyInterval spaces two passes of the loop.
+// keyInterval spaces two passes of the loop when nothing wakes it.
 //
-// Long, deliberately: setting a key is triggered by a rare human action — declaring a
-// project, asking for a rotation — and not by a stream. Probing more often would multiply the
-// requests to gain at best a few seconds on a step that already takes several.
+// The database wakes the loop as soon as a key is awaited (see Wake): the interval only catches up
+// a signal lost while the worker was not listening.
 const keyInterval = time.Minute
 
 // KeyStore is what the loop needs from the database.
@@ -51,10 +50,20 @@ type KeyReconciler struct {
 	store  KeyStore
 	keys   KeyIssuer
 	logger *slog.Logger
+	wake   chan struct{}
 }
 
 func NewKeyReconciler(projects KeyStore, keys KeyIssuer, logger *slog.Logger) *KeyReconciler {
-	return &KeyReconciler{store: projects, keys: keys, logger: logger}
+	return &KeyReconciler{store: projects, keys: keys, logger: logger, wake: make(chan struct{}, 1)}
+}
+
+// Wake asks for a pass now: a project was declared, or a rotation requested, and the person who
+// did it is waiting on the project's page for the key to copy.
+func (r *KeyReconciler) Wake() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Run runs the loop until cancellation.
@@ -73,6 +82,7 @@ func (r *KeyReconciler) Run(ctx context.Context) error {
 			r.logger.Info("deploy-key setting stopped")
 			return nil
 		case <-ticker.C:
+		case <-r.wake:
 		}
 	}
 }
