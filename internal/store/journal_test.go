@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -102,5 +103,47 @@ func TestAnEventCarriesTheAutomationsItSetOff(t *testing.T) {
 	}
 	if none := byKey["release.created:2"].Automations; len(none) != 0 {
 		t.Errorf("an event nothing reacted to: %+v", none)
+	}
+	if steps := set[0].Steps; len(steps) == 0 {
+		t.Errorf("a run comes with its steps: %+v", set[0])
+	}
+
+	// A schedule's tick: no event opened it, it is a line of its own.
+	if _, _, err := db.CreatePlanRun(ctx, PlanRun{
+		Trigger: "schedule:9", EventKey: "schedule:9:2026-11-20T03:00:00Z",
+		ProjectID: &project, Plan: buildPlan(), Context: map[string]string{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	natures := func(query JournalQuery) []string {
+		t.Helper()
+		entries, err := db.ListJournal(ctx, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seen []string
+		for _, entry := range entries {
+			switch entry.Nature {
+			case JournalRun:
+				if len(entry.Automations) != 1 || entry.Automations[0].Trigger != "schedule:9" || entry.Project == "" {
+					t.Errorf("run line = %+v", entry)
+				}
+				seen = append(seen, "run")
+			case JournalEvent:
+				seen = append(seen, entry.DedupKey)
+			}
+		}
+		slices.Sort(seen)
+		return seen
+	}
+	if got := natures(JournalQuery{}); !slices.Equal(got, []string{"release.created:1", "release.created:2", "run"}) {
+		t.Errorf("everything = %v", got)
+	}
+	// What automations did: the run, and the event that set one off; not the event nothing reacted to.
+	if got := natures(JournalQuery{Nature: JournalRun}); !slices.Equal(got, []string{"release.created:1", "run"}) {
+		t.Errorf("automations = %v", got)
+	}
+	if got := natures(JournalQuery{Nature: JournalEvent}); !slices.Equal(got, []string{"release.created:1", "release.created:2"}) {
+		t.Errorf("events = %v", got)
 	}
 }

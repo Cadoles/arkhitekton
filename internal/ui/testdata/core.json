@@ -214,15 +214,10 @@
       ]
     },
     {
-      "name": "plan-runs",
+      "name": "plan-runs-former",
       "path": "automations",
       "parent": "executions",
-      "blocks": [
-        {
-          "id": "core.plan-runs",
-          "component": "core/plan-runs"
-        }
-      ]
+      "redirect": "/admin/journal?nature=automation"
     },
     {
       "name": "run",
@@ -497,12 +492,6 @@
           "label": "File d'attente",
           "icon": "queue",
           "to": "/runs/queue"
-        },
-        {
-          "id": "core.automations",
-          "label": "Automatisations",
-          "icon": "beaker",
-          "to": "/runs/automations"
         }
       ]
     },

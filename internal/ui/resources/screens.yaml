@@ -67,15 +67,17 @@ spec:
   parent: executions
   blocks: [{ id: core.queue, component: core/queue }]
 ---
+# What automations did is read in the journal, under the event that set them off: the former tab
+# leads there, filtered.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: plan-runs }
+metadata: { name: plan-runs-former }
 spec:
   path: automations
   parent: executions
-  blocks: [{ id: core.plan-runs, component: core/plan-runs }]
+  redirect: /admin/journal?nature=automation
 ---
-# Outside the frame: a run's detail is not a fourth view. The static segment wins over the
+# Outside the frame: a run's detail is not a third view. The static segment wins over the
 # parameter, so /runs/queue does not look for a run of that name.
 apiVersion: ui.arkhitekton/v1
 kind: Screen

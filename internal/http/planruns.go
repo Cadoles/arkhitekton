@@ -1,51 +1,23 @@
 package http
 
 import (
-	"context"
-	"errors"
-	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 /*
- * The plan runs.
+ * A plan run's view, as the journal and a pull request's page show it.
  *
- * **An engine one cannot debug is worse than frozen behaviour**, because one no longer knows what
- * took place. This view is the editor's counterpart: it says what a reaction actually did.
- *
- * # Two levels of reading, and why
- *
- * What happened — which stage, which step, which outcome — is read **with no privilege**: it is
- * the same question as "why did my tests not start", and the verification chain now goes through
- * here. Reserving it to administration would charge a privilege for an ordinary diagnosis.
- *
- * A step's **detail**, on the other hand, carries a third party's response excerpt: what a
- * webhook answered, with whatever that third party chose to put there. It is returned to
- * administration only. It is no precaution of principle — it is that nobody has any hold on what
- * a recipient returns, and that an error message on its side may name its infrastructure.
+ * A step's **detail** carries a third party's response excerpt: what a webhook answered, with
+ * whatever that third party chose to put there. It is returned to administration only: nobody has
+ * any hold on what a recipient returns, and an error message on its side may name its
+ * infrastructure.
  *
  * The headers **sent** never appear in it: they carry the authentication, and nothing writes them
  * (see `internal/webhook`).
  */
-
-// PlanRunStore is what the view needs from the database.
-type PlanRunStore interface {
-	ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]store.PlanRunSummary, error)
-	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-}
-
-// PlanRunsHandler serves a project's plan runs.
-type PlanRunsHandler struct{ store PlanRunStore }
-
-func NewPlanRunsHandler(runs PlanRunStore) *PlanRunsHandler {
-	return &PlanRunsHandler{store: runs}
-}
 
 type planStepPayload struct {
 	Stage    int    `json:"stage"`
@@ -85,51 +57,6 @@ type planRunPayload struct {
 type planStagePayload struct {
 	Label string            `json:"label,omitempty"`
 	Steps []planStepPayload `json:"steps"`
-}
-
-// List returns a project's runs, newest first.
-func (h *PlanRunsHandler) List(w http.ResponseWriter, r *http.Request) {
-	project, err := h.store.ProjectBySlug(r.Context(),
-		strings.TrimSpace(r.PathValue("project")))
-	if err != nil {
-		if errors.Is(err, store.ErrProjectNotFound) {
-			writeProblem(w, http.StatusNotFound, "Unknown project", "")
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
-		return
-	}
-
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		// An unreadable bound is ignored rather than refused: it is a display convenience, and a
-		// 400 on a decorative parameter would fail a screen over a mistyped URL.
-		if parsed, err := strconv.Atoi(raw); err == nil {
-			limit = parsed
-		}
-	}
-
-	runs, err := h.store.ListPlanRuns(r.Context(), project.ID, limit)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the runs", "")
-		return
-	}
-
-	identity, _ := IdentityFrom(r.Context())
-	full := identity.RoleIn(project.ID) == auth.RoleAdmin
-
-	payload := make([]planRunPayload, 0, len(runs))
-	for _, run := range runs {
-		payload = append(payload, toPlanRunPayload(run, full))
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"runs":    payload,
-		"project": project.Slug,
-		// The screen must be able to say "some details are hidden from you" rather than suggest
-		// there is nothing to see.
-		"details_visible": full,
-	})
 }
 
 // toPlanRunPayload composes a run's view.

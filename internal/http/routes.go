@@ -17,7 +17,7 @@ func NewAPIRouter(
 	versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	journal *JournalHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
+	journal *JournalHandler, reactions *AutomationsHandler,
 	middleware *Middleware, mounts ...Mount,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -252,17 +252,6 @@ func NewAPIRouter(
 	// Activating a key no longer has a route: it used to be declared by hand, and it is now
 	// observed by the access check, which reads the repository's deploy keys. An intention
 	// could stay true after the key had been removed from the forge; an observation cannot.
-
-	// Plan runs, with ordinary read access.
-	//
-	// It is the same question as "why did my tests not start", and the verification chain now
-	// goes through here: reserving it to administration would charge a privilege for an
-	// ordinary diagnosis.
-	//
-	// The detail of a step — the excerpt of a third party's answer — is hidden from
-	// non-administrators by the handler, which says so rather than staying silent.
-	mux.Handle("GET /projects/{project}/plan-runs", Chain(http.HandlerFunc(planRuns.List),
-		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// Declared reactions. `admin`, like the plugins and for the same reason: declaring a
 	// reaction makes calls go out in the instance's name and launches pipelines. That is not

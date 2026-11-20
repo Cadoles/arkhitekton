@@ -8,8 +8,7 @@ spec:
     - { id: core.versions, label: Versions, icon: tag, to: /versions }
     - { id: core.releases, label: Releases, icon: doc, to: /releases }
     - { id: core.pulls, label: Pull requests, icon: branch, to: /pulls }
-    # One entry for the execution views: history, queue and automations are tabs, not separate
-    # destinations.
+    # One entry for the execution views: history and queue are tabs, not separate destinations.
     - { id: core.runs, label: Exécutions, icon: beaker, to: /runs }
     - { id: core.admin, label: Administration, icon: cog, to: /admin }
 ---
@@ -20,7 +19,6 @@ spec:
   items:
     - { id: core.runs, label: Exécutions, icon: beaker, to: /runs, end: true }
     - { id: core.queue, label: File d'attente, icon: queue, to: /runs/queue }
-    - { id: core.automations, label: Automatisations, icon: beaker, to: /runs/automations }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Navigation

@@ -31,7 +31,6 @@ import {
 import { ReleasesList } from '../features/releases/ReleasesScreen'
 import { PullScreen } from '../features/pulls/PullScreen'
 import { PullsScreen } from '../features/pulls/PullsScreen'
-import { PlanRunsScreen } from '../features/runs/PlanRunsScreen'
 import { RunsScreen } from '../features/runs/RunsScreen'
 import { VersionsScreen } from '../features/versions/VersionsScreen'
 
@@ -88,7 +87,6 @@ export function registerCoreComponents(): void {
     runs: RunsScreen,
     run: RunScreen,
     queue: QueueScreen,
-    'plan-runs': PlanRunsScreen,
     projects: ProjectsScreen,
     plugins: PluginsScreen,
     capabilities: PipelinesScreen,

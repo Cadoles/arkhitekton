@@ -145,9 +145,11 @@ The score is a release's: one tile per pipeline launched (doc 05 §5.8).
 
 ## 7.8 Events, plans and automation
 
+What an automation did is read in the journal (`GET /admin/journal`, below), under the event that
+set it off, steps included; a pull request's page shows its own.
+
 | Route | Permission |
 |---|---|
-| `GET /projects/{project}/plan-runs` | `read` |
 | `GET /projects/{project}/reactions` | `admin` |
 | `POST /projects/{project}/reactions` | `admin` |
 | `PUT /projects/{project}/reactions/{reaction}` | `admin` |
@@ -211,7 +213,7 @@ role, for the reason a reaction's does not: it aims at no release.
 | `GET /admin/roles`: what each role allows (`permissions`, and `deploy.open` / `deploy.sensitive` for promoting) · `POST /admin/roles` (`{subject, username?, role, project?}`, a person's own role; closes their sessions) · `DELETE /admin/roles/{subject}?project=` | `admin` |
 | `GET /admin/people`: everyone who signed in or holds a role, those with no access first (`pending`), each with their own `roles`, their `groups`, and what applies (`global`, `projects`, each with the group it comes from as `source`) | `admin` |
 | `GET /admin/groups`: the groups given a role, and the groups seen at sign-in (`known`, with their number of accounts) · `PUT /admin/groups/{group}/roles` (`{role, project?}`) · `DELETE /admin/groups/{group}/roles?project=` | `admin` |
-| `GET /admin/journal`: what happened in the application, newest first. `nature` (`action`, `event`), `project` (a slug), `q` (searched in an action's name and target, an event's type and subject) and `limit` (500 at most) narrow it. An action carries `actor`, `action`, `target`, `payload` and its `project` when it was done on a project's route; an event carries `type`, `source`, `subject`, `payload`, `project`, `recorded_at` when it differs from `at`, `pending` before it is routed, and the `automations` it set off (`trigger`, a reaction's `name`, `state`) | `admin` |
+| `GET /admin/journal`: what happened in the application, newest first. `nature` (`action`, `event`, or `automation`: the events that set off a run and the runs no event opened), `project` (a slug), `q` (searched in an action's name and target, an event's type and subject, a run's trigger and name) and `limit` (500 at most) narrow it. An action carries `actor`, `action`, `target`, `payload` and its `project` when it was done on a project's route; an event carries `type`, `source`, `subject`, `payload`, `project`, `recorded_at` when it differs from `at`, `pending` before it is routed, and the `automations` it set off. A run no event opened, a schedule's tick, is a line of nature `automation` carrying its one run. A run carries `id`, `trigger`, the reaction's or schedule's `name`, `event_key`, `state`, `created_at`, `context` and its `stages`, each with its `steps` (`kind`, `ref`, `label`, `state`, `job_id`, `detail`) | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
 | `GET /admin/capabilities` · `PUT /admin/capabilities/{plugin}/{name}/binding` (an entry of doc 05 §5.2, YAML or JSON; `400` when invalid or naming a service account, `404` for an unknown capability, `409` when the catalogue file binds it) · `DELETE …/binding` · `PUT …/weight` (`{"weight": 0 to 100}`, zero out of the score, file-bound capabilities included) · `DELETE …/weight` (back to its nature's); the list carries each capability's `weight`, `default_weight` and `group` | `admin` |
 | `GET /admin/plugins/installations` (the installations, and under `plugins` each plugin's source: repository, pinned, latest version found, `update_available`, `major`) · `POST /admin/plugins/installations` (`{"reference": "registry/repository"}`, followed, or with a tag or `@sha256:…`, pinned; queues the job, `202`; `409` when a plugin is installed from that repository, unless `"mode"` is `"install"`, beside it, or `"update"`, in its place) | `admin` |
