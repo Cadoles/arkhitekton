@@ -655,7 +655,12 @@ each `<id>/<name>` its resources render. It carries neither React nor the router
 dashboard's from `window.__arkhitekton`. `/me` lists the active plugins' scripts; the browser
 loads them before its first screen, from `/api/v1/plugin-interfaces/<id>/<version>/`. A script
 that fails is left out, and the console says so. Its stylesheet carries only its own utilities,
-on the dashboard's theme (`@arkhitekton/host/plugin.css`). A script without resources is the module
+on the dashboard's theme (`@arkhitekton/host/plugin.css`). The build preset moves its base
+utilities (`.flex`, `.hidden`) to the `components` layer, under all of the core's, and keeps its
+variants (`sm:`, `hover:`) in `utilities`, after the core's: loaded last, a plugin's sheet never
+undoes a core screen's responsive class, and a plugin's own variant still wins over a base class
+the core defines. Only two variants of different breakpoints, one from each sheet, on one element,
+resolve in the plugin's favour. A script without resources is the module
 contract arkhitekton 0.4 retired: such a plugin is refused at installation and activation.
 
 **What is refused**, when the plugin is published and again when it is installed:
