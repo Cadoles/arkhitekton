@@ -38,7 +38,9 @@ ever global.
 puts in the token (`OIDC_GROUPS_CLAIM`): with Gitea, an organisation or `organisation:team`. At
 each scope, the instance or one project, the person's own role wins, which lets a member of a
 team be restricted; failing one, the highest role among their groups'. Then a project's role
-wins over the instance's. A group's role is read at each request: changing it applies at once.
+wins over the instance's, with one exception: a group's role in a project applies only when it
+raises the person above what holds for them across the instance. Groups open access, they never
+take it away; only a person's own project role restricts them. A group's role is read at each request: changing it applies at once.
 Joining or leaving a group at the provider applies at the next sign-in, the groups being those
 of the token. The last administrator who cannot be removed is a person's own global
 `admin`: a group may be emptied at the next sign-in.

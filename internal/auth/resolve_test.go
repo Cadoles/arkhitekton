@@ -57,3 +57,24 @@ func TestGroupsOfReadsAListOrAName(t *testing.T) {
 		t.Errorf("other = %v", groups)
 	}
 }
+
+// A group's role in a project never lowers a person below what holds for them across the
+// instance; it applies only when it raises them.
+func TestAGroupNeverRestrictsInAProject(t *testing.T) {
+	access := Resolve(
+		[]Grant{{Role: RoleOperator}},
+		[]Grant{
+			{ProjectID: project(2), Role: RoleViewer, Group: "cnous"},
+			{ProjectID: project(3), Role: RoleOperator, Group: "cnous"},
+			{ProjectID: project(4), Role: RoleReleaser, Group: "cnous:dev"},
+		})
+	if _, found := access.Projects[2]; found {
+		t.Errorf("project 2 = %+v: a group lowered the person", access.Projects[2])
+	}
+	if _, found := access.Projects[3]; found {
+		t.Errorf("project 3 = %+v: equal to the instance's, nothing to say", access.Projects[3])
+	}
+	if access.Projects[4] != (Effective{Role: RoleReleaser, Source: "cnous:dev"}) {
+		t.Errorf("project 4 = %+v: a group raises", access.Projects[4])
+	}
+}
