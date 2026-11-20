@@ -29,7 +29,7 @@ navigation, not a cross-site request issued by a script, which is what the token
 
 Permissions and roles are described in [09 — Security](09-security.md).
 
-**Lists.** There is no cursor. Lists take an optional `limit` (`/runs` and `/admin/audit`
+**Lists.** There is no cursor. Lists take an optional `limit` (`/runs` and `/admin/journal`
 default to 100), a log is read by `offset` and `length`, a group's test cases by `offset` and
 `q`. `?download=1` serves a log or an attachment as a file.
 
@@ -37,8 +37,7 @@ default to 100), a log is read by `offset` and `length`, a group's test cases by
 (events `log` and `sealed`, the id being the byte offset) are Server-Sent Events, resumed from
 `Last-Event-ID`; a failure ends the stream with an `error` event. They are exempt from
 `HTTP_WRITE_TIMEOUT`: each write has 30 seconds of its own, which lets a client that stopped
-reading go, and a comment every 20 seconds keeps an idle stream open. `GET
-/projects/{project}/events` is a plain JSON list.
+reading go, and a comment every 20 seconds keeps an idle stream open.
 
 ## 7.2 Session
 
@@ -148,7 +147,6 @@ The score is a release's: one tile per pipeline launched (doc 05 §5.8).
 
 | Route | Permission |
 |---|---|
-| `GET /projects/{project}/events` | `read` |
 | `GET /projects/{project}/plan-runs` | `read` |
 | `GET /projects/{project}/reactions` | `admin` |
 | `POST /projects/{project}/reactions` | `admin` |
@@ -211,7 +209,7 @@ role, for the reason a reaction's does not: it aims at no release.
 | `POST /projects/{project}/sync/tracker/resync` | `admin` |
 | `PUT /projects/{project}/sync/tracker/mapping/{status}` | `admin` |
 | `GET /admin/roles` · `POST /admin/roles` · `DELETE /admin/roles/{subject}` | `admin` |
-| `GET /admin/audit` | `admin` |
+| `GET /admin/journal`: what happened in the application, newest first. `nature` (`action`, `event`), `project` (a slug), `q` (searched in an action's name and target, an event's type and subject) and `limit` (500 at most) narrow it. An action carries `actor`, `action`, `target`, `payload` and its `project` when it was done on a project's route; an event carries `type`, `source`, `subject`, `payload`, `project`, `recorded_at` when it differs from `at`, `pending` before it is routed, and the `automations` it set off (`trigger`, a reaction's `name`, `state`) | `admin` |
 | `GET /admin/plugins` · `PUT /admin/plugins/{plugin}` | `admin` |
 | `GET /admin/capabilities` · `PUT /admin/capabilities/{plugin}/{name}/binding` (an entry of doc 05 §5.2, YAML or JSON; `400` when invalid or naming a service account, `404` for an unknown capability, `409` when the catalogue file binds it) · `DELETE …/binding` · `PUT …/weight` (`{"weight": 0 to 100}`, zero out of the score, file-bound capabilities included) · `DELETE …/weight` (back to its nature's); the list carries each capability's `weight`, `default_weight` and `group` | `admin` |
 | `GET /admin/plugins/installations` (the installations, and under `plugins` each plugin's source: repository, pinned, latest version found, `update_available`, `major`) · `POST /admin/plugins/installations` (`{"reference": "registry/repository"}`, followed, or with a tag or `@sha256:…`, pinned; queues the job, `202`; `409` when a plugin is installed from that repository, unless `"mode"` is `"install"`, beside it, or `"update"`, in its place) | `admin` |

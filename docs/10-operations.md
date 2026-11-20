@@ -135,6 +135,12 @@ longest pipeline; the URL is minted when the run starts.
 **`iss` mismatch at login.** `OIDC_ISSUER_URL` must match the provider's claim exactly,
 trailing slash included.
 
+**An automation did not start.** Administration, *Journal*, filtered on the project and on the
+events: either the event is missing, and the fact was never emitted (a webhook not received, a
+synchronisation behind), or it is there with "Aucune automatisation n'a réagi", and no enabled
+reaction matched it (its type, its `match`). An event still "en attente de routage" has not been
+seen by the worker yet.
+
 **Promotion is refused for an environment that exists.** The catalogue's `projects:`
 section is keyed by project slug: an environment declared under the wrong slug is unknown
 for that project, and unknown environments fail closed to the higher role.

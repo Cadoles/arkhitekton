@@ -17,7 +17,7 @@ for brevity.
 | `user_roles` | `subject`, `username`, `role`, `project_id`, `granted_by`, `last_seen` | A role, globally (`project_id` null) or in one project |
 | `bootstrap_grants` | `identifier`, `role`, `claimed_at`, `claimed_by` | Roles waiting for their first sign-in, from `BOOTSTRAP_*` |
 | `bootstrap_steps` | `step`, `applied_at` | Which one-off start-up steps already ran |
-| `audit_log` | `actor`, `action`, `target`, `payload` | Every administrative act |
+| `audit_log` | `actor`, `action`, `target`, `payload`, `project_id` | Every administrative act; `project_id` when done on a project's route (a plugin's acts are not attached yet) |
 | `instance` | `lock_id`, `id` | The instance's own identity, one row. Labels PipelineRuns so that a run left over from another database is never mistaken for one of ours |
 
 ## 8.2 Projects
