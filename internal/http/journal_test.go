@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -50,7 +51,7 @@ func TestTheJournalCarriesBothNatures(t *testing.T) {
 	fake := &fakeJournal{entries: []store.JournalEntry{
 		{Nature: store.JournalAction, ID: 1, At: at, Actor: "121", Action: store.AuditReleaseCreate, Target: "1.8.0", Project: "shop"},
 		{Nature: store.JournalEvent, ID: 2, At: at, RecordedAt: at.Add(time.Hour), Type: "release.created", Subject: "1.8.0",
-			Automations: []store.JournalAutomation{{Trigger: "reaction:3", Name: "Vérifier", State: "succeeded"}}},
+			Automations: []store.PlanRunSummary{automationRun()}},
 		{Nature: store.JournalEvent, ID: 3, At: at, RecordedAt: at, Type: "gitea.push", Pending: true},
 	}}
 	code, entries := journalCall(t, fake, "/admin/journal?nature=event&project=shop&q=1.8&limit=50")
@@ -67,8 +68,39 @@ func TestTheJournalCarriesBothNatures(t *testing.T) {
 	if event := entries[1]; event.RecordedAt == nil || len(event.Automations) != 1 || event.Automations[0].Name != "Vérifier" {
 		t.Errorf("event = %+v", event)
 	}
+	// The journal is read by administrators: a step's detail is shown, not withheld.
+	if steps := entries[1].Automations[0].Stages[0].Steps; len(steps) != 1 || steps[0].Detail != "HTTP 502" ||
+		steps[0].Label != "Prévenir" {
+		t.Errorf("steps = %+v", steps)
+	}
 	if received := entries[2]; received.RecordedAt != nil || !received.Pending {
 		t.Errorf("an event recorded when it happened, not routed yet = %+v", received)
+	}
+}
+
+func automationRun() store.PlanRunSummary {
+	return store.PlanRunSummary{
+		PlanRun: store.PlanRun{ID: 7, Trigger: "reaction:3", EventKey: "release:1.8.0", State: "failed",
+			Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: "action", Ref: "webhook", Label: "Prévenir"}}}}}},
+		Name:  "Vérifier",
+		Steps: []store.PlanStep{{Stage: 0, Position: 0, Kind: "action", Ref: "webhook", State: "failed", Detail: "HTTP 502"}},
+	}
+}
+
+// A schedule's tick, which no event opened, is a line of its own; the nature selects it.
+func TestTheJournalCarriesTheRunsNoEventOpened(t *testing.T) {
+	run := automationRun()
+	run.Trigger, run.Name = "schedule:2", "Nuit"
+	fake := &fakeJournal{entries: []store.JournalEntry{
+		{Nature: store.JournalRun, ID: 7, At: time.Now(), Automations: []store.PlanRunSummary{run}},
+	}}
+	code, entries := journalCall(t, fake, "/admin/journal?nature=automation")
+	if code != http.StatusOK || fake.query.Nature != store.JournalRun {
+		t.Fatalf("code %d, query %+v", code, fake.query)
+	}
+	if len(entries) != 1 || entries[0].Nature != "automation" || len(entries[0].Automations) != 1 ||
+		entries[0].Automations[0].Name != "Nuit" || entries[0].Automations[0].Trigger != "schedule:2" {
+		t.Errorf("entries = %+v", entries)
 	}
 }
 

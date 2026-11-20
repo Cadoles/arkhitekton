@@ -4,21 +4,46 @@ import { request } from '../../lib/api'
 /*
  * Le journal : ce qui s'est passé dans l'application.
  *
- * Deux natures de lignes. Une **action** dit qui a fait quoi ; un **événement**
- * dit ce qui s'est passé, quel qu'en soit l'auteur : une poussée sur la forge
- * comme une release créée. Un événement porte les automatisations qu'il a
- * déclenchées, ce qui répond à « pourquoi rien ne s'est passé ? » : ou bien
- * l'événement n'a pas eu lieu, ou bien rien n'y a réagi.
+ * Une **action** dit qui a fait quoi ; un **événement** dit ce qui s'est passé,
+ * quel qu'en soit l'auteur : une poussée sur la forge comme une release créée.
+ * Un événement porte les automatisations qu'il a déclenchées, avec leurs étapes,
+ * ce qui répond à « pourquoi rien ne s'est passé ? » et « qu'a fait ma
+ * réaction ? ». Une **automatisation** qu'aucun événement n'a déclenchée (le tic
+ * d'une planification) est une ligne à elle seule.
  */
 
-export type JournalNature = 'action' | 'event'
+export type JournalNature = 'action' | 'event' | 'automation'
 
+export type PlanStep = {
+  stage: number
+  position: number
+  kind: 'action' | 'pipeline'
+  ref: string
+  /** Le libellé du plan **figé**, et non du catalogue courant : une famille
+   *  renommée depuis ne réécrit pas l'histoire. */
+  label?: string
+  state: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
+  /** Rattache un geste de pipeline à son job, pour aller lire ses journaux. */
+  job_id?: number
+  /** Le motif d'un échec, ou la réponse d'un tiers. */
+  detail?: string
+}
+
+export type PlanStage = { label?: string; steps: PlanStep[] }
+
+/** Une exécution d'automatisation, avec ses étapes. */
 export type JournalAutomation = {
+  id: number
   /** `reaction:<id>`, `schedule:<id>` ou `builtin:<nom>`. */
   trigger: string
-  /** Le nom d'une réaction déclarée. */
+  /** Le nom d'une réaction ou d'une planification déclarée. */
   name?: string
+  event_key: string
   state: 'running' | 'succeeded' | 'failed'
+  created_at: string
+  /** La charge du fait déclencheur, qui a lié les gabarits. */
+  context: Record<string, string>
+  stages: PlanStage[]
 }
 
 export type JournalEntry = {
@@ -100,13 +125,21 @@ export function outcomeOf(entry: JournalEntry): string {
   return typeof outcome === 'string' ? outcome : ''
 }
 
-/** Le nom d'une automatisation déclenchée : celui de la réaction, sinon celui
- *  de son déclencheur. */
-export function automationLabel(automation: JournalAutomation): string {
+/** Le nom d'une automatisation : celui de la réaction ou de la planification,
+ *  sinon celui de son déclencheur. */
+export function automationLabel(automation: Pick<JournalAutomation, 'trigger' | 'name'>): string {
   if (automation.name) return automation.name
   if (automation.trigger === 'builtin:release') return 'Automatisation de release'
   if (automation.trigger === 'builtin:verification') return 'Vérifications enchaînées'
   if (automation.trigger.startsWith('schedule:')) return `Planification n° ${automation.trigger.slice('schedule:'.length)}`
   if (automation.trigger.startsWith('reaction:')) return `Réaction n° ${automation.trigger.slice('reaction:'.length)}`
   return automation.trigger
+}
+
+export const STEP_LABEL: Record<PlanStep['state'], string> = {
+  pending: 'en attente',
+  running: 'en cours',
+  succeeded: 'réussi',
+  failed: 'échoué',
+  skipped: 'sauté',
 }

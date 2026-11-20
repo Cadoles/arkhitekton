@@ -62,24 +62,24 @@ type journalEntry struct {
 	Automations []journalAutomation `json:"automations,omitempty"`
 }
 
+// journalAutomation is a run with its steps, in full: the journal is read by administrators only.
 type journalAutomation struct {
-	// Trigger is `reaction:<id>`, `schedule:<id>` or `builtin:<name>`.
-	Trigger string `json:"trigger"`
-	Name    string `json:"name,omitempty"`
-	State   string `json:"state"`
+	planRunPayload
+	// Name is the declared reaction's or schedule's own name.
+	Name string `json:"name,omitempty"`
 }
 
-// List returns the journal, newest first. `nature` (`action`, `event`), `project` (a slug), `q`
-// (a text searched in names, targets and subjects) and `limit` narrow it.
+// List returns the journal, newest first. `nature` (`action`, `event`, `automation`), `project`
+// (a slug), `q` (a text searched in names, targets and subjects) and `limit` narrow it.
 func (h *JournalHandler) List(w http.ResponseWriter, r *http.Request) {
 	values := r.URL.Query()
 	query := store.JournalQuery{Search: values.Get("q")}
 
 	switch nature := values.Get("nature"); nature {
-	case "", store.JournalAction, store.JournalEvent:
+	case "", store.JournalAction, store.JournalEvent, store.JournalRun:
 		query.Nature = nature
 	default:
-		writeProblem(w, http.StatusBadRequest, "Unknown nature", "expected action or event")
+		writeProblem(w, http.StatusBadRequest, "Unknown nature", "expected action, event or automation")
 		return
 	}
 	if raw := values.Get("limit"); raw != "" {
@@ -125,9 +125,9 @@ func (h *JournalHandler) List(w http.ResponseWriter, r *http.Request) {
 			recorded := entry.RecordedAt
 			view.RecordedAt = &recorded
 		}
-		for _, automation := range entry.Automations {
+		for _, run := range entry.Automations {
 			view.Automations = append(view.Automations, journalAutomation{
-				Trigger: automation.Trigger, Name: automation.Name, State: automation.State,
+				planRunPayload: toPlanRunPayload(run, true), Name: run.Name,
 			})
 		}
 		payload = append(payload, view)

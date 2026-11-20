@@ -263,6 +263,8 @@ func (db *DB) FinishPlanRun(ctx context.Context, runID int64, state string) (boo
 // PlanRunSummary is a run and its steps, as the screen reads it.
 type PlanRunSummary struct {
 	PlanRun
+	// Name is the declared reaction's or schedule's own name, empty for a built-in trigger.
+	Name  string
 	Steps []PlanStep
 }
 
@@ -274,35 +276,41 @@ type PlanRunSummary struct {
 const maxPlanRunPage = 100
 
 // ListPlanRuns returns a project's runs, newest first, with their steps.
-//
-// Two queries and not a join: a join would return one row per step, and recomposing
-// the runs in Go from a flattened product would cost more code than the second query
-// saves in round trips.
 func (db *DB) ListPlanRuns(ctx context.Context, projectID int64, limit int) ([]PlanRunSummary, error) {
-	return db.listPlanRuns(ctx, "project_id", projectID, limit)
+	return db.planRunsWhere(ctx, "r.project_id = $1", pageOf(limit), projectID)
 }
 
 // ListPullRequestPlanRuns returns the runs a pull request's facts opened, the most recent first.
 func (db *DB) ListPullRequestPlanRuns(ctx context.Context, pullRequestID int64, limit int) ([]PlanRunSummary, error) {
-	return db.listPlanRuns(ctx, "pull_request_id", pullRequestID, limit)
+	return db.planRunsWhere(ctx, "r.pull_request_id = $1", pageOf(limit), pullRequestID)
 }
 
-// listPlanRuns lists the runs whose `column` is `id`. The column is one of the callers' constants.
-func (db *DB) listPlanRuns(ctx context.Context, column string, projectID int64, limit int) ([]PlanRunSummary, error) {
+func pageOf(limit int) int {
 	if limit <= 0 || limit > maxPlanRunPage {
-		limit = maxPlanRunPage
+		return maxPlanRunPage
 	}
+	return limit
+}
 
-	query := `
-		select id, trigger, event_key, project_id, release_id, plan, context, state, created_at, pull_request_id
-		from plan_runs
-		where ` + column + ` = $1
-		order by created_at desc, id desc
-		limit $2`
+// planRunsWhere lists the runs matching `where`, newest first, with their steps and names.
+//
+// Two queries and not a join: a join would return one row per step, and recomposing the runs in
+// Go from a flattened product would cost more code than the second query saves in round trips.
+// `where` is one of the callers' constants; its arguments start at $1, the limit follows them.
+func (db *DB) planRunsWhere(ctx context.Context, where string, limit int, args ...any) ([]PlanRunSummary, error) {
+	query := fmt.Sprintf(`
+		select r.id, r.trigger, r.event_key, r.project_id, r.release_id, r.plan, r.context, r.state,
+		       r.created_at, r.pull_request_id, coalesce(x.name, s.name, '')
+		from plan_runs r
+		left join reactions x on r.trigger = 'reaction:' || x.id
+		left join schedules s on r.trigger = 'schedule:' || s.id
+		where %s
+		order by r.created_at desc, r.id desc
+		limit $%d`, where, len(args)+1)
 
-	rows, err := db.pool.Query(ctx, query, projectID, limit)
+	rows, err := db.pool.Query(ctx, query, append(args, limit)...)
 	if err != nil {
-		return nil, fmt.Errorf("runs of project %d: %w", projectID, err)
+		return nil, fmt.Errorf("plan runs: %w", err)
 	}
 	defer rows.Close()
 
@@ -310,17 +318,19 @@ func (db *DB) listPlanRuns(ctx context.Context, column string, projectID int64, 
 	ids := make([]int64, 0, limit)
 	for rows.Next() {
 		var (
-			run     PlanRun
+			summary PlanRunSummary
 			encoded []byte
 		)
+		run := &summary.PlanRun
 		if err := rows.Scan(&run.ID, &run.Trigger, &run.EventKey, &run.ProjectID,
-			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt, &run.PullRequestID); err != nil {
+			&run.ReleaseID, &encoded, &run.Context, &run.State, &run.CreatedAt, &run.PullRequestID,
+			&summary.Name); err != nil {
 			return nil, fmt.Errorf("reading a run: %w", err)
 		}
 		if err := json.Unmarshal(encoded, &run.Plan); err != nil {
 			return nil, fmt.Errorf("plan of run %d unreadable: %w", run.ID, err)
 		}
-		summaries = append(summaries, PlanRunSummary{PlanRun: run})
+		summaries = append(summaries, summary)
 		ids = append(ids, run.ID)
 	}
 	if err := rows.Err(); err != nil {
