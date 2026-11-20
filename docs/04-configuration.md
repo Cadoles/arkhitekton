@@ -63,7 +63,8 @@ pool only needs to grow if requests wait for a connection.
 | `OIDC_CLIENT_ID` | — | **api** | |
 | `OIDC_CLIENT_SECRET` | — | **api** | |
 | `OIDC_REDIRECT_URL` | `<PUBLIC_URL>/api/v1/auth/callback` | | To set only if the provider must call back another address. The provider's client declares this URL |
-| `OIDC_SCOPES` | `openid,profile,email` | | Comma-separated |
+| `OIDC_SCOPES` | `openid,profile,email` | | Comma-separated. Add `groups` for the provider to say which groups a user belongs to (Gitea: organisations and `organisation:team`), so that a group can be given a role |
+| `OIDC_GROUPS_CLAIM` | `groups` | | The ID token's claim carrying those groups: a list of names, or one name |
 | `SESSION_TTL` | `12h` | | Session lifetime. Must be positive |
 | `BOOTSTRAP_ADMINS` | — | **api** | Subjects or usernames promoted to administrator at first sign-in. Applied once, by `migrate`; the api refuses to start while it is empty |
 | `BOOTSTRAP_USERS` | — | | `alice:releaser,bob:operator`; roles `viewer`, `operator`, `releaser`, `admin`, an entry with another role being ignored. Applied once, by `migrate`; the database is authoritative afterwards |

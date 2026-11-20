@@ -175,6 +175,12 @@ spec:
       install: {reference: forge.example/mstore-plugin}
   queueLimits: {mstore/integration-tests: 1}
   scoreWeights: {mstore/rgaa-audit: 0}   # out of the score; absent, a pipeline weighs its nature's
+  access:
+    users:                      # by account name, or by the provider's subject
+      vcarroy: {role: admin}
+      alice: {role: operator, projects: {portal: viewer}}
+    groups:                     # as the provider names them
+      "team:dev": {role: operator}
 ---
 apiVersion: arkhitekton.config/v1
 kind: Project
@@ -216,6 +222,12 @@ registry's retention is the operator's.
 
 Plans keep the shape the automation editor writes. Switches (`enabled`, a target's `promote`)
 default to on. Unknown keys are refused, with the path of the mistake.
+
+**Access.** A user is found among the accounts that signed in, by subject or by name; one that
+never did is skipped with a warning, and granted by a later apply once they have, or through a
+group. A grant may name a project the same files create. An instance file without `access`
+leaves the roles alone, even with `--prune`; with it, `--prune` removes the roles the files no
+longer declare, except a global administrator's and a role the start-up granted.
 
 **What is declared is imposed in full; what is not declared is left alone.** A field omitted takes
 its default, as at creation from the interface; a setting omitted from a plugin's `config` is
