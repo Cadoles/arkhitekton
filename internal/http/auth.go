@@ -18,7 +18,7 @@ const (
 
 // Sessions describes what the handlers need from the session store.
 type Sessions interface {
-	Create(ctx context.Context, subject, username, email string) (auth.Session, error)
+	Create(ctx context.Context, subject, username, email string, groups []string) (auth.Session, error)
 	// ApplyBootstrap promotes an account declared in configuration to administrator. Called
 	// at sign-in: the identity provider's subject is not knowable before.
 	ApplyBootstrap(ctx context.Context, subject, username string) (string, error)
@@ -160,7 +160,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 			"subject", claims.Subject, "username", claims.Username, "role", role)
 	}
 
-	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email)
+	session, err := h.sessions.Create(r.Context(), claims.Subject, claims.Username, claims.Email, claims.Groups)
 	if err != nil {
 		h.logger.Error("creating a session", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "Session unavailable", "")
@@ -174,7 +174,8 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("session ouverte", "subject", claims.Subject, "username", claims.Username)
+	h.logger.Info("session ouverte", "subject", claims.Subject, "username", claims.Username,
+		"groups", len(claims.Groups))
 	http.Redirect(w, r, flow.RedirectAfter, http.StatusFound)
 }
 

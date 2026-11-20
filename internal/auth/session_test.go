@@ -43,7 +43,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	// declaration consumed by the previous test would leave the next with nothing to
 	// claim, and its failure would point at resolution rather than at isolation.
 	if _, err := pool.Exec(context.Background(),
-		"truncate sessions, user_roles, bootstrap_grants"); err != nil {
+		"truncate sessions, user_roles, bootstrap_grants, accounts, group_roles"); err != nil {
 		t.Fatalf("clean-up: %v", err)
 	}
 	return pool
@@ -58,7 +58,7 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("GrantRole: %v", err)
 	}
 
-	session, err := store.Create(ctx, "sub-1", "alice", "alice@example.fr")
+	session, err := store.Create(ctx, "sub-1", "alice", "alice@example.fr", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestLookupRejectsExpiredSession(t *testing.T) {
 	if err := store.GrantRole(ctx, "sub-2", "bob", RoleViewer, "test"); err != nil {
 		t.Fatalf("GrantRole: %v", err)
 	}
-	session, err := store.Create(ctx, "sub-2", "bob", "")
+	session, err := store.Create(ctx, "sub-2", "bob", "", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestLookupReportsMissingRoleButKeepsIdentity(t *testing.T) {
 	ctx := context.Background()
 	store := NewSessionStore(pool, time.Hour)
 
-	session, err := store.Create(ctx, "sub-3", "charlie", "charlie@example.fr")
+	session, err := store.Create(ctx, "sub-3", "charlie", "charlie@example.fr", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -141,8 +141,8 @@ func TestRevokeSubjectClosesEverySession(t *testing.T) {
 	if err := store.GrantRole(ctx, "sub-4", "dana", RoleReleaser, "test"); err != nil {
 		t.Fatalf("GrantRole: %v", err)
 	}
-	first, _ := store.Create(ctx, "sub-4", "dana", "")
-	second, _ := store.Create(ctx, "sub-4", "dana", "")
+	first, _ := store.Create(ctx, "sub-4", "dana", "", nil)
+	second, _ := store.Create(ctx, "sub-4", "dana", "", nil)
 
 	if err := store.RevokeSubject(ctx, "sub-4"); err != nil {
 		t.Fatalf("RevokeSubject: %v", err)
@@ -176,7 +176,7 @@ func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {
 		t.Errorf("an existing role must not be overwritten, role returned = %q", granted)
 	}
 
-	session, _ := store.Create(ctx, "121", "vcarroy", "")
+	session, _ := store.Create(ctx, "121", "vcarroy", "", nil)
 	_, role, err := store.Lookup(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
@@ -207,7 +207,7 @@ func TestBootstrapMatchesTheUsernameNotOnlyTheSubject(t *testing.T) {
 
 	// The role carries the real subject, not the name: it is what will carry
 	// authorization on subsequent requests.
-	session, _ := store.Create(ctx, "121", "vcarroy", "")
+	session, _ := store.Create(ctx, "121", "vcarroy", "", nil)
 	_, role, err := store.Lookup(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
@@ -248,7 +248,7 @@ func TestBootstrapIgnoresUndeclaredAccounts(t *testing.T) {
 		t.Errorf("an undeclared account must not be promoted, role = %q", granted)
 	}
 
-	session, _ := store.Create(ctx, "999", "intrus", "")
+	session, _ := store.Create(ctx, "999", "intrus", "", nil)
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role == RoleAdmin {
 		t.Error("administrator role granted to an undeclared account")
@@ -263,9 +263,9 @@ func TestPurgeExpiredRemovesOnlyExpiredSessions(t *testing.T) {
 	current := time.Now()
 	store.now = func() time.Time { return current }
 
-	old, _ := store.Create(ctx, "sub-5", "eve", "")
+	old, _ := store.Create(ctx, "sub-5", "eve", "", nil)
 	current = current.Add(2 * time.Hour)
-	fresh, _ := store.Create(ctx, "sub-6", "frank", "")
+	fresh, _ := store.Create(ctx, "sub-6", "frank", "", nil)
 
 	removed, err := store.PurgeExpired(ctx)
 	if err != nil {
@@ -331,7 +331,7 @@ func TestADeclarationIsClaimedOnlyOnce(t *testing.T) {
 		t.Errorf("role returned = %q: a consumed declaration promoted again", granted)
 	}
 
-	session, _ := store.Create(ctx, "121", "vcarroy", "")
+	session, _ := store.Create(ctx, "121", "vcarroy", "", nil)
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role != RoleViewer {
 		t.Errorf("role = %s, expected viewer: the demotion was undone", role)
@@ -354,7 +354,7 @@ func TestTheDeclaredRoleIsTheOneGranted(t *testing.T) {
 		t.Fatalf("role returned = %q, expected releaser", granted)
 	}
 
-	session, _ := store.Create(ctx, "204", "alice", "")
+	session, _ := store.Create(ctx, "204", "alice", "", nil)
 	_, role, _ := store.Lookup(ctx, session.ID)
 	if role != RoleReleaser {
 		t.Errorf("role = %s, expected releaser", role)
@@ -390,7 +390,7 @@ func TestBothScopesCoexist(t *testing.T) {
 		t.Fatalf("project role: %v", err)
 	}
 
-	session, err := store.Create(ctx, "121", "vcarroy", "v@example.fr")
+	session, err := store.Create(ctx, "121", "vcarroy", "v@example.fr", nil)
 	if err != nil {
 		t.Fatalf("session: %v", err)
 	}
@@ -441,5 +441,60 @@ func TestAdminIsNotGrantedPerProject(t *testing.T) {
 
 	if err := store.GrantRoleIn(ctx, "121", "vcarroy", RoleAdmin, &projectID, "test"); err == nil {
 		t.Error("a project administrator must not be grantable")
+	}
+}
+
+// A person who signs in without a role is remembered, with the groups the provider gave.
+func TestASignInIsRememberedWithItsGroups(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	if _, err := store.Create(ctx, "sub-7", "gina", "gina@example.fr", []string{"cnous", "cnous:dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(ctx, "sub-7", "gina", "", []string{"cnous"}); err != nil {
+		t.Fatal(err)
+	}
+	var email string
+	var groups []string
+	if err := pool.QueryRow(ctx, `select email, groups from accounts where subject = 'sub-7'`).Scan(&email, &groups); err != nil {
+		t.Fatal(err)
+	}
+	// The latest sign-in says the groups; an empty email does not erase the one known.
+	if email != "gina@example.fr" || len(groups) != 1 || groups[0] != "cnous" {
+		t.Errorf("account = %q, %v", email, groups)
+	}
+}
+
+// A role given to a group applies to its members, at the next request; the person's own role,
+// at the same scope, wins.
+func TestAGroupsRoleAppliesToItsMembers(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	session, err := store.Create(ctx, "sub-8", "hugo", "", []string{"cnous:dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.LookupRoles(ctx, session.ID); !errors.Is(err, ErrNoRole) {
+		t.Fatalf("no grant yet: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`insert into group_roles (group_name, role, granted_by) values ('cnous:dev', 'operator', 'test'),
+		                                                            ('other', 'admin', 'test')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, role, _, err := store.LookupRoles(ctx, session.ID); err != nil || role != RoleOperator {
+		t.Errorf("role = %q (%v), expected the group's", role, err)
+	}
+
+	if err := store.GrantRole(ctx, "sub-8", "hugo", RoleViewer, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, role, _, err := store.LookupRoles(ctx, session.ID); err != nil || role != RoleViewer {
+		t.Errorf("role = %q (%v), expected the person's own restriction", role, err)
 	}
 }

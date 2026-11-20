@@ -17,10 +17,12 @@ import (
 // expires whatever happens. The dashboard triggers promotions to production:
 // immediate revocation must exist.
 type Session struct {
-	ID        string
-	Subject   string
-	Username  string
-	Email     string
+	ID       string
+	Subject  string
+	Username string
+	Email    string
+	// Groups are the groups read in the token at sign-in, on which group roles resolve.
+	Groups    []string
 	ExpiresAt time.Time
 	LastUsed  time.Time
 }
@@ -44,11 +46,15 @@ func NewSessionStore(pool *pgxpool.Pool, ttl time.Duration) *SessionStore {
 	return &SessionStore{pool: pool, ttl: ttl, now: time.Now}
 }
 
-// Create opens a session for the identified user.
-func (s *SessionStore) Create(ctx context.Context, subject, username, email string) (Session, error) {
+// Create opens a session for the identified user, and remembers the account: a person who signs
+// in without a role must be listable, waiting for one.
+func (s *SessionStore) Create(ctx context.Context, subject, username, email string, groups []string) (Session, error) {
 	id, err := randomToken(32)
 	if err != nil {
 		return Session{}, err
+	}
+	if groups == nil {
+		groups = []string{}
 	}
 
 	now := s.now().UTC()
@@ -57,16 +63,28 @@ func (s *SessionStore) Create(ctx context.Context, subject, username, email stri
 		Subject:   subject,
 		Username:  username,
 		Email:     email,
+		Groups:    groups,
 		ExpiresAt: now.Add(s.ttl),
 		LastUsed:  now,
 	}
 
 	_, err = s.pool.Exec(ctx,
-		`insert into sessions (id, subject, username, email, expires_at, created_at, last_used)
-		 values ($1, $2, $3, $4, $5, $6, $6)`,
-		session.ID, session.Subject, session.Username, session.Email, session.ExpiresAt, now)
+		`insert into sessions (id, subject, username, email, groups, expires_at, created_at, last_used)
+		 values ($1, $2, $3, $4, $5, $6, $7, $7)`,
+		session.ID, session.Subject, session.Username, session.Email, groups, session.ExpiresAt, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("creating the session: %w", err)
+	}
+
+	if _, err := s.pool.Exec(ctx,
+		`insert into accounts (subject, username, email, groups, first_seen, last_seen)
+		 values ($1, $2, $3, $4, $5, $5)
+		 on conflict (subject) do update
+		 set username = coalesce(excluded.username, accounts.username),
+		     email = coalesce(excluded.email, accounts.email),
+		     groups = excluded.groups, last_seen = excluded.last_seen`,
+		subject, nullable(username), nullable(email), groups, now); err != nil {
+		return Session{}, fmt.Errorf("recording the account: %w", err)
 	}
 
 	// The last sign-in date makes periodic role review practicable: without it a
@@ -104,12 +122,12 @@ func (s *SessionStore) LookupRoles(
 	var session Session
 
 	err := s.pool.QueryRow(ctx,
-		`select s.id, s.subject, coalesce(s.username, ''), coalesce(s.email, ''),
+		`select s.id, s.subject, coalesce(s.username, ''), coalesce(s.email, ''), s.groups,
 		        s.expires_at, coalesce(s.last_used, s.created_at)
 		   from sessions s
 		  where s.id = $1 and s.expires_at > $2`,
 		id, s.now().UTC()).
-		Scan(&session.ID, &session.Subject, &session.Username, &session.Email,
+		Scan(&session.ID, &session.Subject, &session.Username, &session.Email, &session.Groups,
 			&session.ExpiresAt, &session.LastUsed)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -119,42 +137,53 @@ func (s *SessionStore) LookupRoles(
 		return Session{}, "", nil, fmt.Errorf("reading the session: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx,
-		`select role, project_id from user_roles where subject = $1`, session.Subject)
+	personal, err := s.grants(ctx,
+		`select role, project_id, '' from user_roles where subject = $1`, session.Subject)
 	if err != nil {
-		return session, "", nil, fmt.Errorf("reading the roles: %w", err)
+		return session, "", nil, err
 	}
-	defer rows.Close()
-
-	var global Role
-	projects := map[int64]Role{}
-	for rows.Next() {
-		var raw string
-		var projectID *int64
-		if err := rows.Scan(&raw, &projectID); err != nil {
-			return session, "", nil, fmt.Errorf("reading the roles: %w", err)
-		}
-		parsed, err := ParseRole(raw)
-		if err != nil {
-			return session, "", nil, err
-		}
-		if projectID == nil {
-			global = parsed
-			continue
-		}
-		projects[*projectID] = parsed
-	}
-	if err := rows.Err(); err != nil {
-		return session, "", nil, fmt.Errorf("reading the roles: %w", err)
+	groups, err := s.grants(ctx,
+		`select role, project_id, group_name from group_roles where group_name = any($1)`, session.Groups)
+	if err != nil {
+		return session, "", nil, err
 	}
 
-	if global == "" && len(projects) == 0 {
+	access := Resolve(personal, groups)
+	if access.None() {
 		// Authenticated but without a role: the user exists and must appear in the
 		// administration screen awaiting a grant, rather than receive an opaque error
 		// followed by a ticket.
 		return session, "", nil, ErrNoRole
 	}
-	return session, global, projects, nil
+	projects := make(map[int64]Role, len(access.Projects))
+	for id, effective := range access.Projects {
+		projects[id] = effective.Role
+	}
+	return session, access.Global.Role, projects, nil
+}
+
+// grants reads role grants: the role, its project, and the group it was given to.
+func (s *SessionStore) grants(ctx context.Context, query string, argument any) ([]Grant, error) {
+	rows, err := s.pool.Query(ctx, query, argument)
+	if err != nil {
+		return nil, fmt.Errorf("reading the roles: %w", err)
+	}
+	defer rows.Close()
+
+	var grants []Grant
+	for rows.Next() {
+		var raw, group string
+		var projectID *int64
+		if err := rows.Scan(&raw, &projectID, &group); err != nil {
+			return nil, fmt.Errorf("reading the roles: %w", err)
+		}
+		role, err := ParseRole(raw)
+		if err != nil {
+			return nil, err
+		}
+		grants = append(grants, Grant{ProjectID: projectID, Role: role, Group: group})
+	}
+	return grants, rows.Err()
 }
 
 // Touch extends the session and records its last use.

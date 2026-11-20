@@ -25,7 +25,12 @@ import (
 // result.
 func (db *DB) Directory(ctx context.Context) (map[string]string, error) {
 	rows, err := db.pool.Query(ctx,
-		`select subject, coalesce(username, '') from user_roles where username <> ''`)
+		`-- The name the account signed in with wins over the one typed when granting a role.
+		 select coalesce(a.subject, r.subject), coalesce(nullif(a.username, ''), r.username)
+		 from accounts a
+		 full join (select distinct on (subject) subject, username from user_roles
+		            where username <> '' order by subject) r on r.subject = a.subject
+		 where coalesce(nullif(a.username, ''), r.username, '') <> ''`)
 	if err != nil {
 		return nil, fmt.Errorf("directory: %w", err)
 	}
