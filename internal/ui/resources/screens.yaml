@@ -75,14 +75,6 @@ spec:
   parent: executions
   blocks: [{ id: core.plan-runs, component: core/plan-runs }]
 ---
-apiVersion: ui.arkhitekton/v1
-kind: Screen
-metadata: { name: queue-settings }
-spec:
-  path: settings
-  parent: executions
-  blocks: [{ id: core.queue-settings, component: core/queue-settings }]
----
 # Outside the frame: a run's detail is not a fourth view. The static segment wins over the
 # parameter, so /runs/queue does not look for a run of that name.
 apiVersion: ui.arkhitekton/v1
@@ -135,7 +127,7 @@ apiVersion: ui.arkhitekton/v1
 kind: Screen
 metadata: { name: admin-capabilities }
 spec:
-  path: capabilities
+  path: pipelines
   parent: admin
   blocks: [{ id: core.capabilities, component: core/capabilities }]
 ---
@@ -174,6 +166,24 @@ spec:
   path: admin/logs
   parent: shell
   redirect: /admin/journal
+---
+# The pipelines' former addresses: their binding and weight were under Capacités, their queues'
+# ceilings under Exécutions, Paramètres.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-capabilities-former }
+spec:
+  path: admin/capabilities
+  parent: shell
+  redirect: /admin/pipelines
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: queue-settings-former }
+spec:
+  path: runs/settings
+  parent: shell
+  redirect: /admin/pipelines
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen

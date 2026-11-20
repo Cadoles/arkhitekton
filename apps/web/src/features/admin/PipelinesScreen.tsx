@@ -1,6 +1,10 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { Icon } from '../../components/Icon'
+import { Modal } from '../../components/Modal'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
+import { Select } from '../../components/Select'
 import { ApiError } from '../../lib/api'
+import { useQueueLimits, useSetLimit, type Queue } from '../queue/api'
 import {
   type Binding,
   CLUSTER_DEPLOY,
@@ -12,56 +16,198 @@ import {
 } from './capabilities'
 
 /*
- * Lier les capacités de pipeline : quels secrets satisfont leurs besoins,
- * quelles clés de configuration remplissent leurs paramètres, comment leurs
- * volumes sont dimensionnés, combien de temps et combien à la fois.
+ * Les pipelines que les plugins apportent, et ce que l'instance en règle : leur
+ * poids dans le score, combien en mener de front, et leur liaison (quels secrets
+ * satisfont leurs besoins, comment leurs volumes sont dimensionnés).
  *
- * L'écran désigne des secrets, il ne les lit jamais (doc 07 §7.3). Il ne nomme
- * pas non plus de compte de service : une capacité qui déploie se lie dans le
- * fichier de catalogue, avec le déploiement.
+ * Une ligne par pipeline, pour voir d'un coup ce qui est lié, ce qui compte et ce
+ * qui tourne à la fois ; les réglages s'ouvrent à la demande. L'écran désigne des
+ * secrets, il ne les lit jamais (doc 07 §7.3), et ne nomme pas de compte de
+ * service : un pipeline qui déploie se lie dans le fichier de catalogue.
  */
 
-export function CapabilitiesScreen() {
+export function PipelinesScreen() {
   const { data, isPending, error, refetch } = useCapabilities()
+  const queues = useQueueLimits()
+  const [open, setOpen] = useState('')
 
   if (isPending) return <Skeleton className="h-64 w-full" />
   if (error) {
-    return (
-      <ErrorState
-        message="Les capacités n'ont pas pu être chargées."
-        onRetry={() => void refetch()}
-      />
-    )
+    return <ErrorState message="Les pipelines n'ont pas pu être chargés." onRetry={() => void refetch()} />
   }
   if (!data) return null
 
+  const queueOf = (kind: string) => queues.data?.queues.find((queue) => queue.kind === kind)
+  // Les files sans pipeline : des tâches du dashboard, qui n'ont qu'un plafond.
+  const internal = (queues.data?.queues ?? []).filter(
+    (queue) => !queue.known && !data.capabilities.some((capability) => capability.ref === queue.kind),
+  )
+  const selected = data.capabilities.find((capability) => capability.ref === open)
+
   return (
-    <Card title={`Capacités de pipeline (${data.capabilities.length})`}>
+    <Card title={`Pipelines (${data.capabilities.length})`}>
       <p className="mb-3 text-sm text-zinc-500">
-        Une capacité se lance une fois liée. Ce que lie le fichier de catalogue l'emporte et se
-        modifie avec le déploiement ; le reste se lie ici.
+        Un pipeline se lance une fois lié : le fichier de catalogue l&apos;emporte, le reste se lie ici.
+        {queues.data && <> Au plus {queues.data.max_concurrent} exécutions à la fois, toutes files confondues (catalogue).</>}
       </p>
       {data.capabilities.length === 0 ? (
-        <EmptyState>Aucune capacité de pipeline sur cette instance.</EmptyState>
+        <EmptyState>Aucun pipeline sur cette instance.</EmptyState>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {data.capabilities.map((capability) => (
-            <CapabilityCard
-              // La liaison enregistrée entre dans la clé : sans cela, la carte
-              // garderait le brouillon que le serveur vient de remplacer.
-              key={`${capability.ref}:${JSON.stringify(capability.binding ?? null)}`}
-              capability={capability}
-            />
-          ))}
-        </ul>
+        <table className="w-full text-sm">
+          {/* Des variantes `max-sm:` seulement, sans utilitaire d'affichage de base : la
+              feuille d'un plugin, chargée après celle-ci, redéfinit `.flex` ou `.hidden`
+              et l'emporterait sur une variante `sm:` d'ici. */}
+          <thead className="text-left text-xs text-zinc-500 max-sm:hidden">
+            <tr>
+              <th className="py-1 pr-3 font-medium">Pipeline</th>
+              <th className="px-2 py-1 font-medium">Liaison</th>
+              <th className="px-2 py-1 font-medium">Score</th>
+              <th className="px-2 py-1 font-medium">En parallèle</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {data.capabilities.map((capability) => (
+              <PipelineRow
+                key={capability.ref}
+                capability={capability}
+                queue={queueOf(capability.ref)}
+                onSettings={() => setOpen(capability.ref)}
+              />
+            ))}
+            {internal.map((queue) => (
+              <tr key={queue.kind} className="border-t border-zinc-200 text-zinc-500">
+                <td className="py-1.5 pr-3">
+                  {queue.label} <span className="text-xs">(tâche interne)</span>
+                </td>
+                <td className="px-2" />
+                <td className="px-2" />
+                <td className="px-2">{queue.max_concurrent}</td>
+                <td />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {selected && (
+        <Modal title={`Paramètres : ${selected.label}`} onClose={() => setOpen('')}>
+          <PipelineSettings
+            // La liaison enregistrée entre dans la clé : sans cela, le formulaire
+            // garderait le brouillon que le serveur vient de remplacer.
+            key={JSON.stringify(selected.binding ?? null)}
+            capability={selected}
+            queue={queueOf(selected.ref)}
+          />
+        </Modal>
       )}
     </Card>
+  )
+}
+
+function bindingLabel(capability: Capability): string {
+  if (capability.bound_by === 'file') return 'Fichier'
+  if (capability.bound_by === 'database') return 'Ici'
+  return 'Non liée'
+}
+
+function scoreLabel(capability: Capability): string {
+  if (capability.weight !== undefined) return capability.weight === 0 ? 'hors score' : String(capability.weight)
+  return capability.default_weight > 0 ? `${capability.default_weight} (nature)` : 'hors score'
+}
+
+function PipelineRow({
+  capability,
+  queue,
+  onSettings,
+}: {
+  capability: Capability
+  queue?: Queue
+  onSettings: () => void
+}) {
+  return (
+    <tr className="border-t border-zinc-200 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:py-1.5">
+      <td className="py-1.5 pr-3 max-sm:w-full">
+        <span className="font-medium text-zinc-900">{capability.label}</span>
+        <span className="ml-2 font-mono text-xs text-zinc-500">{capability.ref}</span>
+      </td>
+      <td className="px-2 text-zinc-700">
+        <Narrow>Liaison</Narrow>
+        <span className={capability.bound_by ? '' : 'text-warn-700'}>{bindingLabel(capability)}</span>
+        {capability.unavailable && (
+          <span title={capability.unavailable} className="ml-1 inline-flex align-middle text-warn-700">
+            <Icon name="alert" className="size-3.5" />
+            <span className="sr-only">Indisponible : {capability.unavailable}</span>
+          </span>
+        )}
+      </td>
+      <td className="px-2 text-zinc-700">
+        <Narrow>Score</Narrow>
+        {scoreLabel(capability)}
+      </td>
+      <td className="px-2 text-zinc-700">
+        <Narrow>En parallèle</Narrow>
+        {queue ? (
+          <>
+            {queue.max_concurrent}
+            {queue.overridden && <span className="text-xs text-zinc-500"> (défaut {queue.default_max_concurrent})</span>}
+          </>
+        ) : (
+          '–'
+        )}
+      </td>
+      <td className="py-1 text-right max-sm:ml-auto">
+        <button
+          type="button"
+          onClick={onSettings}
+          aria-label={`Paramètres de ${capability.label}`}
+          className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          <Icon name="cog" className="size-3.5" />
+          Paramètres
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+/** L'intitulé d'une colonne, quand les colonnes s'empilent et que l'en-tête est masqué. */
+function Narrow({ children }: { children: ReactNode }) {
+  return <span className="mr-1 text-xs text-zinc-500 sm:hidden">{children} :</span>
+}
+
+/** Les réglages d'un pipeline : son score, son parallélisme, sa liaison. */
+export function PipelineSettings({ capability, queue }: { capability: Capability; queue?: Queue }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <Section title="Score">
+        <WeightField capability={capability} />
+      </Section>
+      {queue && (
+        <Section title="Parallélisme">
+          <LimitField queue={queue} />
+        </Section>
+      )}
+      <Section title="Liaison">
+        <BindingForm capability={capability} />
+      </Section>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</h3>
+      {children}
+    </section>
   )
 }
 
 /** Ce que l'on saisit, champ par champ, avant d'en faire une liaison. */
 export type BindingDraft = {
   timeout: string
+  /** Gardé tel que la liaison l'enregistre, sans champ : le parallélisme se règle
+   *  par la file, qui l'emporte à chaud. */
   maxConcurrent: string
   params: Record<string, string>
   /** Par besoin : un Secret nommé, ou une clé de configuration qui le nomme. */
@@ -140,9 +286,10 @@ export function bindingOf(ref: string, draft: BindingDraft): Binding {
   return binding
 }
 
-const input = 'min-w-0 rounded-md border border-zinc-300 px-2 py-1 font-mono text-sm'
+const input = 'min-w-0 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900'
 
-export function CapabilityCard({ capability }: { capability: Capability }) {
+/** La liaison d'un pipeline : en lecture seule quand le fichier la porte. */
+export function BindingForm({ capability }: { capability: Capability }) {
   const bind = useBindCapability()
   const unbind = useUnbindCapability()
   const [draft, setDraft] = useState(() => draftOf(capability))
@@ -151,35 +298,21 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
   const failure = bind.error ?? unbind.error
 
   return (
-    <li className="flex flex-col gap-3 rounded-md border border-zinc-200 px-3 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-medium text-zinc-900">{capability.label}</span>
-        <span className="font-mono text-xs text-zinc-500">{capability.ref}</span>
-        <span className="ml-auto text-xs text-zinc-500">
-          {byFile
-            ? 'Liée par le fichier'
-            : capability.bound_by === 'database'
-              ? 'Liée ici'
-              : 'Non liée'}
-        </span>
-      </div>
-
+    <div className="flex flex-col gap-3">
       {capability.unavailable && (
         <p className="text-xs text-warn-700">Indisponible : {capability.unavailable}</p>
       )}
 
-      <WeightField capability={capability} />
-
       {byFile ? (
         <p className="text-sm text-zinc-500">
-          Le fichier de catalogue lie cette capacité : sa liaison se modifie avec le déploiement.
+          Le fichier de catalogue lie ce pipeline : sa liaison se modifie avec le déploiement.
         </p>
       ) : (
         <>
           {deploys && (
             <p className="text-xs text-warn-700">
-              Elle demande <span className="font-mono">{CLUSTER_DEPLOY}</span>, un compte de service
-              : elle ne peut être liée que par le fichier de catalogue.
+              Il demande <span className="font-mono">{CLUSTER_DEPLOY}</span>, un compte de service : il
+              ne peut être lié que par le fichier de catalogue.
             </p>
           )}
 
@@ -200,7 +333,7 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                     {need.reason && <span className="text-zinc-500"> : {need.reason}</span>}
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    <select
+                    <Select
                       aria-label={`Source du secret de ${need.name}`}
                       value={value.source}
                       onChange={(event) =>
@@ -215,11 +348,10 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                           },
                         }))
                       }
-                      className="rounded-md border border-zinc-300 px-2 py-1 text-sm"
                     >
                       <option value="secretName">Secret nommé</option>
                       <option value="configKey">Clé de configuration</option>
-                    </select>
+                    </Select>
                     <input
                       id={`${capability.ref}-need-${need.name}`}
                       value={value.value}
@@ -314,7 +446,7 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                   {reason && <span className="text-zinc-500"> : {reason}</span>}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <select
+                  <Select
                     aria-label={`Source de la ConfigMap de ${workspace}`}
                     value={bound.source}
                     onChange={(event) =>
@@ -329,11 +461,10 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
                         },
                       }))
                     }
-                    className="rounded-md border border-zinc-300 px-2 py-1 text-sm"
                   >
                     <option value="name">ConfigMap nommée</option>
                     <option value="configKey">Clé de configuration</option>
-                  </select>
+                  </Select>
                   <input
                     id={`${capability.ref}-configmap-${workspace}`}
                     value={bound.value}
@@ -370,20 +501,6 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
               }
               className={`w-24 ${input}`}
             />
-            <label htmlFor={`${capability.ref}-concurrent`}>Runs simultanés</label>
-            <input
-              id={`${capability.ref}-concurrent`}
-              type="number"
-              min={1}
-              value={draft.maxConcurrent}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  maxConcurrent: event.target.value,
-                }))
-              }
-              className={`w-20 ${input}`}
-            />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -416,7 +533,7 @@ export function CapabilityCard({ capability }: { capability: Capability }) {
             : failure.message}
         </p>
       )}
-    </li>
+    </div>
   )
 }
 
@@ -481,11 +598,95 @@ export function WeightField({ capability }: { capability: Capability }) {
         >
           {setWeight.isPending ? 'Enregistrement…' : 'Enregistrer'}
         </button>
+        {capability.weight !== undefined && (
+          <button
+            type="button"
+            disabled={setWeight.isPending}
+            onClick={() => {
+              setValue('')
+              setWeight.mutate({ ref: capability.ref, weight: null })
+            }}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+          >
+            Revenir au défaut
+          </button>
+        )}
       </div>
       <p className="text-xs text-zinc-500">
         Vide : {fallback}. 0 la met hors score : ses résultats s&apos;affichent sans compter.
       </p>
       {setWeight.isError && <p className="text-xs text-critical-700">{(setWeight.error as Error).message}</p>}
+    </form>
+  )
+}
+
+/** Borne du plafond d'une file, alignée sur celle qu'applique l'API. */
+const MAX_LIMIT = 20
+
+/**
+ * Combien de runs de ce pipeline mener de front.
+ *
+ * Le plafond réglé ici vit en base et prend effet au tour suivant de
+ * l'ordonnanceur ; le défaut du catalogue reste affiché, et y revenir reste
+ * possible : un réglage qu'on ne peut pas défaire est un réglage qu'on n'ose pas
+ * toucher.
+ */
+function LimitField({ queue }: { queue: Queue }) {
+  const setLimit = useSetLimit()
+  const [draft, setDraft] = useState(String(queue.max_concurrent))
+  const parsed = Number.parseInt(draft, 10)
+  const valid = Number.isFinite(parsed) && parsed >= 1 && parsed <= MAX_LIMIT
+  const changed = valid && parsed !== queue.max_concurrent
+
+  return (
+    <form
+      className="flex flex-col gap-1"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (changed) setLimit.mutate({ kind: queue.kind, max: parsed })
+      }}
+    >
+      <label htmlFor={`${queue.kind}-limit`} className="text-sm text-zinc-700">
+        Maximum en parallèle
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={`${queue.kind}-limit`}
+          type="number"
+          min={1}
+          max={MAX_LIMIT}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="w-20 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm tabular-nums text-zinc-900"
+        />
+        <button
+          type="submit"
+          disabled={!changed || setLimit.isPending}
+          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+        >
+          Enregistrer
+        </button>
+        {queue.overridden && (
+          <button
+            type="button"
+            disabled={setLimit.isPending}
+            onClick={() => {
+              setDraft(String(queue.default_max_concurrent))
+              setLimit.mutate({ kind: queue.kind, max: null })
+            }}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+          >
+            Revenir au défaut ({queue.default_max_concurrent})
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-zinc-500">
+        Défaut du catalogue : {queue.default_max_concurrent}
+        {queue.default_max_concurrent === 1 && ', une seule à la fois : une contrainte du pipeline lui-même'}. Le
+        plafond global de l&apos;instance prime.
+      </p>
+      {!valid && <p className="text-xs text-critical-700">Attendu entre 1 et {MAX_LIMIT}.</p>}
+      {setLimit.isError && <p className="text-xs text-critical-700">Le réglage a été refusé.</p>}
     </form>
   )
 }

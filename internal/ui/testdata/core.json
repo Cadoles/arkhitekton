@@ -225,17 +225,6 @@
       ]
     },
     {
-      "name": "queue-settings",
-      "path": "settings",
-      "parent": "executions",
-      "blocks": [
-        {
-          "id": "core.queue-settings",
-          "component": "core/queue-settings"
-        }
-      ]
-    },
-    {
       "name": "run",
       "path": "runs/:name",
       "parent": "shell",
@@ -305,7 +294,7 @@
     },
     {
       "name": "admin-capabilities",
-      "path": "capabilities",
+      "path": "pipelines",
       "parent": "admin",
       "blocks": [
         {
@@ -352,6 +341,18 @@
       "path": "admin/logs",
       "parent": "shell",
       "redirect": "/admin/journal"
+    },
+    {
+      "name": "admin-capabilities-former",
+      "path": "admin/capabilities",
+      "parent": "shell",
+      "redirect": "/admin/pipelines"
+    },
+    {
+      "name": "queue-settings-former",
+      "path": "runs/settings",
+      "parent": "shell",
+      "redirect": "/admin/pipelines"
     },
     {
       "name": "events-former",
@@ -464,9 +465,9 @@
         },
         {
           "id": "core.capabilities",
-          "label": "Capacités",
+          "label": "Pipelines",
           "icon": "layers",
-          "to": "/admin/capabilities"
+          "to": "/admin/pipelines"
         },
         {
           "id": "core.users",
@@ -502,12 +503,6 @@
           "label": "Automatisations",
           "icon": "beaker",
           "to": "/runs/automations"
-        },
-        {
-          "id": "core.settings",
-          "label": "Paramètres",
-          "icon": "cog",
-          "to": "/runs/settings"
         }
       ]
     },

@@ -743,7 +743,7 @@ means; mounting a ConfigMap grants nothing, since the dashboard binds it as a vo
 service account never reads it. The plugin declares the workspace with a `reason`, one sentence
 saying what it expects there, and the operator binds a ConfigMap of their own (doc 05 §5.4).
 
-**Binding.** An installed capability is launched once bound, from Administration, Capacités:
+**Binding.** An installed capability is launched once bound, from Administration, Pipelines:
 secrets for its needs, ConfigMaps for the workspaces that expect them, configuration keys for its
 parameters, volume sizes, a timeout, a ceiling. Never a service account: a pipeline that asks for `cluster-deploy` is bound by the
 operator's catalogue file, or its runs are refused with the reason. The catalogue file's
