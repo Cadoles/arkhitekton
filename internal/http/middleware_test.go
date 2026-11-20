@@ -298,6 +298,22 @@ func TestRequireInGrantsOnlyWithinItsProject(t *testing.T) {
 	}
 }
 
+// What a project route does is done on that project: the actions it records say so.
+func TestRequireInTellsWhatComesNextItsProject(t *testing.T) {
+	m := testMiddleware(&stubSessions{}).WithProjects(stubProjects{})
+	var seen int64
+	mux := http.NewServeMux()
+	mux.Handle("POST /projects/{project}/build", m.RequireIn(auth.PermReleaseCreate)(
+		http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { seen, _ = store.ProjectFrom(r.Context()) })))
+
+	identity := auth.Identity{Subject: "s", Projects: map[int64]auth.Role{1: auth.RoleOperator}}
+	req := httptest.NewRequest(http.MethodPost, "/projects/test/build", nil)
+	mux.ServeHTTP(httptest.NewRecorder(), req.WithContext(withIdentity(req, identity)))
+	if seen != 1 {
+		t.Errorf("project in context = %d, expected 1", seen)
+	}
+}
+
 // With no resolution wired, the check refuses instead of letting through.
 //
 // It is the direction of the doubt that counts: a badly wired middleware that granted would
