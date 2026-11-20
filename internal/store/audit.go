@@ -4,20 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 )
-
-// AuditEntry is a line of the audit log.
-type AuditEntry struct {
-	ID     int64
-	Actor  string
-	Action string
-	Target string
-	// Payload carries what distinguishes two occurrences of the same action: the tag pushed,
-	// the environment targeted, a launch's parameters.
-	Payload map[string]any
-	At      time.Time
-}
 
 // Recorded actions. Named here rather than as free strings at the call site: a typo in an
 // `action` makes the line impossible to find when it is looked for, that is, afterwards.
@@ -116,44 +103,6 @@ func (db *DB) Audit(ctx context.Context, actor, action, target string, payload m
 		return fmt.Errorf("journal d'audit %q: %w", action, err)
 	}
 	return nil
-}
-
-// ListAudit returns the log, newest first.
-//
-// An empty `target` returns the whole log; set, it returns one object's history — the two
-// reads the indexes exist for.
-func (db *DB) ListAudit(ctx context.Context, target string, limit int) ([]AuditEntry, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-
-	rows, err := db.pool.Query(ctx,
-		`select id, actor, action, coalesce(target, ''), payload, at
-		 from audit_log
-		 where $1 = '' or target = $1
-		 order by at desc, id desc
-		 limit $2`, target, limit)
-	if err != nil {
-		return nil, fmt.Errorf("reading the audit log: %w", err)
-	}
-	defer rows.Close()
-
-	var entries []AuditEntry
-	for rows.Next() {
-		var entry AuditEntry
-		var payload []byte
-		if err := rows.Scan(&entry.ID, &entry.Actor, &entry.Action,
-			&entry.Target, &payload, &entry.At); err != nil {
-			return nil, fmt.Errorf("reading the audit log: %w", err)
-		}
-		if len(payload) > 0 {
-			if err := json.Unmarshal(payload, &entry.Payload); err != nil {
-				return nil, fmt.Errorf("reading the audit log: %w", err)
-			}
-		}
-		entries = append(entries, entry)
-	}
-	return entries, rows.Err()
 }
 
 func nullIfEmpty(value string) any {

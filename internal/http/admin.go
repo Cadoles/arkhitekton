@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,12 +23,11 @@ type AdminStore interface {
 	// it is nil: deleting every row of a subject would, while meaning to remove one project,
 	// delete the global role that holds everywhere else.
 	RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error
-	ListAudit(ctx context.Context, target string, limit int) ([]store.AuditEntry, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	Directory(ctx context.Context) (map[string]string, error)
 }
 
-// AdminHandler exposes role granting and the audit log.
+// AdminHandler exposes role granting.
 type AdminHandler struct{ store AdminStore }
 
 func NewAdminHandler(admin AdminStore) *AdminHandler { return &AdminHandler{store: admin} }
@@ -202,45 +200,6 @@ func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 
 	h.audit(r, store.AuditRoleRevoke, subject, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"subject": subject, "sessions_closed": true})
-}
-
-type auditPayload struct {
-	ID      int64          `json:"id"`
-	Actor   string         `json:"actor"`
-	Action  string         `json:"action"`
-	Target  string         `json:"target,omitempty"`
-	Payload map[string]any `json:"payload,omitempty"`
-	At      time.Time      `json:"at"`
-}
-
-// Audit returns the log.
-//
-// Filterable by target: that is the read people actually perform — "what happened to this
-// release" — and the index exists for it.
-func (h *AdminHandler) Audit(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil {
-			limit = parsed
-		}
-	}
-
-	entries, err := h.store.ListAudit(r.Context(), r.URL.Query().Get("target"), limit)
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the log", "")
-		return
-	}
-
-	who := resolveActors(r.Context(), h.store, slog.Default())
-
-	payload := make([]auditPayload, 0, len(entries))
-	for _, entry := range entries {
-		payload = append(payload, auditPayload{
-			ID: entry.ID, Actor: who.name(entry.Actor), Action: entry.Action,
-			Target: entry.Target, Payload: entry.Payload, At: entry.At,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": payload})
 }
 
 // audit records an administration action without failing it.

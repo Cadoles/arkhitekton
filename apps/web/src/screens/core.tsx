@@ -4,9 +4,9 @@ import { HomeRedirect } from '../components/HomeRedirect'
 import { NotFound } from '../components/NotFound'
 import { Placeholder } from '../components/Placeholder'
 import { registerComponent, type BlockComponentProps } from '../lib/components'
-import { AuditScreen } from '../features/admin/AuditScreen'
 import { AutomationsScreen } from '../features/admin/AutomationsScreen'
 import { CapabilitiesScreen } from '../features/admin/CapabilitiesScreen'
+import { JournalScreen } from '../features/admin/JournalScreen'
 import { PluginsScreen } from '../features/admin/PluginsScreen'
 import { ProjectLayout } from '../features/admin/ProjectLayout'
 import {
@@ -32,7 +32,6 @@ import {
 import { ReleasesList } from '../features/releases/ReleasesScreen'
 import { PullScreen } from '../features/pulls/PullScreen'
 import { PullsScreen } from '../features/pulls/PullsScreen'
-import { EventsScreen } from '../features/runs/EventsScreen'
 import { PlanRunsScreen } from '../features/runs/PlanRunsScreen'
 import { RunsScreen } from '../features/runs/RunsScreen'
 import { VersionsScreen } from '../features/versions/VersionsScreen'
@@ -90,14 +89,13 @@ export function registerCoreComponents(): void {
     runs: RunsScreen,
     run: RunScreen,
     queue: QueueScreen,
-    events: EventsScreen,
     'plan-runs': PlanRunsScreen,
     'queue-settings': QueueSettingsScreen,
     projects: ProjectsScreen,
     plugins: PluginsScreen,
     capabilities: CapabilitiesScreen,
     users: UsersScreen,
-    audit: AuditScreen,
+    journal: JournalScreen,
     'project-layout': ProjectLayout,
     'project-general': ProjectGeneralScreen,
     'project-plugins': ProjectPluginsScreen,

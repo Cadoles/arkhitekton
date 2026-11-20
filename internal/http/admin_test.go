@@ -15,7 +15,6 @@ import (
 
 type fakeAdminStore struct {
 	roles   []store.UserRole
-	entries []store.AuditEntry
 	granted []string
 	revoked []string
 	audit   []string
@@ -69,19 +68,6 @@ func (f *fakeAdminStore) RevokeRole(_ context.Context, subject string) error {
 	}
 	f.revoked = append(f.revoked, subject)
 	return nil
-}
-
-func (f *fakeAdminStore) ListAudit(_ context.Context, target string, _ int) ([]store.AuditEntry, error) {
-	if target == "" {
-		return f.entries, nil
-	}
-	var scoped []store.AuditEntry
-	for _, entry := range f.entries {
-		if entry.Target == target {
-			scoped = append(scoped, entry)
-		}
-	}
-	return scoped, nil
 }
 
 func (f *fakeAdminStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
@@ -232,27 +218,6 @@ func TestRevokeAnUnknownSubjectIsNotFound(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Errorf("code = %d, expected 404", recorder.Code)
-	}
-}
-
-// "What happened to this release" is the read actually performed, and the index exists for
-// it.
-func TestAuditCanBeScopedToATarget(t *testing.T) {
-	fake := &fakeAdminStore{entries: []store.AuditEntry{
-		{ID: 1, Actor: "alice", Action: "release.promote", Target: "1.8.0"},
-		{ID: 2, Actor: "bob", Action: "job.enqueue", Target: "other"},
-	}}
-	handler := NewAdminHandler(fake)
-
-	recorder := httptest.NewRecorder()
-	handler.Audit(recorder, adminRequest(http.MethodGet, "/admin/audit?target=1.8.0", ""))
-
-	var payload struct {
-		Entries []auditPayload `json:"entries"`
-	}
-	json.Unmarshal(recorder.Body.Bytes(), &payload)
-	if len(payload.Entries) != 1 || payload.Entries[0].Target != "1.8.0" {
-		t.Errorf("entries = %+v", payload.Entries)
 	}
 }
 

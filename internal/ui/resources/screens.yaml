@@ -69,14 +69,6 @@ spec:
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: events }
-spec:
-  path: events
-  parent: executions
-  blocks: [{ id: core.events, component: core/events }]
----
-apiVersion: ui.arkhitekton/v1
-kind: Screen
 metadata: { name: plan-runs }
 spec:
   path: automations
@@ -111,7 +103,7 @@ spec:
   redirect: /runs/queue
 ---
 # The administration under one frame: projects, the instance's plugins and capabilities, roles,
-# the audit log. They have neither the same reader nor the same frequency, and stacked they made a
+# the journal. They have neither the same reader nor the same frequency, and stacked they made a
 # page one scrolled through instead of reading. What belongs to one project lives on its page.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
@@ -164,13 +156,32 @@ spec:
   parent: admin
   blocks: [{ id: core.projects, component: core/projects }]
 ---
+# What happened in the application: actions and events in one feed.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: admin-logs }
+metadata: { name: admin-journal }
 spec:
-  path: logs
+  path: journal
   parent: admin
-  blocks: [{ id: core.audit, component: core/audit }]
+  blocks: [{ id: core.journal, component: core/journal }]
+---
+# The addresses of the audit log and of a project's facts, kept for links already shared: both
+# are read in the journal now.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-logs-former }
+spec:
+  path: admin/logs
+  parent: shell
+  redirect: /admin/journal
+---
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: events-former }
+spec:
+  path: runs/events
+  parent: shell
+  redirect: /admin/journal
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
