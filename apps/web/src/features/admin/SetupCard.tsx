@@ -113,7 +113,7 @@ export function SetupCard({ project }: { project: Project }) {
           ) : project.deploy_key_error ? (
             <span>{project.deploy_key_error}. Le worker réessaie chaque minute.</span>
           ) : (
-            <span>En préparation, moins d&apos;une minute.</span>
+            <span>En préparation, quelques secondes.</span>
           )}
         </Step>
 

@@ -708,7 +708,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
-			errs := make(chan error, 13)
+			errs := make(chan error, 14)
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
@@ -736,10 +736,11 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// Setting the deploy keys. Under the lease like the rest: two workers setting the same key
 			// would replace each other's, and the public half recorded would no longer be that of the
 			// Secret deposited.
-			keys := projectKeys(cluster, cfg, pipelines, logger)
-			go func() {
-				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
-			}()
+			// Woken by the database as soon as a key is awaited: whoever declared the project is waiting
+			// for it on the project's page.
+			keyReconciler := worker.NewKeyReconciler(db, projectKeys(cluster, cfg, pipelines, logger), logger)
+			go func() { errs <- keyReconciler.Run(leadingCtx) }()
+			go func() { errs <- db.Listen(leadingCtx, store.DeployKeysChannel, keyReconciler.Wake, logger) }()
 			// Every project's access and key, checked again every hour: a key removed from its
 			// repository shows on the list without anyone testing.
 			go func() {

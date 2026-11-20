@@ -116,7 +116,7 @@ open), because values are re-sealed only as they are rewritten.
 **Deploy keys are per project.** Arkhitekton generates the pair, publishes the public
 half for an administrator to install on the forge, and keeps the private half in a
 Kubernetes secret that pipelines mount. Rotation is a request recorded on the project and
-carried out by the worker within a minute; the old key works until then, and clones fail from
+carried out by the worker within seconds; the old key works until then, and clones fail from
 then until the new public half is installed on the forge.
 
 **A project's Secrets are named from its id, and the database records them.** The name is

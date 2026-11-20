@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -197,4 +198,38 @@ func TestADeletedProjectsSecretsAreDeleted(t *testing.T) {
 	if len(issuer.revoked) != 2 || len(projects.forgotten) != 2 {
 		t.Errorf("revoked %v, forgotten %v", issuer.revoked, projects.forgotten)
 	}
+}
+
+// passCounter counts the loop's passes, from the goroutine that runs it.
+type passCounter struct {
+	fakeKeyStore
+	passes chan struct{}
+}
+
+func (p *passCounter) ProjectsAwaitingKey(context.Context) ([]store.PendingKey, error) {
+	p.passes <- struct{}{}
+	return nil, nil
+}
+
+// A wake-up runs a pass at once, without waiting for the minute's tick: a project just declared
+// must receive its key while its page is open.
+func TestAWakeUpRunsAPassAtOnce(t *testing.T) {
+	counter := &passCounter{passes: make(chan struct{}, 4)}
+	reconciler := NewKeyReconciler(counter, &fakeKeyIssuer{}, quietLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = reconciler.Run(ctx) }()
+
+	pass := func(what string) {
+		t.Helper()
+		select {
+		case <-counter.passes:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no pass %s", what)
+		}
+	}
+	pass("at start-up")
+	reconciler.Wake()
+	pass("after the wake-up")
 }

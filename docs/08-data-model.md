@@ -50,6 +50,12 @@ recorded when it was set; keys set before projects had an id keep the name drawn
 until their next rotation. `deploy_key_error` is why the worker could not set the key, shown on
 the project's screen and cleared once it could.
 
+Triggers on `projects` and `project_secrets_to_delete` send a `NOTIFY deploy_keys` when a key
+becomes awaited (a project declared, a key forgotten, a rotation requested) or a Secret is put down
+for deletion. The worker listens on its own connection and sets the key at once; its pass every
+minute only catches up a signal sent while it was not listening. A failed set writes none of the
+watched columns, so it does not wake the worker again.
+
 ## 8.3 Versions and issues
 
 | Table | Key columns |
