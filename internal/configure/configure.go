@@ -65,6 +65,7 @@ type Services struct {
 	Bindings         Bindings
 	StatusMappings   StatusMappings
 	Automations      Automations
+	Access           Access
 }
 
 // Auditor records an administration act.

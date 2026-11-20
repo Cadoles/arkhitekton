@@ -146,6 +146,7 @@ func runConfigApply(
 		Automations: configure.Automations{
 			Store: db, Schedules: db, Catalog: pipelines, Registry: registry, Logger: logger,
 		},
+		Access: configure.Access{Store: db, Logger: logger},
 	}
 	applier := configure.Applier{
 		Services: services, Store: db, Registry: registry, Catalog: pipelines, Actor: *actor,

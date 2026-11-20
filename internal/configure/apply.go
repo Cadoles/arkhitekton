@@ -83,9 +83,14 @@ func (a Applier) Plan(ctx context.Context, desired configfile.Set, prune bool) (
 		}
 		p.instance(*desired.Instance, current.Set.Instance, recorded)
 	}
+	declared := map[string]bool{}
 	for _, project := range desired.Projects {
 		existing, _ := current.Set.Project(project.Name)
 		p.project(ctx, project, existing)
+		declared[project.Name] = true
+	}
+	if desired.Instance != nil {
+		p.access(ctx, desired.Instance.Access, declared)
 	}
 	if prune {
 		for _, project := range current.Set.Projects {

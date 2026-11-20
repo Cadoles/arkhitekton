@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
@@ -59,7 +60,27 @@ type Instance struct {
 	// CapabilityBindings are the bindings recorded in the database, by capability ref, in the
 	// catalogue file's shape. The catalogue file's own bindings stay in the file.
 	CapabilityBindings map[string]json.RawMessage `json:"capabilityBindings,omitempty"`
+	// Access is who may use the dashboard, beside what is granted from the screen.
+	Access *Access `json:"access,omitempty"`
 }
+
+// Access grants roles to people and to the identity provider's groups.
+type Access struct {
+	// Users are keyed by account name, or by the provider's subject. A name resolves among the
+	// accounts that signed in.
+	Users map[string]Grants `json:"users,omitempty"`
+	// Groups are keyed by the name the provider gives: an organisation, or `organisation:team`.
+	Groups map[string]Grants `json:"groups,omitempty"`
+}
+
+// Grants is a role across the instance, and roles per project, by slug.
+type Grants struct {
+	Role     string            `json:"role,omitempty"`
+	Projects map[string]string `json:"projects,omitempty"`
+}
+
+// Roles are the roles a grant may name, from the least to the most permissive.
+var Roles = []string{"viewer", "operator", "releaser", "admin"}
 
 // InstancePlugin is a plugin's settings for the whole instance.
 type InstancePlugin struct {
@@ -273,6 +294,9 @@ func (i Instance) validate() error {
 			problems = append(problems, fmt.Errorf("instance: spec.scoreWeights.%s: expected between 0 and %d", kind, MaxScoreWeight))
 		}
 	}
+	if i.Access != nil {
+		problems = append(problems, i.Access.validate()...)
+	}
 	for ref, binding := range i.CapabilityBindings {
 		if !json.Valid(binding) || strings.HasPrefix(strings.TrimSpace(string(binding)), "null") {
 			problems = append(problems, fmt.Errorf("instance: spec.capabilityBindings.%s: expected an object", ref))
@@ -360,4 +384,31 @@ func validateConfig(path string, config map[string]Value) error {
 		}
 	}
 	return errors.Join(problems...)
+}
+
+func (a Access) validate() []error {
+	var problems []error
+	check := func(path string, grants Grants) {
+		if grants.Role == "" && len(grants.Projects) == 0 {
+			problems = append(problems, fmt.Errorf("%s: expected a role, projects, or both", path))
+		}
+		if grants.Role != "" && !slices.Contains(Roles, grants.Role) {
+			problems = append(problems, fmt.Errorf("%s.role: %q is not a role (%s)", path, grants.Role, strings.Join(Roles, ", ")))
+		}
+		for slug, role := range grants.Projects {
+			switch {
+			case role == "admin":
+				problems = append(problems, fmt.Errorf("%s.projects.%s: admin holds across the instance, never in a project", path, slug))
+			case !slices.Contains(Roles, role):
+				problems = append(problems, fmt.Errorf("%s.projects.%s: %q is not a role", path, slug, role))
+			}
+		}
+	}
+	for name, grants := range a.Users {
+		check("instance: spec.access.users."+name, grants)
+	}
+	for group, grants := range a.Groups {
+		check("instance: spec.access.groups."+group, grants)
+	}
+	return problems
 }

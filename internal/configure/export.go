@@ -35,6 +35,7 @@ type ExportStore interface {
 	ReleaseAutomation(ctx context.Context, projectID int64) (store.ReleaseAutomation, error)
 	ListReactions(ctx context.Context, projectID int64) ([]reaction.Reaction, error)
 	ListSchedules(ctx context.Context, projectID int64) ([]store.RecordedSchedule, error)
+	AccessReadStore
 }
 
 // Exported is a configuration read back from the database, with what writing it out leaves to the
@@ -173,6 +174,12 @@ func (e Exporter) instance(ctx context.Context, out *Exported, secrets map[strin
 	if len(weights) > 0 {
 		instance.ScoreWeights = weights
 	}
+
+	access, err := exportAccess(ctx, e.Store)
+	if err != nil {
+		return nil, err
+	}
+	instance.Access = access
 
 	bindings, err := e.Store.CapabilityBindings(ctx)
 	if err != nil {

@@ -106,6 +106,7 @@ func (i instance) services() Services {
 		StatusMappings:   StatusMappings{Store: i.db, Logger: quiet()},
 		Automations: Automations{Store: i.db, Schedules: i.db, Catalog: i.catalog, Registry: i.registry,
 			Logger: quiet()},
+		Access: Access{Store: i.db, Logger: quiet()},
 	}
 }
 
