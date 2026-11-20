@@ -26,9 +26,13 @@ export type Job = {
   attempt: number
   queue_reason?: QueueReason
   run_name?: string
+  /** Ce sur quoi porte le job : sans eux, deux jobs du même type ne se distinguent pas. */
+  project?: string
+  release_tag?: string
+  pull_request?: number
 }
 
-/** Une file : son plafond, son occupation, ses jobs dans l'ordre du service. */
+/** Une file : son plafond et son occupation. */
 export type Queue = {
   kind: string
   label: string
@@ -41,7 +45,6 @@ export type Queue = {
   known: boolean
   running: number
   waiting: number
-  jobs: Job[]
 }
 
 /** Un champ du formulaire de lancement, tel que le catalogue le déclare. */
@@ -67,6 +70,8 @@ export type Option = { value: string; label?: string }
 
 type QueueResponse = {
   queues: Queue[]
+  /** Les jobs actifs de toutes les files, dans l'ordre du service : en cours, puis en attente. */
+  jobs: Job[]
   kinds: Kind[]
   /**
    * Listes proposées, par nature. Les références Git n'y sont pas : elles se
@@ -92,8 +97,7 @@ export function useQueue() {
     // Le projet accompagne la lecture : la file elle-même est celle du cluster,
     // mais ses suggestions listent des releases, qui n'existent que dans un
     // projet. Sans lui, les champs concernés restent en saisie libre.
-    queryFn: () =>
-      request<QueueResponse>(`/queue?project=${encodeURIComponent(currentProject())}`),
+    queryFn: () => request<QueueResponse>(`/queue?project=${encodeURIComponent(currentProject())}`),
     // La file bouge en permanence, et son intérêt est précisément de dire ce qui
     // se passe maintenant. Deux secondes suivent le rythme de l'ordonnanceur.
     refetchInterval: 2000,

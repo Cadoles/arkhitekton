@@ -22,7 +22,7 @@ import (
  */
 
 type fakeQueueStore struct {
-	jobs     []store.Job
+	jobs     []store.QueuedJob
 	releases []store.Release
 	limits   map[string]int
 	set      map[string]int
@@ -40,7 +40,7 @@ func (f *fakeQueueStore) Enqueue(_ context.Context, request store.JobRequest) (i
 	f.enqueued = append(f.enqueued, request)
 	return 1, nil
 }
-func (f *fakeQueueStore) ListQueue(context.Context) ([]store.Job, error) { return f.jobs, nil }
+func (f *fakeQueueStore) ListQueue(context.Context) ([]store.QueuedJob, error) { return f.jobs, nil }
 func (f *fakeQueueStore) GetJob(context.Context, int64) (store.Job, error) {
 	return store.Job{}, store.ErrJobNotFound
 }
@@ -108,11 +108,15 @@ type queueListing struct {
 		Known         bool   `json:"known"`
 		Running       int    `json:"running"`
 		Waiting       int    `json:"waiting"`
-		Jobs          []struct {
-			ID          int64  `json:"id"`
-			RequestedBy string `json:"requested_by"`
-		} `json:"jobs"`
 	} `json:"queues"`
+	Jobs []struct {
+		ID          int64  `json:"id"`
+		Kind        string `json:"kind"`
+		RequestedBy string `json:"requested_by"`
+		Project     string `json:"project"`
+		ReleaseTag  string `json:"release_tag"`
+		PullRequest int64  `json:"pull_request"`
+	} `json:"jobs"`
 	Kinds []struct {
 		Kind   string `json:"kind"`
 		Inputs []struct {
@@ -144,9 +148,11 @@ func listQueues(t *testing.T, handler *QueueHandler) queueListing {
 // One queue per declared kind, busy or not.
 func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	fake := newFakeQueueStore()
-	fake.jobs = []store.Job{
-		{ID: 1, Kind: "unit-tests", State: store.JobRunning, RequestedBy: "121"},
-		{ID: 2, Kind: "unit-tests", State: store.JobQueued, RequestedBy: "121"},
+	fake.jobs = []store.QueuedJob{
+		{Job: store.Job{ID: 1, Kind: "unit-tests", State: store.JobRunning, RequestedBy: "121"},
+			Project: "mse", ReleaseTag: "1.8.0-rc1"},
+		{Job: store.Job{ID: 2, Kind: "unit-tests", State: store.JobQueued, RequestedBy: "121"},
+			Project: "mse", PullRequest: 4},
 	}
 
 	listing := listQueues(t, queueHandler(fake))
@@ -163,13 +169,18 @@ func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	if unit.MaxConcurrent != catalog.DefaultKindConcurrency || unit.Overridden {
 		t.Errorf("cap = %d, set %v", unit.MaxConcurrent, unit.Overridden)
 	}
-	// The OIDC subject is translated: what one reads on a queue is who.
-	if len(unit.Jobs) != 2 || unit.Jobs[0].RequestedBy != "vcarroy" {
-		t.Errorf("jobs = %+v", unit.Jobs)
+	// One list, in the order of service, each job saying what it is about. The OIDC subject is
+	// translated: what one reads on a queue is who.
+	jobs := listing.Jobs
+	if len(jobs) != 2 || jobs[0].ID != 1 || jobs[0].RequestedBy != "vcarroy" {
+		t.Fatalf("jobs = %+v", jobs)
+	}
+	if jobs[0].Project != "mse" || jobs[0].ReleaseTag != "1.8.0-rc1" || jobs[1].PullRequest != 4 {
+		t.Errorf("what the jobs are about = %+v", jobs)
 	}
 
 	e2e := listing.Queues[1]
-	if e2e.MaxConcurrent != 1 || len(e2e.Jobs) != 0 {
+	if e2e.MaxConcurrent != 1 || e2e.Running+e2e.Waiting != 0 {
 		t.Errorf("e2e queue = %+v — an empty queue stays displayed", e2e)
 	}
 }
@@ -192,7 +203,7 @@ func TestASettingIsReturnedWithItsDefault(t *testing.T) {
 // queue. Hiding them would make jobs that really are waiting disappear from the screen.
 func TestAQueueOutsideTheCatalogueStaysDisplayed(t *testing.T) {
 	fake := newFakeQueueStore()
-	fake.jobs = []store.Job{{ID: 7, Kind: "release-notes", State: store.JobQueued, RequestedBy: "121"}}
+	fake.jobs = []store.QueuedJob{{Job: store.Job{ID: 7, Kind: "release-notes", State: store.JobQueued, RequestedBy: "121"}}}
 
 	listing := listQueues(t, queueHandler(fake))
 

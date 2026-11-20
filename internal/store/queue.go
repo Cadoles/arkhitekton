@@ -411,34 +411,50 @@ func (db *DB) RecordCapability(ctx context.Context, id int64, capability, versio
 	return nil
 }
 
+// QueuedJob is a job of the queue, with what it is about: without them, two jobs of the same kind
+// cannot be told apart on screen.
+type QueuedJob struct {
+	Job
+	// Project is the slug of the job's project, empty for a job attached to none.
+	Project string
+	// ReleaseTag is the tag of the release the job works on, empty for none.
+	ReleaseTag string
+	// PullRequest is the number of the pull request the job runs on, zero for none.
+	PullRequest int64
+}
+
 // ListQueue returns the active jobs: running first, then waiting in the real order of
 // service.
 //
 // The order displayed is the scheduler's, and no other. A queue displayed in an order
 // different from the one it will be served in is worse than no queue: it makes people
 // wait for the wrong job.
-func (db *DB) ListQueue(ctx context.Context) ([]Job, error) {
+func (db *DB) ListQueue(ctx context.Context) ([]QueuedJob, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, kind, priority, state, params, requested_by,
-		        requested_at, started_at, attempt, queue_reason, run_name
-		 from jobs
-		 where state in ('queued', 'running')
-		 order by case state when 'running' then 0 else 1 end,
-		          priority, requested_at`)
+		`select j.id, j.kind, j.priority, j.state, j.params, j.requested_by,
+		        j.requested_at, j.started_at, j.attempt, j.queue_reason, j.run_name,
+		        coalesce(p.slug, ''), coalesce(r.tag, ''), coalesce(pr.number, 0)
+		 from jobs j
+		 left join projects p on p.id = j.project_id
+		 left join releases r on r.id = j.release_id
+		 left join pull_requests pr on pr.id = j.pull_request_id
+		 where j.state in ('queued', 'running')
+		 order by case j.state when 'running' then 0 else 1 end,
+		          j.priority, j.requested_at`)
 	if err != nil {
 		return nil, fmt.Errorf("reading the queue: %w", err)
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	var jobs []QueuedJob
 	for rows.Next() {
-		var job Job
+		var job QueuedJob
 		var params []byte
 		var reason, runName *string
 
 		if err := rows.Scan(&job.ID, &job.Kind, &job.Priority, &job.State,
 			&params, &job.RequestedBy, &job.RequestedAt, &job.StartedAt, &job.Attempt,
-			&reason, &runName); err != nil {
+			&reason, &runName, &job.Project, &job.ReleaseTag, &job.PullRequest); err != nil {
 			return nil, fmt.Errorf("reading the queue: %w", err)
 		}
 		if len(params) > 0 {

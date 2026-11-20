@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 /*
@@ -569,5 +570,53 @@ func TestAJobKeepsItsCapabilityAndPluginVersion(t *testing.T) {
 	}
 	if job.Capability != "php/unit-tests" || job.PluginVersion != "1.0.0" {
 		t.Errorf("job = %q @ %q", job.Capability, job.PluginVersion)
+	}
+}
+
+// A job of the queue says what it is about: its project, and the release or pull request it
+// works on.
+func TestAQueuedJobSaysWhatItIsAbout(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	project := int64(testProjectID)
+	versionID, _ := db.EnsureVersion(ctx, testProjectID, "1.8.0")
+	releaseID, err := db.CreateRelease(ctx, Release{
+		ProjectID: testProjectID, VersionID: versionID, Tag: "1.8.0-rc1", Kind: "pre", State: "building",
+		GitRef: "abc", ImageVersion: "1.8.0-rc1", CreatedBy: "vcarroy",
+	})
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	pull, _, err := db.UpsertPullRequest(ctx, openPull(project, 7, "aaa", time.Now()))
+	if err != nil {
+		t.Fatalf("pull request: %v", err)
+	}
+	for _, request := range []JobRequest{
+		{Kind: "build", RequestedBy: "vcarroy", ProjectID: &project, ReleaseID: &releaseID},
+		{Kind: "unit-tests", RequestedBy: "vcarroy", ProjectID: &project, PullRequestID: &pull.ID},
+		{Kind: "release-notes", RequestedBy: "vcarroy"},
+	} {
+		if _, err := db.Enqueue(ctx, request); err != nil {
+			t.Fatalf("queueing %s: %v", request.Kind, err)
+		}
+	}
+
+	jobs, err := db.ListQueue(ctx)
+	if err != nil || len(jobs) != 3 {
+		t.Fatalf("queue = %+v, %v", jobs, err)
+	}
+	about := map[string]QueuedJob{}
+	for _, job := range jobs {
+		about[job.Kind] = job
+	}
+	if build := about["build"]; build.Project == "" || build.ReleaseTag != "1.8.0-rc1" || build.PullRequest != 0 {
+		t.Errorf("build = %+v", build)
+	}
+	if tests := about["unit-tests"]; tests.Project == "" || tests.PullRequest != 7 || tests.ReleaseTag != "" {
+		t.Errorf("unit tests = %+v", tests)
+	}
+	if notes := about["release-notes"]; notes.Project != "" || notes.ReleaseTag != "" || notes.PullRequest != 0 {
+		t.Errorf("a job attached to nothing = %+v", notes)
 	}
 }
