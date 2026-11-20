@@ -17,6 +17,9 @@ type Claims struct {
 	Username string `json:"preferred_username"`
 	Name     string `json:"name"`
 	Email    string `json:"email"`
+	// Groups are the groups the provider says the user belongs to: a forge's organisations and
+	// teams. Empty when the provider was not asked for them.
+	Groups []string `json:"-"`
 }
 
 // Exchanger exchanges an authorization code for a verified identity.
@@ -36,6 +39,8 @@ var ErrInvalidNonce = errors.New("invalid ID token nonce")
 type Provider struct {
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
+	// groupsClaim names the claim carrying the groups.
+	groupsClaim string
 }
 
 // NewProvider queries the provider's discovery document and prepares verification.
@@ -60,7 +65,8 @@ func NewProvider(ctx context.Context, cfg config.OIDCConfig) (*Provider, error) 
 			Endpoint:     provider.Endpoint(),
 			Scopes:       cfg.Scopes,
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		verifier:    provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		groupsClaim: cfg.GroupsClaim,
 	}, nil
 }
 
@@ -103,8 +109,34 @@ func (p *Provider) Exchange(ctx context.Context, code, codeVerifier, expectedNon
 	if claims.Subject == "" {
 		claims.Subject = idToken.Subject
 	}
+	if p.groupsClaim != "" {
+		var raw map[string]any
+		if err := idToken.Claims(&raw); err != nil {
+			return Claims{}, fmt.Errorf("reading the claims: %w", err)
+		}
+		claims.Groups = GroupsOf(raw[p.groupsClaim])
+	}
 	if claims.Subject == "" {
 		return Claims{}, errors.New("token without a subject identifier")
 	}
 	return claims, nil
+}
+
+// GroupsOf reads a groups claim: a list of names, or a single name. Anything else is no group.
+func GroupsOf(value any) []string {
+	switch groups := value.(type) {
+	case string:
+		if groups != "" {
+			return []string{groups}
+		}
+	case []any:
+		names := make([]string, 0, len(groups))
+		for _, group := range groups {
+			if name, ok := group.(string); ok && name != "" {
+				names = append(names, name)
+			}
+		}
+		return names
+	}
+	return nil
 }

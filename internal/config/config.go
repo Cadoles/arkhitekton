@@ -250,6 +250,9 @@ type OIDCConfig struct {
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
+	// GroupsClaim names the claim carrying the groups the user belongs to: a group can be granted
+	// a role. The provider must be asked for it, Gitea through the `groups` scope.
+	GroupsClaim string
 	// BootstrapAdmins lists the identifiers (`sub` or username) promoted to
 	// administrator at start-up. Without it nobody can grant the first role and the
 	// interface is unusable after deployment.
@@ -308,6 +311,7 @@ func Load(role Role) (Config, error) {
 			ClientSecret:    os.Getenv("OIDC_CLIENT_SECRET"),
 			RedirectURL:     redirectURL(os.Getenv("PUBLIC_URL")),
 			Scopes:          listOr("OIDC_SCOPES", []string{"openid", "profile", "email"}),
+			GroupsClaim:     envOr("OIDC_GROUPS_CLAIM", "groups"),
 			BootstrapAdmins: listOr("BOOTSTRAP_ADMINS", nil),
 			BootstrapUsers:  parseGrants(os.Getenv("BOOTSTRAP_USERS")),
 			SessionTTL:      durationOr("SESSION_TTL", 12*time.Hour),

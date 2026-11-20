@@ -53,7 +53,7 @@ func (s *stubSessions) ApplyBootstrap(context.Context, string, string) (string, 
 	return "", nil
 }
 
-func (s *stubSessions) Create(context.Context, string, string, string) (auth.Session, error) {
+func (s *stubSessions) Create(context.Context, string, string, string, []string) (auth.Session, error) {
 	return s.created, s.createErr
 }
 
