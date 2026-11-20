@@ -175,7 +175,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info("session ouverte", "subject", claims.Subject, "username", claims.Username,
-		"groups", len(claims.Groups))
+		"groups", len(claims.Groups), "groups_claimed", claims.GroupsClaimed)
 	http.Redirect(w, r, flow.RedirectAfter, http.StatusFound)
 }
 

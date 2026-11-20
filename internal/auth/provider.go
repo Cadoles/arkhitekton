@@ -20,6 +20,9 @@ type Claims struct {
 	// Groups are the groups the provider says the user belongs to: a forge's organisations and
 	// teams. Empty when the provider was not asked for them.
 	Groups []string `json:"-"`
+	// GroupsClaimed says whether the token carried the groups claim at all: absent, the provider
+	// was not asked for it or did not grant it, which no group membership explains.
+	GroupsClaimed bool `json:"-"`
 }
 
 // Exchanger exchanges an authorization code for a verified identity.
@@ -114,7 +117,8 @@ func (p *Provider) Exchange(ctx context.Context, code, codeVerifier, expectedNon
 		if err := idToken.Claims(&raw); err != nil {
 			return Claims{}, fmt.Errorf("reading the claims: %w", err)
 		}
-		claims.Groups = GroupsOf(raw[p.groupsClaim])
+		value, present := raw[p.groupsClaim]
+		claims.Groups, claims.GroupsClaimed = GroupsOf(value), present
 	}
 	if claims.Subject == "" {
 		return Claims{}, errors.New("token without a subject identifier")
