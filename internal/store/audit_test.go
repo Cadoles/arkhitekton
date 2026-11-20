@@ -19,7 +19,7 @@ func TestAuditKeepsWhatWasRequested(t *testing.T) {
 		t.Fatalf("audit with no target: %v", err)
 	}
 
-	all, err := db.ListAudit(ctx, "", 0)
+	all, err := db.ListJournal(ctx, JournalQuery{Nature: JournalAction})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestAuditKeepsWhatWasRequested(t *testing.T) {
 		t.Errorf("first entry = %q, expected the most recent", all[0].Action)
 	}
 
-	scoped, err := db.ListAudit(ctx, "1.8.0", 0)
+	scoped, err := db.ListJournal(ctx, JournalQuery{Nature: JournalAction, Search: "1.8.0"})
 	if err != nil {
 		t.Fatalf("targeted listing: %v", err)
 	}

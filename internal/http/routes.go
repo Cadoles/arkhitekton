@@ -17,7 +17,7 @@ func NewAPIRouter(
 	versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	events *EventsHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
+	journal *JournalHandler, reactions *AutomationsHandler, planRuns *PlanRunsHandler,
 	middleware *Middleware, mounts ...Mount,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -163,15 +163,17 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.CSRF, middleware.RequireIn(auth.PermReleaseFinal)))
 
 	// Administration requires `admin`, and nothing less: granting a role is what allows
-	// granting others, hence the only permission that propagates. The audit log is attached
-	// to it because it serves first to check those grants.
+	// granting others, hence the only permission that propagates.
 	mux.Handle("GET /admin/roles", Chain(http.HandlerFunc(admin.Roles),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 	mux.Handle("POST /admin/roles", Chain(http.HandlerFunc(admin.Grant),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	mux.Handle("DELETE /admin/roles/{subject}", Chain(http.HandlerFunc(admin.Revoke),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
-	mux.Handle("GET /admin/audit", Chain(http.HandlerFunc(admin.Audit),
+	// The journal, actions and events together. The actions say who did what across the
+	// instance, and an event's payload may carry a third-party forge's: it is the
+	// administrators'.
+	mux.Handle("GET /admin/journal", Chain(http.HandlerFunc(journal.List),
 		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
 
 	// Plugin settings require `admin`, at both scopes. They carry API keys — sealed, but whose
@@ -242,16 +244,6 @@ func NewAPIRouter(
 	// Activating a key no longer has a route: it used to be declared by hand, and it is now
 	// observed by the access check, which reads the repository's deploy keys. An intention
 	// could stay true after the key had been removed from the forge; an observation cannot.
-
-	// A project's fact feed. Read with the ordinary read permission: a fact says what
-	// happened to the project — a build concluded, a promotion succeeded — and knowing that
-	// requires no privilege.
-	//
-	// That will stop being true the day plugin facts carry a third-party forge's payload: a
-	// pull request's title says more than a version number. The permission will need
-	// revisiting then, with the real case in view rather than as a precaution here.
-	mux.Handle("GET /projects/{project}/events", Chain(http.HandlerFunc(events.List),
-		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// Plan runs, with ordinary read access.
 	//

@@ -65,25 +65,6 @@ export function useRevokeRole() {
   })
 }
 
-export type AuditEntry = {
-  id: number
-  actor: string
-  action: string
-  target?: string
-  payload?: Record<string, unknown>
-  at: string
-}
-
-export function useAudit(target: string) {
-  return useQuery({
-    queryKey: ['admin', 'audit', target],
-    queryFn: () =>
-      request<{ entries: AuditEntry[] }>(
-        `/admin/audit?limit=100${target ? `&target=${encodeURIComponent(target)}` : ''}`,
-      ),
-  })
-}
-
 export const ROLE_LABEL: Record<Role, string> = {
   viewer: 'Lecteur',
   operator: 'Opérateur',
@@ -96,6 +77,14 @@ export const ROLE_LABEL: Record<Role, string> = {
  *  disparaître. */
 export const ACTION_LABEL: Record<string, string> = {
   'release.create': 'Création de brouillon de release',
+  'release.release': 'Validation de release',
+  'release.rebuild': 'Reconstruction de release',
+  'release.verify': 'Relance de vérification',
+  'release.run': 'Pipeline lancé sur une release',
+  'release.note.add': 'Ajout à la note de release',
+  'release.note.remove': 'Retrait de la note de release',
+  'release.signoff': 'Avis de recette',
+  'release.signoff.clear': "Retrait d'un avis de recette",
   'release.launch': 'Lancement de release',
   'release.draft.update': 'Modification de brouillon',
   'release.draft.delete': 'Suppression de brouillon',
@@ -108,6 +97,25 @@ export const ACTION_LABEL: Record<string, string> = {
   'bench.baseline.pin': 'Épinglage de baseline',
   'role.grant': 'Attribution de rôle',
   'role.revoke': 'Retrait de rôle',
+  'queue.limit': "Plafond de file d'attente",
+  'score.weight': 'Poids dans le score',
+  'project.set': 'Déclaration de projet',
+  'project.remove': 'Retrait de projet',
+  'project.probe': "Vérification d'accès au dépôt",
+  'version.declare': 'Déclaration de version',
+  'automation.save': "Enregistrement d'automatisation",
+  'automation.disable': "Désactivation d'automatisation",
+  'reaction.save': 'Enregistrement de réaction',
+  'reaction.disable': 'Désactivation de réaction',
+  'reaction.delete': 'Suppression de réaction',
+  'schedule.save': 'Enregistrement de planification',
+  'schedule.delete': 'Suppression de planification',
+  'capability.binding': 'Liaison de capacité',
+  'capability.unbinding': 'Retrait de liaison de capacité',
+  'plugin.settings': 'Réglages de plugin',
+  'plugin.project.settings': "Réglages de plugin d'un projet",
+  'plugin.project.clear': "Retrait des réglages de plugin d'un projet",
+  'plugin.update.requested': 'Demande de mise à jour de plugin',
   'plugin.installation.requested': "Demande d'installation de plugin",
   'plugin.installed': 'Installation de plugin',
   'plugin.installation.failed': "Échec d'installation de plugin",

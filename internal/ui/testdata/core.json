@@ -214,17 +214,6 @@
       ]
     },
     {
-      "name": "events",
-      "path": "events",
-      "parent": "executions",
-      "blocks": [
-        {
-          "id": "core.events",
-          "component": "core/events"
-        }
-      ]
-    },
-    {
       "name": "plan-runs",
       "path": "automations",
       "parent": "executions",
@@ -348,15 +337,27 @@
       ]
     },
     {
-      "name": "admin-logs",
-      "path": "logs",
+      "name": "admin-journal",
+      "path": "journal",
       "parent": "admin",
       "blocks": [
         {
-          "id": "core.audit",
-          "component": "core/audit"
+          "id": "core.journal",
+          "component": "core/journal"
         }
       ]
+    },
+    {
+      "name": "admin-logs-former",
+      "path": "admin/logs",
+      "parent": "shell",
+      "redirect": "/admin/journal"
+    },
+    {
+      "name": "events-former",
+      "path": "runs/events",
+      "parent": "shell",
+      "redirect": "/admin/journal"
     },
     {
       "name": "project",
@@ -474,10 +475,10 @@
           "to": "/admin/users"
         },
         {
-          "id": "core.logs",
-          "label": "Journal d'audit",
+          "id": "core.journal",
+          "label": "Journal",
           "icon": "doc",
-          "to": "/admin/logs"
+          "to": "/admin/journal"
         }
       ]
     },
@@ -495,12 +496,6 @@
           "label": "File d'attente",
           "icon": "queue",
           "to": "/runs/queue"
-        },
-        {
-          "id": "core.events",
-          "label": "Faits",
-          "icon": "doc",
-          "to": "/runs/events"
         },
         {
           "id": "core.automations",

@@ -410,9 +410,8 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// The same catalogue as the queue: the screen shows what the instance can launch, and a
 			// second load could show something else.
 			dashhttp.NewProjectPipelinesHandler(db, inForce.Catalogs(), logger),
-			// The fact feed, read-only. Nothing reacts to it yet: it serves to answer "why did nothing
-			// happen?", a question that only makes sense once one can see what was actually observed.
-			dashhttp.NewEventsHandler(db),
+			// The journal: actions and events, each event with the automations it set off.
+			dashhttp.NewJournalHandler(db, logger),
 			// The same catalogue as the queue: the editor offers what the instance can launch, and a
 			// second load could offer something else.
 			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger).
