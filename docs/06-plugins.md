@@ -929,5 +929,7 @@ checks them at installation; the browser renders them. A number is written as is
 plugin in trouble does not take the core's screen with it.
 
 **Facts' labels** come from the manifest's `events`, served with the interface, read even while
-the plugin is switched off.
+the plugin is switched off. A plugin's facts are read in Administration, *Journal*, beside the
+core's. Its actions, recorded through `Host.Audit`, appear there too, under no project yet: the
+audit entry does not carry one.
 

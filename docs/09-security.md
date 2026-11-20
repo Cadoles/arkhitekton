@@ -243,4 +243,6 @@ dashboard's checks refuse the obvious escapes, the cluster enforces the rest.
 
 Every administrative act (role granted or revoked, plugin enabled, installed or refused, activated or
 uninstalled, its tables purged, capability bound, limit changed, project created) is recorded in `audit_log` with
-its actor, target and payload, and is readable at `GET /api/v1/admin/audit` by an administrator.
+its actor, target and payload, and the project when it was done on a project's route. It is read
+in Administration, *Journal*, beside the events (`GET /api/v1/admin/journal`), by an administrator
+only: the actions cover the whole instance, and an event's payload may carry a third-party forge's.
