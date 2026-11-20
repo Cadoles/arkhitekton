@@ -14,11 +14,13 @@ import (
 )
 
 type fakeAdminStore struct {
-	roles   []store.UserRole
-	granted []string
-	revoked []string
-	audit   []string
-	err     error
+	roles      []store.UserRole
+	accounts   []store.Account
+	groupRoles []store.GroupRole
+	granted    []string
+	revoked    []string
+	audit      []string
+	err        error
 }
 
 func (f *fakeAdminStore) ListUserRoles(context.Context) ([]store.UserRole, error) {
@@ -85,19 +87,15 @@ func adminRequest(method, path, body string) *http.Request {
 	return asRole(request, auth.RoleAdmin)
 }
 
-// The catalogue comes with the list: the interface offers the possible roles without
-// hard-coding them, and what a role allows stays decided by internal/auth.
+// The catalogue: the interface offers the possible roles without hard-coding them, and what a
+// role allows stays decided by internal/auth.
 func TestRolesCarryTheCatalogue(t *testing.T) {
-	fake := &fakeAdminStore{roles: []store.UserRole{
-		{Subject: "alice", Username: "alice", Role: "admin", GrantedBy: "bootstrap"},
-	}}
-	handler := NewAdminHandler(fake)
+	handler := NewAdminHandler(&fakeAdminStore{})
 
 	recorder := httptest.NewRecorder()
 	handler.Roles(recorder, adminRequest(http.MethodGet, "/admin/roles", ""))
 
 	var payload struct {
-		Roles     []userRolePayload `json:"roles"`
 		Catalogue []struct {
 			Role        string   `json:"role"`
 			Permissions []string `json:"permissions"`
@@ -124,11 +122,6 @@ func TestRolesCarryTheCatalogue(t *testing.T) {
 		if !canRun {
 			t.Errorf("releaser permissions = %v, expected cumulative", entry.Permissions)
 		}
-	}
-	// `bootstrap` surfaces: removing such a role without touching the configuration would make
-	// it reappear at the next restart.
-	if payload.Roles[0].GrantedBy != "bootstrap" {
-		t.Errorf("provenance = %q", payload.Roles[0].GrantedBy)
 	}
 }
 
@@ -230,4 +223,29 @@ func withSubject(request *http.Request, subject string) *http.Request {
 // an empty directory falls back to the subject — exactly what an unknown actor does.
 func (f *fakeAdminStore) Directory(context.Context) (map[string]string, error) {
 	return map[string]string{}, nil
+}
+
+func (f *fakeAdminStore) ListAccounts(context.Context) ([]store.Account, error) {
+	return f.accounts, nil
+}
+
+func (f *fakeAdminStore) ListGroupRoles(context.Context) ([]store.GroupRole, error) {
+	return f.groupRoles, nil
+}
+
+func (f *fakeAdminStore) SetGroupRoleIn(_ context.Context, group, role string, projectID *int64, _ string) error {
+	scope := ""
+	if projectID != nil {
+		scope = fmt.Sprintf("@%d", *projectID)
+	}
+	f.granted = append(f.granted, "group:"+group+"="+role+scope)
+	return nil
+}
+
+func (f *fakeAdminStore) ClearGroupRoleIn(_ context.Context, group string, _ *int64) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.revoked = append(f.revoked, "group:"+group)
+	return nil
 }

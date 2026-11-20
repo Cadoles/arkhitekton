@@ -2,69 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from '../../lib/api'
 import type { Role } from '../auth/session'
 
-export type UserRole = {
-  /** Identifiant du fournisseur d'identité. C'est lui qui porte l'autorisation :
-   *  un nom d'utilisateur change, un sujet non. */
-  subject: string
-  username?: string
-  role: Role
-  /** `bootstrap` pour les comptes promus par la configuration au démarrage.
-   *  Les retirer sans toucher à la configuration les fait réapparaître. */
-  granted_by: string
-  granted_at: string
-  /** Absent pour un compte habilité qui ne s'est jamais connecté — c'est ainsi
-   *  qu'un rôle attribué à un identifiant erroné se reconnaît. */
-  last_seen?: string
-  sessions: number
-  /** Portée du rôle. Absente quand il vaut partout — le cas courant. Une même
-   *  personne peut donc apparaître plusieurs fois : une ligne globale, une par
-   *  projet où une exception a été posée. */
-  project?: string
-  project_label?: string
-}
-
-export type RoleCatalogue = { role: Role; permissions: string[] }
-
-export function useRoles() {
-  return useQuery({
-    queryKey: ['admin', 'roles'],
-    queryFn: () => request<{ roles: UserRole[]; catalogue: RoleCatalogue[] }>('/admin/roles'),
-  })
-}
-
-export function useGrantRole() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (payload: { subject: string; username: string; role: Role; project?: string }) =>
-      request<{ subject: string; sessions_closed: boolean }>('/admin/roles', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin'] })
-    },
-  })
-}
-
-export function useRevokeRole() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    // La portée accompagne le retrait : « retirer le rôle de quelqu'un » n'a plus
-    // de sens unique depuis qu'il peut en avoir un par projet.
-    mutationFn: ({ subject, project }: { subject: string; project?: string }) =>
-      request<{ subject: string }>(
-        `/admin/roles/${encodeURIComponent(subject)}` +
-          (project ? `?project=${encodeURIComponent(project)}` : ''),
-        { method: 'DELETE' },
-      ),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin'] })
-    },
-  })
-}
-
 export const ROLE_LABEL: Record<Role, string> = {
   viewer: 'Lecteur',
   operator: 'Opérateur',
@@ -97,6 +34,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'bench.baseline.pin': 'Épinglage de baseline',
   'role.grant': 'Attribution de rôle',
   'role.revoke': 'Retrait de rôle',
+  'group.grant': 'Rôle donné à un groupe',
+  'group.revoke': "Retrait du rôle d'un groupe",
   'queue.limit': "Plafond de file d'attente",
   'score.weight': 'Poids dans le score',
   'project.set': 'Déclaration de projet',

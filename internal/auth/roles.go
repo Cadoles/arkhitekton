@@ -220,11 +220,19 @@ func (a *Authorizer) allows(role Role, permission Permission) bool {
 // Unknown or sensitive: releaser. Known and not sensitive: operator.
 func (a *Authorizer) minRoleForDeploy(project, environment string) Role {
 	policy, known := a.environments[project][environment]
-	if !known || policy.Sensitive {
+	return RoleForDeploy(!known || policy.Sensitive)
+}
+
+// RoleForDeploy is the minimum role promoting to an environment requires, by its sensitivity.
+func RoleForDeploy(sensitive bool) Role {
+	if sensitive {
 		return RoleReleaser
 	}
 	return RoleOperator
 }
+
+// Allows says whether a role is at least another: the roles are ordered.
+func (r Role) Allows(required Role) bool { return r.Valid() && r.rank() >= required.rank() }
 
 // ParseRole validates a role coming from the database or from an administrator's
 // input.
