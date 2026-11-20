@@ -27,10 +27,11 @@ import (
 const (
 	BootstrapGrants   = "grants"
 	BootstrapProjects = "projects"
-	// BootstrapTrackers attaches already-declared projects to their tracking tool.
+	// BootstrapTrackers attaches already-declared projects to their tracking tool: the tracker
+	// plugin's setting names the project there.
 	//
 	// A step distinct from `projects`, and that is what makes it useful: that one was claimed
-	// before `tracker_project` existed, and a step already claimed is never replayed. Without
+	// before projects named their tracker, and a step already claimed is never replayed. Without
 	// this second step, an existing deployment would silently lose the link to its tracker
 	// the day the code began to honour it.
 	BootstrapTrackers = "trackers"
@@ -54,6 +55,8 @@ type Grant struct {
 type BootstrapSpec struct {
 	Grants   []Grant
 	Projects []Project
+	// Trackers names, by repository, the project each one is in its tracker.
+	Trackers map[string]string
 	// Plugins carries the settings derived from the configuration, with secrets already
 	// sealed.
 	//
@@ -119,7 +122,7 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 	}
 
 	applied, count, err = db.applyStep(ctx, BootstrapTrackers, func(ctx context.Context) (int, string, error) {
-		linked, err := db.seedTrackers(ctx, spec.Projects)
+		linked, err := db.seedTrackers(ctx, spec.Trackers, spec.TrackerPluginID)
 		return linked, fmt.Sprintf("%d tracker(s) attached", linked), err
 	})
 	switch {
@@ -132,7 +135,7 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 	}
 
 	applied, count, err = db.applyStep(ctx, BootstrapPlugins, func(ctx context.Context) (int, string, error) {
-		posed, err := db.seedPlugins(ctx, spec.Plugins, spec.TrackerPluginID)
+		posed, err := db.seedPlugins(ctx, spec.Plugins)
 		return posed, fmt.Sprintf("%d setting(s)", posed), err
 	})
 	switch {
@@ -147,20 +150,27 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 	return report, errors.Join(problems...)
 }
 
-// seedTrackers attaches to their tracker the projects that declare none.
-func (db *DB) seedTrackers(ctx context.Context, projects []Project) (int, error) {
+// seedTrackers attaches to their tracker the projects whose tracker plugin names none.
+func (db *DB) seedTrackers(ctx context.Context, trackers map[string]string, pluginID string) (int, error) {
+	if strings.TrimSpace(pluginID) == "" {
+		return 0, nil
+	}
 	linked := 0
-	for _, project := range projects {
-		if strings.TrimSpace(project.TrackerProject) == "" || project.Repository == "" {
+	for repository, trackerProject := range trackers {
+		if strings.TrimSpace(trackerProject) == "" || repository == "" {
 			continue
 		}
 
 		tag, err := db.pool.Exec(ctx,
-			`update projects set tracker_project = $2, updated_at = now()
-			 where repository = $1 and coalesce(trim(tracker_project), '') = ''`,
-			project.Repository, project.TrackerProject)
+			`insert into project_plugins (project_id, plugin_id, enabled, config)
+			 select id, $2, true, jsonb_build_object('project', $3::text)
+			 from projects where repository = $1
+			 on conflict (project_id, plugin_id) do update
+			 set config = project_plugins.config || excluded.config, updated_at = now()
+			 where coalesce(btrim(project_plugins.config->>'project'), '') = ''`,
+			repository, pluginID, trackerProject)
 		if err != nil {
-			return linked, fmt.Errorf("attaching the tracker of %q: %w", project.Repository, err)
+			return linked, fmt.Errorf("attaching the tracker of %q: %w", repository, err)
 		}
 		linked += int(tag.RowsAffected())
 	}

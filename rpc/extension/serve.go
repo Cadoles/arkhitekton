@@ -70,6 +70,9 @@ type Hooks struct {
 	Promoted func(at time.Time, linked JobReleaseContext) (Event, bool)
 	// ProjectSettings returns the configuration values a project adds to its pipelines.
 	ProjectSettings func(ctx context.Context, projectID int64) (map[string]string, error)
+	// ReleaseFiles returns the files a release's launch commits on its branch, before its tag is
+	// set: a version file, for instance. None leaves the branch as it is.
+	ReleaseFiles func(ctx context.Context, launch ReleaseLaunch) ([]ReleaseFile, error)
 	// Module runs until its context ends, for the projects that switch the plugin on. It is
 	// started again with the new state when settings or projects change.
 	Module func(ctx context.Context, state ModuleState) error
@@ -349,6 +352,28 @@ func (s *server) ProjectSettings(ctx context.Context, request *pluginv1.ProjectR
 		return nil, err
 	}
 	return &pluginv1.Settings{Values: values}, nil
+}
+
+func (s *server) ReleaseFiles(ctx context.Context, request *pluginv1.ReleaseFilesRequest) (*pluginv1.ReleaseFileList, error) {
+	hooks, err := s.started()
+	if err != nil {
+		return nil, err
+	}
+	if hooks.ReleaseFiles == nil {
+		return nil, unimplemented("release files")
+	}
+	files, err := hooks.ReleaseFiles(ctx, ReleaseLaunch{
+		ProjectID: request.GetProjectId(), ReleaseID: request.GetReleaseId(),
+		Tag: request.GetTag(), GitRef: request.GetGitRef(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	answer := &pluginv1.ReleaseFileList{}
+	for _, file := range files {
+		answer.Files = append(answer.Files, &pluginv1.ReleaseFile{Path: file.Path, Content: file.Content})
+	}
+	return answer, nil
 }
 
 func (s *server) RunModule(request *pluginv1.ModuleState, stream pluginv1.Plugin_RunModuleServer) error {

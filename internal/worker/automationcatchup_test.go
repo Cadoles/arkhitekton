@@ -185,18 +185,18 @@ func stepNamed(t *testing.T, subject plan.Plan, ref string) plan.Geste {
 	return plan.Geste{}
 }
 
-// A stack's tests chain only for a project of that stack, and a project naming none keeps PHP's,
-// which were the only ones before a second stack existed. A kind of no stack chains for all.
-func TestAStacksTestsChainOnlyForItsProjects(t *testing.T) {
+// A catch-up chains PHP's tests and not Go's: they were the only ones before a second language
+// existed. A kind of no language chains for all.
+func TestACatchUpChainsOnlyTheLegacyLanguagesTests(t *testing.T) {
 	registry := testCatalogue(t)
 	unit, _ := registry.Find("unit-tests")
 	for _, kind := range []string{"php/unit-tests", "go/unit-tests"} {
 		unit.Kind = kind
 		registry.Pipelines = append(registry.Pipelines, unit)
 	}
-	php, golang := twoImageProject(), twoImageProject()
-	golang.ID, golang.Slug, golang.Stack = 2, "api", "go"
-	db := newCatchUpStore(php, golang)
+	php, other := twoImageProject(), twoImageProject()
+	other.ID, other.Slug = 2, "api"
+	db := newCatchUpStore(php, other)
 	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithStacks("php", "go").
 		Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestAStacksTestsChainOnlyForItsProjects(t *testing.T) {
 
 	for id, expected := range map[int64]map[string]bool{
 		1: {"php/unit-tests": true, "unit-tests": true},
-		2: {"go/unit-tests": true, "unit-tests": true},
+		2: {"php/unit-tests": true, "unit-tests": true},
 	} {
 		chained := map[string]bool{}
 		for _, geste := range db.written[id].Stages[1].Gestes {

@@ -516,13 +516,11 @@ func migrated(t *testing.T) *DB {
 
 	db := migratedBare(t)
 	if _, err := db.Pool().Exec(context.Background(),
-		// With a tracker: most of these tests are about matching releases with a project
-		// management tool's versions, which only means something for a tracked project. The
-		// untracked case has its own test.
+		// Most of these tests are about matching releases with a tracker's versions: they ask
+		// EnsureVersion for a tracked project. The untracked case has its own test.
 		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
-		                       tracker_project, created_by)
-		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.',
-		         'projet-suivi', 'test')`,
+		                       created_by)
+		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`,
 		testProjectSlug); err != nil {
 		t.Fatalf("test project: %v", err)
 	}

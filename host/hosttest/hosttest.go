@@ -74,7 +74,7 @@ func (d *Database) MigrateCore(t *testing.T) {
 func (d *Database) Release(t *testing.T, projectID int64, tag, imageVersion string) int64 {
 	t.Helper()
 	ctx := context.Background()
-	versionID, err := d.core.EnsureVersion(ctx, projectID, "1.8.0")
+	versionID, err := d.core.EnsureVersion(ctx, projectID, "1.8.0", false)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}

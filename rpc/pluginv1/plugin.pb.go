@@ -772,10 +772,11 @@ type Project struct {
 	Dockerfile    string                 `protobuf:"bytes,6,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
 	BuildContext  string                 `protobuf:"bytes,7,opt,name=build_context,json=buildContext,proto3" json:"build_context,omitempty"`
 	ImageRegistry string                 `protobuf:"bytes,8,opt,name=image_registry,json=imageRegistry,proto3" json:"image_registry,omitempty"`
-	Stack         string                 `protobuf:"bytes,9,opt,name=stack,proto3" json:"stack,omitempty"`
-	VersionScheme string                 `protobuf:"bytes,10,opt,name=version_scheme,json=versionScheme,proto3" json:"version_scheme,omitempty"`
-	Targets       []*Target              `protobuf:"bytes,11,rep,name=targets,proto3" json:"targets,omitempty"`
-	MultiStage    bool                   `protobuf:"varint,12,opt,name=multi_stage,json=multiStage,proto3" json:"multi_stage,omitempty"`
+	// Always empty: a project no longer declares a stack. Kept for the plugins built before.
+	Stack         string    `protobuf:"bytes,9,opt,name=stack,proto3" json:"stack,omitempty"`
+	VersionScheme string    `protobuf:"bytes,10,opt,name=version_scheme,json=versionScheme,proto3" json:"version_scheme,omitempty"`
+	Targets       []*Target `protobuf:"bytes,11,rep,name=targets,proto3" json:"targets,omitempty"`
+	MultiStage    bool      `protobuf:"varint,12,opt,name=multi_stage,json=multiStage,proto3" json:"multi_stage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2701,6 +2702,172 @@ func (x *Scheme) GetId() string {
 	return ""
 }
 
+type ReleaseFilesRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ProjectId int64                  `protobuf:"varint,1,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	ReleaseId int64                  `protobuf:"varint,2,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
+	Tag       string                 `protobuf:"bytes,3,opt,name=tag,proto3" json:"tag,omitempty"`
+	// GitRef is the branch the release builds, where the files are committed.
+	GitRef        string `protobuf:"bytes,4,opt,name=git_ref,json=gitRef,proto3" json:"git_ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseFilesRequest) Reset() {
+	*x = ReleaseFilesRequest{}
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseFilesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseFilesRequest) ProtoMessage() {}
+
+func (x *ReleaseFilesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseFilesRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseFilesRequest) Descriptor() ([]byte, []int) {
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ReleaseFilesRequest) GetProjectId() int64 {
+	if x != nil {
+		return x.ProjectId
+	}
+	return 0
+}
+
+func (x *ReleaseFilesRequest) GetReleaseId() int64 {
+	if x != nil {
+		return x.ReleaseId
+	}
+	return 0
+}
+
+func (x *ReleaseFilesRequest) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+func (x *ReleaseFilesRequest) GetGitRef() string {
+	if x != nil {
+		return x.GitRef
+	}
+	return ""
+}
+
+type ReleaseFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Path is relative to the repository's root.
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Content       string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseFile) Reset() {
+	*x = ReleaseFile{}
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseFile) ProtoMessage() {}
+
+func (x *ReleaseFile) ProtoReflect() protoreflect.Message {
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseFile.ProtoReflect.Descriptor instead.
+func (*ReleaseFile) Descriptor() ([]byte, []int) {
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ReleaseFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ReleaseFile) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type ReleaseFileList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Files         []*ReleaseFile         `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseFileList) Reset() {
+	*x = ReleaseFileList{}
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseFileList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseFileList) ProtoMessage() {}
+
+func (x *ReleaseFileList) ProtoReflect() protoreflect.Message {
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseFileList.ProtoReflect.Descriptor instead.
+func (*ReleaseFileList) Descriptor() ([]byte, []int) {
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ReleaseFileList) GetFiles() []*ReleaseFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
 type Refusal struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Reason is empty when the scheme is accepted.
@@ -2711,7 +2878,7 @@ type Refusal struct {
 
 func (x *Refusal) Reset() {
 	*x = Refusal{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[38]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2723,7 +2890,7 @@ func (x *Refusal) String() string {
 func (*Refusal) ProtoMessage() {}
 
 func (x *Refusal) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[38]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2736,7 +2903,7 @@ func (x *Refusal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Refusal.ProtoReflect.Descriptor instead.
 func (*Refusal) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{38}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *Refusal) GetReason() string {
@@ -2764,7 +2931,7 @@ type PromotedRequest struct {
 
 func (x *PromotedRequest) Reset() {
 	*x = PromotedRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[39]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2776,7 +2943,7 @@ func (x *PromotedRequest) String() string {
 func (*PromotedRequest) ProtoMessage() {}
 
 func (x *PromotedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[39]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2789,7 +2956,7 @@ func (x *PromotedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromotedRequest.ProtoReflect.Descriptor instead.
 func (*PromotedRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{39}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PromotedRequest) GetOccurredAt() string {
@@ -2878,7 +3045,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[40]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2890,7 +3057,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[40]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2903,7 +3070,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{40}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *Event) GetStated() bool {
@@ -2957,7 +3124,7 @@ type Settings struct {
 
 func (x *Settings) Reset() {
 	*x = Settings{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[41]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2969,7 +3136,7 @@ func (x *Settings) String() string {
 func (*Settings) ProtoMessage() {}
 
 func (x *Settings) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[41]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2982,7 +3149,7 @@ func (x *Settings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Settings.ProtoReflect.Descriptor instead.
 func (*Settings) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{41}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *Settings) GetValues() map[string]string {
@@ -3002,7 +3169,7 @@ type ModuleProject struct {
 
 func (x *ModuleProject) Reset() {
 	*x = ModuleProject{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[42]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3014,7 +3181,7 @@ func (x *ModuleProject) String() string {
 func (*ModuleProject) ProtoMessage() {}
 
 func (x *ModuleProject) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[42]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3027,7 +3194,7 @@ func (x *ModuleProject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModuleProject.ProtoReflect.Descriptor instead.
 func (*ModuleProject) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{42}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ModuleProject) GetProject() *Project {
@@ -3054,7 +3221,7 @@ type ModuleState struct {
 
 func (x *ModuleState) Reset() {
 	*x = ModuleState{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[43]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3066,7 +3233,7 @@ func (x *ModuleState) String() string {
 func (*ModuleState) ProtoMessage() {}
 
 func (x *ModuleState) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[43]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3079,7 +3246,7 @@ func (x *ModuleState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModuleState.ProtoReflect.Descriptor instead.
 func (*ModuleState) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{43}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ModuleState) GetGlobal() map[string]string {
@@ -3104,7 +3271,7 @@ type ModuleStatus struct {
 
 func (x *ModuleStatus) Reset() {
 	*x = ModuleStatus{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[44]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3116,7 +3283,7 @@ func (x *ModuleStatus) String() string {
 func (*ModuleStatus) ProtoMessage() {}
 
 func (x *ModuleStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[44]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3129,7 +3296,7 @@ func (x *ModuleStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModuleStatus.ProtoReflect.Descriptor instead.
 func (*ModuleStatus) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{44}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{47}
 }
 
 // ProviderTarget is what the plugin is given to reach its tracker or forge for one project.
@@ -3148,7 +3315,7 @@ type ProviderTarget struct {
 
 func (x *ProviderTarget) Reset() {
 	*x = ProviderTarget{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[45]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3160,7 +3327,7 @@ func (x *ProviderTarget) String() string {
 func (*ProviderTarget) ProtoMessage() {}
 
 func (x *ProviderTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[45]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3173,7 +3340,7 @@ func (x *ProviderTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderTarget.ProtoReflect.Descriptor instead.
 func (*ProviderTarget) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{45}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ProviderTarget) GetProject() string {
@@ -3215,7 +3382,7 @@ type ConnectRequest struct {
 
 func (x *ConnectRequest) Reset() {
 	*x = ConnectRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[46]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3227,7 +3394,7 @@ func (x *ConnectRequest) String() string {
 func (*ConnectRequest) ProtoMessage() {}
 
 func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[46]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3240,7 +3407,7 @@ func (x *ConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectRequest.ProtoReflect.Descriptor instead.
 func (*ConnectRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{46}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ConnectRequest) GetKind() string {
@@ -3268,7 +3435,7 @@ type ConnectResponse struct {
 
 func (x *ConnectResponse) Reset() {
 	*x = ConnectResponse{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[47]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3280,7 +3447,7 @@ func (x *ConnectResponse) String() string {
 func (*ConnectResponse) ProtoMessage() {}
 
 func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[47]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3293,7 +3460,7 @@ func (x *ConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectResponse.ProtoReflect.Descriptor instead.
 func (*ConnectResponse) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{47}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ConnectResponse) GetAbsent() bool {
@@ -3313,7 +3480,7 @@ type Links struct {
 
 func (x *Links) Reset() {
 	*x = Links{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[48]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3325,7 +3492,7 @@ func (x *Links) String() string {
 func (*Links) ProtoMessage() {}
 
 func (x *Links) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[48]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3338,7 +3505,7 @@ func (x *Links) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Links.ProtoReflect.Descriptor instead.
 func (*Links) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{48}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *Links) GetVersion() string {
@@ -3365,7 +3532,7 @@ type ProviderRequest struct {
 
 func (x *ProviderRequest) Reset() {
 	*x = ProviderRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[49]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3377,7 +3544,7 @@ func (x *ProviderRequest) String() string {
 func (*ProviderRequest) ProtoMessage() {}
 
 func (x *ProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[49]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3390,7 +3557,7 @@ func (x *ProviderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderRequest.ProtoReflect.Descriptor instead.
 func (*ProviderRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{49}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ProviderRequest) GetTarget() *ProviderTarget {
@@ -3416,7 +3583,7 @@ type ProviderResponse struct {
 
 func (x *ProviderResponse) Reset() {
 	*x = ProviderResponse{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[50]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3428,7 +3595,7 @@ func (x *ProviderResponse) String() string {
 func (*ProviderResponse) ProtoMessage() {}
 
 func (x *ProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[50]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3441,7 +3608,7 @@ func (x *ProviderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderResponse.ProtoReflect.Descriptor instead.
 func (*ProviderResponse) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{50}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ProviderResponse) GetResult() []byte {
@@ -3462,7 +3629,7 @@ type PollRequest struct {
 
 func (x *PollRequest) Reset() {
 	*x = PollRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[51]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3474,7 +3641,7 @@ func (x *PollRequest) String() string {
 func (*PollRequest) ProtoMessage() {}
 
 func (x *PollRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[51]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3487,7 +3654,7 @@ func (x *PollRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PollRequest.ProtoReflect.Descriptor instead.
 func (*PollRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{51}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PollRequest) GetProbe() string {
@@ -3522,7 +3689,7 @@ type PollResponse struct {
 
 func (x *PollResponse) Reset() {
 	*x = PollResponse{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[52]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3534,7 +3701,7 @@ func (x *PollResponse) String() string {
 func (*PollResponse) ProtoMessage() {}
 
 func (x *PollResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[52]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3547,7 +3714,7 @@ func (x *PollResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PollResponse.ProtoReflect.Descriptor instead.
 func (*PollResponse) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{52}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *PollResponse) GetObservations() []byte {
@@ -3576,7 +3743,7 @@ type ReceiveRequest struct {
 
 func (x *ReceiveRequest) Reset() {
 	*x = ReceiveRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[53]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3588,7 +3755,7 @@ func (x *ReceiveRequest) String() string {
 func (*ReceiveRequest) ProtoMessage() {}
 
 func (x *ReceiveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[53]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3601,7 +3768,7 @@ func (x *ReceiveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiveRequest.ProtoReflect.Descriptor instead.
 func (*ReceiveRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{53}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ReceiveRequest) GetTarget() *ProviderTarget {
@@ -3635,7 +3802,7 @@ type ReceiveResponse struct {
 
 func (x *ReceiveResponse) Reset() {
 	*x = ReceiveResponse{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[54]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3647,7 +3814,7 @@ func (x *ReceiveResponse) String() string {
 func (*ReceiveResponse) ProtoMessage() {}
 
 func (x *ReceiveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[54]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3660,7 +3827,7 @@ func (x *ReceiveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiveResponse.ProtoReflect.Descriptor instead.
 func (*ReceiveResponse) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{54}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ReceiveResponse) GetObservations() []byte {
@@ -3681,7 +3848,7 @@ type ExecuteRequest struct {
 
 func (x *ExecuteRequest) Reset() {
 	*x = ExecuteRequest{}
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[55]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3693,7 +3860,7 @@ func (x *ExecuteRequest) String() string {
 func (*ExecuteRequest) ProtoMessage() {}
 
 func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[55]
+	mi := &file_arkhitekton_plugin_v1_plugin_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3706,7 +3873,7 @@ func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{55}
+	return file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ExecuteRequest) GetTarget() *ProviderTarget {
@@ -4005,7 +4172,19 @@ const file_arkhitekton_plugin_v1_plugin_proto_rawDesc = "" +
 	"\aoffered\x18\x01 \x01(\bR\aoffered\x12C\n" +
 	"\vsuggestions\x18\x02 \x03(\v2!.arkhitekton.plugin.v1.SuggestionR\vsuggestions\"\x18\n" +
 	"\x06Scheme\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"!\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"~\n" +
+	"\x13ReleaseFilesRequest\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x01 \x01(\x03R\tprojectId\x12\x1d\n" +
+	"\n" +
+	"release_id\x18\x02 \x01(\x03R\treleaseId\x12\x10\n" +
+	"\x03tag\x18\x03 \x01(\tR\x03tag\x12\x17\n" +
+	"\agit_ref\x18\x04 \x01(\tR\x06gitRef\";\n" +
+	"\vReleaseFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"K\n" +
+	"\x0fReleaseFileList\x128\n" +
+	"\x05files\x18\x01 \x03(\v2\".arkhitekton.plugin.v1.ReleaseFileR\x05files\"!\n" +
 	"\aRefusal\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x9d\x02\n" +
 	"\x0fPromotedRequest\x12\x1f\n" +
@@ -4096,7 +4275,7 @@ const file_arkhitekton_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x06params\x18\x03 \x03(\v21.arkhitekton.plugin.v1.ExecuteRequest.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\x8c\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xf0\x14\n" +
 	"\x06Plugin\x12O\n" +
 	"\x04Init\x12\".arkhitekton.plugin.v1.InitRequest\x1a#.arkhitekton.plugin.v1.InitResponse\x12^\n" +
 	"\tInterpret\x12'.arkhitekton.plugin.v1.InterpretRequest\x1a(.arkhitekton.plugin.v1.InterpretResponse\x12P\n" +
@@ -4107,7 +4286,8 @@ const file_arkhitekton_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x16EnvironmentSuggestions\x12\".arkhitekton.plugin.v1.ProjectSlug\x1a\".arkhitekton.plugin.v1.Suggestions\x12L\n" +
 	"\vCheckScheme\x12\x1d.arkhitekton.plugin.v1.Scheme\x1a\x1e.arkhitekton.plugin.v1.Refusal\x12P\n" +
 	"\bPromoted\x12&.arkhitekton.plugin.v1.PromotedRequest\x1a\x1c.arkhitekton.plugin.v1.Event\x12U\n" +
-	"\x0fProjectSettings\x12!.arkhitekton.plugin.v1.ProjectRef\x1a\x1f.arkhitekton.plugin.v1.Settings\x12V\n" +
+	"\x0fProjectSettings\x12!.arkhitekton.plugin.v1.ProjectRef\x1a\x1f.arkhitekton.plugin.v1.Settings\x12b\n" +
+	"\fReleaseFiles\x12*.arkhitekton.plugin.v1.ReleaseFilesRequest\x1a&.arkhitekton.plugin.v1.ReleaseFileList\x12V\n" +
 	"\tRunModule\x12\".arkhitekton.plugin.v1.ModuleState\x1a#.arkhitekton.plugin.v1.ModuleStatus0\x01\x12X\n" +
 	"\aConnect\x12%.arkhitekton.plugin.v1.ConnectRequest\x1a&.arkhitekton.plugin.v1.ConnectResponse\x12M\n" +
 	"\fTrackerLinks\x12\x1f.arkhitekton.plugin.v1.Settings\x1a\x1c.arkhitekton.plugin.v1.Links\x12_\n" +
@@ -4153,88 +4333,91 @@ func file_arkhitekton_plugin_v1_plugin_proto_rawDescGZIP() []byte {
 	return file_arkhitekton_plugin_v1_plugin_proto_rawDescData
 }
 
-var file_arkhitekton_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
+var file_arkhitekton_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_arkhitekton_plugin_v1_plugin_proto_goTypes = []any{
-	(*Empty)(nil),             // 0: arkhitekton.plugin.v1.Empty
-	(*InitRequest)(nil),       // 1: arkhitekton.plugin.v1.InitRequest
-	(*InitResponse)(nil),      // 2: arkhitekton.plugin.v1.InitResponse
-	(*InterpretRequest)(nil),  // 3: arkhitekton.plugin.v1.InterpretRequest
-	(*InterpretResponse)(nil), // 4: arkhitekton.plugin.v1.InterpretResponse
-	(*Identity)(nil),          // 5: arkhitekton.plugin.v1.Identity
-	(*HTTPRequest)(nil),       // 6: arkhitekton.plugin.v1.HTTPRequest
-	(*HTTPResponse)(nil),      // 7: arkhitekton.plugin.v1.HTTPResponse
-	(*ProjectRef)(nil),        // 8: arkhitekton.plugin.v1.ProjectRef
-	(*ProjectSlug)(nil),       // 9: arkhitekton.plugin.v1.ProjectSlug
-	(*ReleaseRef)(nil),        // 10: arkhitekton.plugin.v1.ReleaseRef
-	(*ReleaseByTag)(nil),      // 11: arkhitekton.plugin.v1.ReleaseByTag
-	(*Target)(nil),            // 12: arkhitekton.plugin.v1.Target
-	(*Project)(nil),           // 13: arkhitekton.plugin.v1.Project
-	(*Release)(nil),           // 14: arkhitekton.plugin.v1.Release
-	(*JobRequest)(nil),        // 15: arkhitekton.plugin.v1.JobRequest
-	(*JobID)(nil),             // 16: arkhitekton.plugin.v1.JobID
-	(*AuditEntry)(nil),        // 17: arkhitekton.plugin.v1.AuditEntry
-	(*PluginSettings)(nil),    // 18: arkhitekton.plugin.v1.PluginSettings
-	(*Environment)(nil),       // 19: arkhitekton.plugin.v1.Environment
-	(*EnvironmentList)(nil),   // 20: arkhitekton.plugin.v1.EnvironmentList
-	(*Authorization)(nil),     // 21: arkhitekton.plugin.v1.Authorization
-	(*Decision)(nil),          // 22: arkhitekton.plugin.v1.Decision
-	(*ReleaseDossier)(nil),    // 23: arkhitekton.plugin.v1.ReleaseDossier
-	(*ManualActions)(nil),     // 24: arkhitekton.plugin.v1.ManualActions
-	(*DossierNote)(nil),       // 25: arkhitekton.plugin.v1.DossierNote
-	(*DossierArtifact)(nil),   // 26: arkhitekton.plugin.v1.DossierArtifact
-	(*DossierResult)(nil),     // 27: arkhitekton.plugin.v1.DossierResult
-	(*DossierScore)(nil),      // 28: arkhitekton.plugin.v1.DossierScore
-	(*DossierSignal)(nil),     // 29: arkhitekton.plugin.v1.DossierSignal
-	(*DossierAudit)(nil),      // 30: arkhitekton.plugin.v1.DossierAudit
-	(*DeploymentMap)(nil),     // 31: arkhitekton.plugin.v1.DeploymentMap
-	(*EnvironmentIDs)(nil),    // 32: arkhitekton.plugin.v1.EnvironmentIDs
-	(*Promotion)(nil),         // 33: arkhitekton.plugin.v1.Promotion
-	(*PromotionList)(nil),     // 34: arkhitekton.plugin.v1.PromotionList
-	(*Suggestion)(nil),        // 35: arkhitekton.plugin.v1.Suggestion
-	(*Suggestions)(nil),       // 36: arkhitekton.plugin.v1.Suggestions
-	(*Scheme)(nil),            // 37: arkhitekton.plugin.v1.Scheme
-	(*Refusal)(nil),           // 38: arkhitekton.plugin.v1.Refusal
-	(*PromotedRequest)(nil),   // 39: arkhitekton.plugin.v1.PromotedRequest
-	(*Event)(nil),             // 40: arkhitekton.plugin.v1.Event
-	(*Settings)(nil),          // 41: arkhitekton.plugin.v1.Settings
-	(*ModuleProject)(nil),     // 42: arkhitekton.plugin.v1.ModuleProject
-	(*ModuleState)(nil),       // 43: arkhitekton.plugin.v1.ModuleState
-	(*ModuleStatus)(nil),      // 44: arkhitekton.plugin.v1.ModuleStatus
-	(*ProviderTarget)(nil),    // 45: arkhitekton.plugin.v1.ProviderTarget
-	(*ConnectRequest)(nil),    // 46: arkhitekton.plugin.v1.ConnectRequest
-	(*ConnectResponse)(nil),   // 47: arkhitekton.plugin.v1.ConnectResponse
-	(*Links)(nil),             // 48: arkhitekton.plugin.v1.Links
-	(*ProviderRequest)(nil),   // 49: arkhitekton.plugin.v1.ProviderRequest
-	(*ProviderResponse)(nil),  // 50: arkhitekton.plugin.v1.ProviderResponse
-	(*PollRequest)(nil),       // 51: arkhitekton.plugin.v1.PollRequest
-	(*PollResponse)(nil),      // 52: arkhitekton.plugin.v1.PollResponse
-	(*ReceiveRequest)(nil),    // 53: arkhitekton.plugin.v1.ReceiveRequest
-	(*ReceiveResponse)(nil),   // 54: arkhitekton.plugin.v1.ReceiveResponse
-	(*ExecuteRequest)(nil),    // 55: arkhitekton.plugin.v1.ExecuteRequest
-	nil,                       // 56: arkhitekton.plugin.v1.Identity.ProjectRolesEntry
-	nil,                       // 57: arkhitekton.plugin.v1.HTTPRequest.HeadersEntry
-	nil,                       // 58: arkhitekton.plugin.v1.HTTPResponse.HeadersEntry
-	nil,                       // 59: arkhitekton.plugin.v1.JobRequest.ParamsEntry
-	nil,                       // 60: arkhitekton.plugin.v1.PluginSettings.ConfigEntry
-	nil,                       // 61: arkhitekton.plugin.v1.Environment.DeployerEntry
-	nil,                       // 62: arkhitekton.plugin.v1.DeploymentMap.ByTagEntry
-	nil,                       // 63: arkhitekton.plugin.v1.Event.PayloadEntry
-	nil,                       // 64: arkhitekton.plugin.v1.Settings.ValuesEntry
-	nil,                       // 65: arkhitekton.plugin.v1.ModuleProject.SettingsEntry
-	nil,                       // 66: arkhitekton.plugin.v1.ModuleState.GlobalEntry
-	nil,                       // 67: arkhitekton.plugin.v1.ProviderTarget.SettingsEntry
-	nil,                       // 68: arkhitekton.plugin.v1.ExecuteRequest.ParamsEntry
+	(*Empty)(nil),               // 0: arkhitekton.plugin.v1.Empty
+	(*InitRequest)(nil),         // 1: arkhitekton.plugin.v1.InitRequest
+	(*InitResponse)(nil),        // 2: arkhitekton.plugin.v1.InitResponse
+	(*InterpretRequest)(nil),    // 3: arkhitekton.plugin.v1.InterpretRequest
+	(*InterpretResponse)(nil),   // 4: arkhitekton.plugin.v1.InterpretResponse
+	(*Identity)(nil),            // 5: arkhitekton.plugin.v1.Identity
+	(*HTTPRequest)(nil),         // 6: arkhitekton.plugin.v1.HTTPRequest
+	(*HTTPResponse)(nil),        // 7: arkhitekton.plugin.v1.HTTPResponse
+	(*ProjectRef)(nil),          // 8: arkhitekton.plugin.v1.ProjectRef
+	(*ProjectSlug)(nil),         // 9: arkhitekton.plugin.v1.ProjectSlug
+	(*ReleaseRef)(nil),          // 10: arkhitekton.plugin.v1.ReleaseRef
+	(*ReleaseByTag)(nil),        // 11: arkhitekton.plugin.v1.ReleaseByTag
+	(*Target)(nil),              // 12: arkhitekton.plugin.v1.Target
+	(*Project)(nil),             // 13: arkhitekton.plugin.v1.Project
+	(*Release)(nil),             // 14: arkhitekton.plugin.v1.Release
+	(*JobRequest)(nil),          // 15: arkhitekton.plugin.v1.JobRequest
+	(*JobID)(nil),               // 16: arkhitekton.plugin.v1.JobID
+	(*AuditEntry)(nil),          // 17: arkhitekton.plugin.v1.AuditEntry
+	(*PluginSettings)(nil),      // 18: arkhitekton.plugin.v1.PluginSettings
+	(*Environment)(nil),         // 19: arkhitekton.plugin.v1.Environment
+	(*EnvironmentList)(nil),     // 20: arkhitekton.plugin.v1.EnvironmentList
+	(*Authorization)(nil),       // 21: arkhitekton.plugin.v1.Authorization
+	(*Decision)(nil),            // 22: arkhitekton.plugin.v1.Decision
+	(*ReleaseDossier)(nil),      // 23: arkhitekton.plugin.v1.ReleaseDossier
+	(*ManualActions)(nil),       // 24: arkhitekton.plugin.v1.ManualActions
+	(*DossierNote)(nil),         // 25: arkhitekton.plugin.v1.DossierNote
+	(*DossierArtifact)(nil),     // 26: arkhitekton.plugin.v1.DossierArtifact
+	(*DossierResult)(nil),       // 27: arkhitekton.plugin.v1.DossierResult
+	(*DossierScore)(nil),        // 28: arkhitekton.plugin.v1.DossierScore
+	(*DossierSignal)(nil),       // 29: arkhitekton.plugin.v1.DossierSignal
+	(*DossierAudit)(nil),        // 30: arkhitekton.plugin.v1.DossierAudit
+	(*DeploymentMap)(nil),       // 31: arkhitekton.plugin.v1.DeploymentMap
+	(*EnvironmentIDs)(nil),      // 32: arkhitekton.plugin.v1.EnvironmentIDs
+	(*Promotion)(nil),           // 33: arkhitekton.plugin.v1.Promotion
+	(*PromotionList)(nil),       // 34: arkhitekton.plugin.v1.PromotionList
+	(*Suggestion)(nil),          // 35: arkhitekton.plugin.v1.Suggestion
+	(*Suggestions)(nil),         // 36: arkhitekton.plugin.v1.Suggestions
+	(*Scheme)(nil),              // 37: arkhitekton.plugin.v1.Scheme
+	(*ReleaseFilesRequest)(nil), // 38: arkhitekton.plugin.v1.ReleaseFilesRequest
+	(*ReleaseFile)(nil),         // 39: arkhitekton.plugin.v1.ReleaseFile
+	(*ReleaseFileList)(nil),     // 40: arkhitekton.plugin.v1.ReleaseFileList
+	(*Refusal)(nil),             // 41: arkhitekton.plugin.v1.Refusal
+	(*PromotedRequest)(nil),     // 42: arkhitekton.plugin.v1.PromotedRequest
+	(*Event)(nil),               // 43: arkhitekton.plugin.v1.Event
+	(*Settings)(nil),            // 44: arkhitekton.plugin.v1.Settings
+	(*ModuleProject)(nil),       // 45: arkhitekton.plugin.v1.ModuleProject
+	(*ModuleState)(nil),         // 46: arkhitekton.plugin.v1.ModuleState
+	(*ModuleStatus)(nil),        // 47: arkhitekton.plugin.v1.ModuleStatus
+	(*ProviderTarget)(nil),      // 48: arkhitekton.plugin.v1.ProviderTarget
+	(*ConnectRequest)(nil),      // 49: arkhitekton.plugin.v1.ConnectRequest
+	(*ConnectResponse)(nil),     // 50: arkhitekton.plugin.v1.ConnectResponse
+	(*Links)(nil),               // 51: arkhitekton.plugin.v1.Links
+	(*ProviderRequest)(nil),     // 52: arkhitekton.plugin.v1.ProviderRequest
+	(*ProviderResponse)(nil),    // 53: arkhitekton.plugin.v1.ProviderResponse
+	(*PollRequest)(nil),         // 54: arkhitekton.plugin.v1.PollRequest
+	(*PollResponse)(nil),        // 55: arkhitekton.plugin.v1.PollResponse
+	(*ReceiveRequest)(nil),      // 56: arkhitekton.plugin.v1.ReceiveRequest
+	(*ReceiveResponse)(nil),     // 57: arkhitekton.plugin.v1.ReceiveResponse
+	(*ExecuteRequest)(nil),      // 58: arkhitekton.plugin.v1.ExecuteRequest
+	nil,                         // 59: arkhitekton.plugin.v1.Identity.ProjectRolesEntry
+	nil,                         // 60: arkhitekton.plugin.v1.HTTPRequest.HeadersEntry
+	nil,                         // 61: arkhitekton.plugin.v1.HTTPResponse.HeadersEntry
+	nil,                         // 62: arkhitekton.plugin.v1.JobRequest.ParamsEntry
+	nil,                         // 63: arkhitekton.plugin.v1.PluginSettings.ConfigEntry
+	nil,                         // 64: arkhitekton.plugin.v1.Environment.DeployerEntry
+	nil,                         // 65: arkhitekton.plugin.v1.DeploymentMap.ByTagEntry
+	nil,                         // 66: arkhitekton.plugin.v1.Event.PayloadEntry
+	nil,                         // 67: arkhitekton.plugin.v1.Settings.ValuesEntry
+	nil,                         // 68: arkhitekton.plugin.v1.ModuleProject.SettingsEntry
+	nil,                         // 69: arkhitekton.plugin.v1.ModuleState.GlobalEntry
+	nil,                         // 70: arkhitekton.plugin.v1.ProviderTarget.SettingsEntry
+	nil,                         // 71: arkhitekton.plugin.v1.ExecuteRequest.ParamsEntry
 }
 var file_arkhitekton_plugin_v1_plugin_proto_depIdxs = []int32{
-	56, // 0: arkhitekton.plugin.v1.Identity.project_roles:type_name -> arkhitekton.plugin.v1.Identity.ProjectRolesEntry
-	57, // 1: arkhitekton.plugin.v1.HTTPRequest.headers:type_name -> arkhitekton.plugin.v1.HTTPRequest.HeadersEntry
+	59, // 0: arkhitekton.plugin.v1.Identity.project_roles:type_name -> arkhitekton.plugin.v1.Identity.ProjectRolesEntry
+	60, // 1: arkhitekton.plugin.v1.HTTPRequest.headers:type_name -> arkhitekton.plugin.v1.HTTPRequest.HeadersEntry
 	5,  // 2: arkhitekton.plugin.v1.HTTPRequest.identity:type_name -> arkhitekton.plugin.v1.Identity
 	13, // 3: arkhitekton.plugin.v1.HTTPRequest.project:type_name -> arkhitekton.plugin.v1.Project
-	58, // 4: arkhitekton.plugin.v1.HTTPResponse.headers:type_name -> arkhitekton.plugin.v1.HTTPResponse.HeadersEntry
+	61, // 4: arkhitekton.plugin.v1.HTTPResponse.headers:type_name -> arkhitekton.plugin.v1.HTTPResponse.HeadersEntry
 	12, // 5: arkhitekton.plugin.v1.Project.targets:type_name -> arkhitekton.plugin.v1.Target
-	59, // 6: arkhitekton.plugin.v1.JobRequest.params:type_name -> arkhitekton.plugin.v1.JobRequest.ParamsEntry
-	60, // 7: arkhitekton.plugin.v1.PluginSettings.config:type_name -> arkhitekton.plugin.v1.PluginSettings.ConfigEntry
-	61, // 8: arkhitekton.plugin.v1.Environment.deployer:type_name -> arkhitekton.plugin.v1.Environment.DeployerEntry
+	62, // 6: arkhitekton.plugin.v1.JobRequest.params:type_name -> arkhitekton.plugin.v1.JobRequest.ParamsEntry
+	63, // 7: arkhitekton.plugin.v1.PluginSettings.config:type_name -> arkhitekton.plugin.v1.PluginSettings.ConfigEntry
+	64, // 8: arkhitekton.plugin.v1.Environment.deployer:type_name -> arkhitekton.plugin.v1.Environment.DeployerEntry
 	19, // 9: arkhitekton.plugin.v1.EnvironmentList.environments:type_name -> arkhitekton.plugin.v1.Environment
 	5,  // 10: arkhitekton.plugin.v1.Authorization.identity:type_name -> arkhitekton.plugin.v1.Identity
 	24, // 11: arkhitekton.plugin.v1.ReleaseDossier.manual_actions:type_name -> arkhitekton.plugin.v1.ManualActions
@@ -4244,102 +4427,105 @@ var file_arkhitekton_plugin_v1_plugin_proto_depIdxs = []int32{
 	28, // 15: arkhitekton.plugin.v1.ReleaseDossier.score:type_name -> arkhitekton.plugin.v1.DossierScore
 	30, // 16: arkhitekton.plugin.v1.ReleaseDossier.audit:type_name -> arkhitekton.plugin.v1.DossierAudit
 	29, // 17: arkhitekton.plugin.v1.DossierScore.signals:type_name -> arkhitekton.plugin.v1.DossierSignal
-	62, // 18: arkhitekton.plugin.v1.DeploymentMap.by_tag:type_name -> arkhitekton.plugin.v1.DeploymentMap.ByTagEntry
+	65, // 18: arkhitekton.plugin.v1.DeploymentMap.by_tag:type_name -> arkhitekton.plugin.v1.DeploymentMap.ByTagEntry
 	33, // 19: arkhitekton.plugin.v1.PromotionList.promotions:type_name -> arkhitekton.plugin.v1.Promotion
 	35, // 20: arkhitekton.plugin.v1.Suggestions.suggestions:type_name -> arkhitekton.plugin.v1.Suggestion
-	63, // 21: arkhitekton.plugin.v1.Event.payload:type_name -> arkhitekton.plugin.v1.Event.PayloadEntry
-	64, // 22: arkhitekton.plugin.v1.Settings.values:type_name -> arkhitekton.plugin.v1.Settings.ValuesEntry
-	13, // 23: arkhitekton.plugin.v1.ModuleProject.project:type_name -> arkhitekton.plugin.v1.Project
-	65, // 24: arkhitekton.plugin.v1.ModuleProject.settings:type_name -> arkhitekton.plugin.v1.ModuleProject.SettingsEntry
-	66, // 25: arkhitekton.plugin.v1.ModuleState.global:type_name -> arkhitekton.plugin.v1.ModuleState.GlobalEntry
-	42, // 26: arkhitekton.plugin.v1.ModuleState.projects:type_name -> arkhitekton.plugin.v1.ModuleProject
-	67, // 27: arkhitekton.plugin.v1.ProviderTarget.settings:type_name -> arkhitekton.plugin.v1.ProviderTarget.SettingsEntry
-	45, // 28: arkhitekton.plugin.v1.ConnectRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
-	45, // 29: arkhitekton.plugin.v1.ProviderRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
-	45, // 30: arkhitekton.plugin.v1.PollRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
-	45, // 31: arkhitekton.plugin.v1.ReceiveRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
-	45, // 32: arkhitekton.plugin.v1.ExecuteRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
-	68, // 33: arkhitekton.plugin.v1.ExecuteRequest.params:type_name -> arkhitekton.plugin.v1.ExecuteRequest.ParamsEntry
-	32, // 34: arkhitekton.plugin.v1.DeploymentMap.ByTagEntry.value:type_name -> arkhitekton.plugin.v1.EnvironmentIDs
-	1,  // 35: arkhitekton.plugin.v1.Plugin.Init:input_type -> arkhitekton.plugin.v1.InitRequest
-	3,  // 36: arkhitekton.plugin.v1.Plugin.Interpret:input_type -> arkhitekton.plugin.v1.InterpretRequest
-	6,  // 37: arkhitekton.plugin.v1.Plugin.Serve:input_type -> arkhitekton.plugin.v1.HTTPRequest
-	8,  // 38: arkhitekton.plugin.v1.Plugin.Deployments:input_type -> arkhitekton.plugin.v1.ProjectRef
-	10, // 39: arkhitekton.plugin.v1.Plugin.Promotions:input_type -> arkhitekton.plugin.v1.ReleaseRef
-	9,  // 40: arkhitekton.plugin.v1.Plugin.EnvironmentSuggestions:input_type -> arkhitekton.plugin.v1.ProjectSlug
-	37, // 41: arkhitekton.plugin.v1.Plugin.CheckScheme:input_type -> arkhitekton.plugin.v1.Scheme
-	39, // 42: arkhitekton.plugin.v1.Plugin.Promoted:input_type -> arkhitekton.plugin.v1.PromotedRequest
-	8,  // 43: arkhitekton.plugin.v1.Plugin.ProjectSettings:input_type -> arkhitekton.plugin.v1.ProjectRef
-	43, // 44: arkhitekton.plugin.v1.Plugin.RunModule:input_type -> arkhitekton.plugin.v1.ModuleState
-	46, // 45: arkhitekton.plugin.v1.Plugin.Connect:input_type -> arkhitekton.plugin.v1.ConnectRequest
-	41, // 46: arkhitekton.plugin.v1.Plugin.TrackerLinks:input_type -> arkhitekton.plugin.v1.Settings
-	49, // 47: arkhitekton.plugin.v1.Plugin.ListVersions:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 48: arkhitekton.plugin.v1.Plugin.ListIssues:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 49: arkhitekton.plugin.v1.Plugin.TrackerAccess:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 50: arkhitekton.plugin.v1.Plugin.DefaultBranch:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 51: arkhitekton.plugin.v1.Plugin.ListBranches:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 52: arkhitekton.plugin.v1.Plugin.ListTags:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 53: arkhitekton.plugin.v1.Plugin.ResolveCommit:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 54: arkhitekton.plugin.v1.Plugin.ListMergedPullRequests:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 55: arkhitekton.plugin.v1.Plugin.ListPullRequests:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 56: arkhitekton.plugin.v1.Plugin.LoadCommitMessages:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 57: arkhitekton.plugin.v1.Plugin.ForgeAccess:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 58: arkhitekton.plugin.v1.Plugin.CreateTag:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	49, // 59: arkhitekton.plugin.v1.Plugin.ProbeRepository:input_type -> arkhitekton.plugin.v1.ProviderRequest
-	51, // 60: arkhitekton.plugin.v1.Plugin.Poll:input_type -> arkhitekton.plugin.v1.PollRequest
-	55, // 61: arkhitekton.plugin.v1.Plugin.Execute:input_type -> arkhitekton.plugin.v1.ExecuteRequest
-	53, // 62: arkhitekton.plugin.v1.Plugin.Receive:input_type -> arkhitekton.plugin.v1.ReceiveRequest
-	9,  // 63: arkhitekton.plugin.v1.Host.ProjectBySlug:input_type -> arkhitekton.plugin.v1.ProjectSlug
-	8,  // 64: arkhitekton.plugin.v1.Host.GetProject:input_type -> arkhitekton.plugin.v1.ProjectRef
-	11, // 65: arkhitekton.plugin.v1.Host.GetRelease:input_type -> arkhitekton.plugin.v1.ReleaseByTag
-	15, // 66: arkhitekton.plugin.v1.Host.Enqueue:input_type -> arkhitekton.plugin.v1.JobRequest
-	17, // 67: arkhitekton.plugin.v1.Host.Audit:input_type -> arkhitekton.plugin.v1.AuditEntry
-	8,  // 68: arkhitekton.plugin.v1.Host.ResolvedPlugin:input_type -> arkhitekton.plugin.v1.ProjectRef
-	8,  // 69: arkhitekton.plugin.v1.Host.Environments:input_type -> arkhitekton.plugin.v1.ProjectRef
-	21, // 70: arkhitekton.plugin.v1.Host.Authorize:input_type -> arkhitekton.plugin.v1.Authorization
-	11, // 71: arkhitekton.plugin.v1.Host.GetReleaseDossier:input_type -> arkhitekton.plugin.v1.ReleaseByTag
-	2,  // 72: arkhitekton.plugin.v1.Plugin.Init:output_type -> arkhitekton.plugin.v1.InitResponse
-	4,  // 73: arkhitekton.plugin.v1.Plugin.Interpret:output_type -> arkhitekton.plugin.v1.InterpretResponse
-	7,  // 74: arkhitekton.plugin.v1.Plugin.Serve:output_type -> arkhitekton.plugin.v1.HTTPResponse
-	31, // 75: arkhitekton.plugin.v1.Plugin.Deployments:output_type -> arkhitekton.plugin.v1.DeploymentMap
-	34, // 76: arkhitekton.plugin.v1.Plugin.Promotions:output_type -> arkhitekton.plugin.v1.PromotionList
-	36, // 77: arkhitekton.plugin.v1.Plugin.EnvironmentSuggestions:output_type -> arkhitekton.plugin.v1.Suggestions
-	38, // 78: arkhitekton.plugin.v1.Plugin.CheckScheme:output_type -> arkhitekton.plugin.v1.Refusal
-	40, // 79: arkhitekton.plugin.v1.Plugin.Promoted:output_type -> arkhitekton.plugin.v1.Event
-	41, // 80: arkhitekton.plugin.v1.Plugin.ProjectSettings:output_type -> arkhitekton.plugin.v1.Settings
-	44, // 81: arkhitekton.plugin.v1.Plugin.RunModule:output_type -> arkhitekton.plugin.v1.ModuleStatus
-	47, // 82: arkhitekton.plugin.v1.Plugin.Connect:output_type -> arkhitekton.plugin.v1.ConnectResponse
-	48, // 83: arkhitekton.plugin.v1.Plugin.TrackerLinks:output_type -> arkhitekton.plugin.v1.Links
-	50, // 84: arkhitekton.plugin.v1.Plugin.ListVersions:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 85: arkhitekton.plugin.v1.Plugin.ListIssues:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 86: arkhitekton.plugin.v1.Plugin.TrackerAccess:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 87: arkhitekton.plugin.v1.Plugin.DefaultBranch:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 88: arkhitekton.plugin.v1.Plugin.ListBranches:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 89: arkhitekton.plugin.v1.Plugin.ListTags:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 90: arkhitekton.plugin.v1.Plugin.ResolveCommit:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 91: arkhitekton.plugin.v1.Plugin.ListMergedPullRequests:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 92: arkhitekton.plugin.v1.Plugin.ListPullRequests:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 93: arkhitekton.plugin.v1.Plugin.LoadCommitMessages:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 94: arkhitekton.plugin.v1.Plugin.ForgeAccess:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 95: arkhitekton.plugin.v1.Plugin.CreateTag:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	50, // 96: arkhitekton.plugin.v1.Plugin.ProbeRepository:output_type -> arkhitekton.plugin.v1.ProviderResponse
-	52, // 97: arkhitekton.plugin.v1.Plugin.Poll:output_type -> arkhitekton.plugin.v1.PollResponse
-	0,  // 98: arkhitekton.plugin.v1.Plugin.Execute:output_type -> arkhitekton.plugin.v1.Empty
-	54, // 99: arkhitekton.plugin.v1.Plugin.Receive:output_type -> arkhitekton.plugin.v1.ReceiveResponse
-	13, // 100: arkhitekton.plugin.v1.Host.ProjectBySlug:output_type -> arkhitekton.plugin.v1.Project
-	13, // 101: arkhitekton.plugin.v1.Host.GetProject:output_type -> arkhitekton.plugin.v1.Project
-	14, // 102: arkhitekton.plugin.v1.Host.GetRelease:output_type -> arkhitekton.plugin.v1.Release
-	16, // 103: arkhitekton.plugin.v1.Host.Enqueue:output_type -> arkhitekton.plugin.v1.JobID
-	0,  // 104: arkhitekton.plugin.v1.Host.Audit:output_type -> arkhitekton.plugin.v1.Empty
-	18, // 105: arkhitekton.plugin.v1.Host.ResolvedPlugin:output_type -> arkhitekton.plugin.v1.PluginSettings
-	20, // 106: arkhitekton.plugin.v1.Host.Environments:output_type -> arkhitekton.plugin.v1.EnvironmentList
-	22, // 107: arkhitekton.plugin.v1.Host.Authorize:output_type -> arkhitekton.plugin.v1.Decision
-	23, // 108: arkhitekton.plugin.v1.Host.GetReleaseDossier:output_type -> arkhitekton.plugin.v1.ReleaseDossier
-	72, // [72:109] is the sub-list for method output_type
-	35, // [35:72] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	39, // 21: arkhitekton.plugin.v1.ReleaseFileList.files:type_name -> arkhitekton.plugin.v1.ReleaseFile
+	66, // 22: arkhitekton.plugin.v1.Event.payload:type_name -> arkhitekton.plugin.v1.Event.PayloadEntry
+	67, // 23: arkhitekton.plugin.v1.Settings.values:type_name -> arkhitekton.plugin.v1.Settings.ValuesEntry
+	13, // 24: arkhitekton.plugin.v1.ModuleProject.project:type_name -> arkhitekton.plugin.v1.Project
+	68, // 25: arkhitekton.plugin.v1.ModuleProject.settings:type_name -> arkhitekton.plugin.v1.ModuleProject.SettingsEntry
+	69, // 26: arkhitekton.plugin.v1.ModuleState.global:type_name -> arkhitekton.plugin.v1.ModuleState.GlobalEntry
+	45, // 27: arkhitekton.plugin.v1.ModuleState.projects:type_name -> arkhitekton.plugin.v1.ModuleProject
+	70, // 28: arkhitekton.plugin.v1.ProviderTarget.settings:type_name -> arkhitekton.plugin.v1.ProviderTarget.SettingsEntry
+	48, // 29: arkhitekton.plugin.v1.ConnectRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
+	48, // 30: arkhitekton.plugin.v1.ProviderRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
+	48, // 31: arkhitekton.plugin.v1.PollRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
+	48, // 32: arkhitekton.plugin.v1.ReceiveRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
+	48, // 33: arkhitekton.plugin.v1.ExecuteRequest.target:type_name -> arkhitekton.plugin.v1.ProviderTarget
+	71, // 34: arkhitekton.plugin.v1.ExecuteRequest.params:type_name -> arkhitekton.plugin.v1.ExecuteRequest.ParamsEntry
+	32, // 35: arkhitekton.plugin.v1.DeploymentMap.ByTagEntry.value:type_name -> arkhitekton.plugin.v1.EnvironmentIDs
+	1,  // 36: arkhitekton.plugin.v1.Plugin.Init:input_type -> arkhitekton.plugin.v1.InitRequest
+	3,  // 37: arkhitekton.plugin.v1.Plugin.Interpret:input_type -> arkhitekton.plugin.v1.InterpretRequest
+	6,  // 38: arkhitekton.plugin.v1.Plugin.Serve:input_type -> arkhitekton.plugin.v1.HTTPRequest
+	8,  // 39: arkhitekton.plugin.v1.Plugin.Deployments:input_type -> arkhitekton.plugin.v1.ProjectRef
+	10, // 40: arkhitekton.plugin.v1.Plugin.Promotions:input_type -> arkhitekton.plugin.v1.ReleaseRef
+	9,  // 41: arkhitekton.plugin.v1.Plugin.EnvironmentSuggestions:input_type -> arkhitekton.plugin.v1.ProjectSlug
+	37, // 42: arkhitekton.plugin.v1.Plugin.CheckScheme:input_type -> arkhitekton.plugin.v1.Scheme
+	42, // 43: arkhitekton.plugin.v1.Plugin.Promoted:input_type -> arkhitekton.plugin.v1.PromotedRequest
+	8,  // 44: arkhitekton.plugin.v1.Plugin.ProjectSettings:input_type -> arkhitekton.plugin.v1.ProjectRef
+	38, // 45: arkhitekton.plugin.v1.Plugin.ReleaseFiles:input_type -> arkhitekton.plugin.v1.ReleaseFilesRequest
+	46, // 46: arkhitekton.plugin.v1.Plugin.RunModule:input_type -> arkhitekton.plugin.v1.ModuleState
+	49, // 47: arkhitekton.plugin.v1.Plugin.Connect:input_type -> arkhitekton.plugin.v1.ConnectRequest
+	44, // 48: arkhitekton.plugin.v1.Plugin.TrackerLinks:input_type -> arkhitekton.plugin.v1.Settings
+	52, // 49: arkhitekton.plugin.v1.Plugin.ListVersions:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 50: arkhitekton.plugin.v1.Plugin.ListIssues:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 51: arkhitekton.plugin.v1.Plugin.TrackerAccess:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 52: arkhitekton.plugin.v1.Plugin.DefaultBranch:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 53: arkhitekton.plugin.v1.Plugin.ListBranches:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 54: arkhitekton.plugin.v1.Plugin.ListTags:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 55: arkhitekton.plugin.v1.Plugin.ResolveCommit:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 56: arkhitekton.plugin.v1.Plugin.ListMergedPullRequests:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 57: arkhitekton.plugin.v1.Plugin.ListPullRequests:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 58: arkhitekton.plugin.v1.Plugin.LoadCommitMessages:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 59: arkhitekton.plugin.v1.Plugin.ForgeAccess:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 60: arkhitekton.plugin.v1.Plugin.CreateTag:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	52, // 61: arkhitekton.plugin.v1.Plugin.ProbeRepository:input_type -> arkhitekton.plugin.v1.ProviderRequest
+	54, // 62: arkhitekton.plugin.v1.Plugin.Poll:input_type -> arkhitekton.plugin.v1.PollRequest
+	58, // 63: arkhitekton.plugin.v1.Plugin.Execute:input_type -> arkhitekton.plugin.v1.ExecuteRequest
+	56, // 64: arkhitekton.plugin.v1.Plugin.Receive:input_type -> arkhitekton.plugin.v1.ReceiveRequest
+	9,  // 65: arkhitekton.plugin.v1.Host.ProjectBySlug:input_type -> arkhitekton.plugin.v1.ProjectSlug
+	8,  // 66: arkhitekton.plugin.v1.Host.GetProject:input_type -> arkhitekton.plugin.v1.ProjectRef
+	11, // 67: arkhitekton.plugin.v1.Host.GetRelease:input_type -> arkhitekton.plugin.v1.ReleaseByTag
+	15, // 68: arkhitekton.plugin.v1.Host.Enqueue:input_type -> arkhitekton.plugin.v1.JobRequest
+	17, // 69: arkhitekton.plugin.v1.Host.Audit:input_type -> arkhitekton.plugin.v1.AuditEntry
+	8,  // 70: arkhitekton.plugin.v1.Host.ResolvedPlugin:input_type -> arkhitekton.plugin.v1.ProjectRef
+	8,  // 71: arkhitekton.plugin.v1.Host.Environments:input_type -> arkhitekton.plugin.v1.ProjectRef
+	21, // 72: arkhitekton.plugin.v1.Host.Authorize:input_type -> arkhitekton.plugin.v1.Authorization
+	11, // 73: arkhitekton.plugin.v1.Host.GetReleaseDossier:input_type -> arkhitekton.plugin.v1.ReleaseByTag
+	2,  // 74: arkhitekton.plugin.v1.Plugin.Init:output_type -> arkhitekton.plugin.v1.InitResponse
+	4,  // 75: arkhitekton.plugin.v1.Plugin.Interpret:output_type -> arkhitekton.plugin.v1.InterpretResponse
+	7,  // 76: arkhitekton.plugin.v1.Plugin.Serve:output_type -> arkhitekton.plugin.v1.HTTPResponse
+	31, // 77: arkhitekton.plugin.v1.Plugin.Deployments:output_type -> arkhitekton.plugin.v1.DeploymentMap
+	34, // 78: arkhitekton.plugin.v1.Plugin.Promotions:output_type -> arkhitekton.plugin.v1.PromotionList
+	36, // 79: arkhitekton.plugin.v1.Plugin.EnvironmentSuggestions:output_type -> arkhitekton.plugin.v1.Suggestions
+	41, // 80: arkhitekton.plugin.v1.Plugin.CheckScheme:output_type -> arkhitekton.plugin.v1.Refusal
+	43, // 81: arkhitekton.plugin.v1.Plugin.Promoted:output_type -> arkhitekton.plugin.v1.Event
+	44, // 82: arkhitekton.plugin.v1.Plugin.ProjectSettings:output_type -> arkhitekton.plugin.v1.Settings
+	40, // 83: arkhitekton.plugin.v1.Plugin.ReleaseFiles:output_type -> arkhitekton.plugin.v1.ReleaseFileList
+	47, // 84: arkhitekton.plugin.v1.Plugin.RunModule:output_type -> arkhitekton.plugin.v1.ModuleStatus
+	50, // 85: arkhitekton.plugin.v1.Plugin.Connect:output_type -> arkhitekton.plugin.v1.ConnectResponse
+	51, // 86: arkhitekton.plugin.v1.Plugin.TrackerLinks:output_type -> arkhitekton.plugin.v1.Links
+	53, // 87: arkhitekton.plugin.v1.Plugin.ListVersions:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 88: arkhitekton.plugin.v1.Plugin.ListIssues:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 89: arkhitekton.plugin.v1.Plugin.TrackerAccess:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 90: arkhitekton.plugin.v1.Plugin.DefaultBranch:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 91: arkhitekton.plugin.v1.Plugin.ListBranches:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 92: arkhitekton.plugin.v1.Plugin.ListTags:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 93: arkhitekton.plugin.v1.Plugin.ResolveCommit:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 94: arkhitekton.plugin.v1.Plugin.ListMergedPullRequests:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 95: arkhitekton.plugin.v1.Plugin.ListPullRequests:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 96: arkhitekton.plugin.v1.Plugin.LoadCommitMessages:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 97: arkhitekton.plugin.v1.Plugin.ForgeAccess:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 98: arkhitekton.plugin.v1.Plugin.CreateTag:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	53, // 99: arkhitekton.plugin.v1.Plugin.ProbeRepository:output_type -> arkhitekton.plugin.v1.ProviderResponse
+	55, // 100: arkhitekton.plugin.v1.Plugin.Poll:output_type -> arkhitekton.plugin.v1.PollResponse
+	0,  // 101: arkhitekton.plugin.v1.Plugin.Execute:output_type -> arkhitekton.plugin.v1.Empty
+	57, // 102: arkhitekton.plugin.v1.Plugin.Receive:output_type -> arkhitekton.plugin.v1.ReceiveResponse
+	13, // 103: arkhitekton.plugin.v1.Host.ProjectBySlug:output_type -> arkhitekton.plugin.v1.Project
+	13, // 104: arkhitekton.plugin.v1.Host.GetProject:output_type -> arkhitekton.plugin.v1.Project
+	14, // 105: arkhitekton.plugin.v1.Host.GetRelease:output_type -> arkhitekton.plugin.v1.Release
+	16, // 106: arkhitekton.plugin.v1.Host.Enqueue:output_type -> arkhitekton.plugin.v1.JobID
+	0,  // 107: arkhitekton.plugin.v1.Host.Audit:output_type -> arkhitekton.plugin.v1.Empty
+	18, // 108: arkhitekton.plugin.v1.Host.ResolvedPlugin:output_type -> arkhitekton.plugin.v1.PluginSettings
+	20, // 109: arkhitekton.plugin.v1.Host.Environments:output_type -> arkhitekton.plugin.v1.EnvironmentList
+	22, // 110: arkhitekton.plugin.v1.Host.Authorize:output_type -> arkhitekton.plugin.v1.Decision
+	23, // 111: arkhitekton.plugin.v1.Host.GetReleaseDossier:output_type -> arkhitekton.plugin.v1.ReleaseDossier
+	74, // [74:112] is the sub-list for method output_type
+	36, // [36:74] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_arkhitekton_plugin_v1_plugin_proto_init() }
@@ -4358,7 +4544,7 @@ func file_arkhitekton_plugin_v1_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_arkhitekton_plugin_v1_plugin_proto_rawDesc), len(file_arkhitekton_plugin_v1_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   69,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

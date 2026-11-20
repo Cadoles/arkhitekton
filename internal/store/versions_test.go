@@ -55,7 +55,7 @@ func TestAProvisionalVersionIsAdoptedByTheRealOne(t *testing.T) {
 	ctx := context.Background()
 
 	// A release is created while synchronisation has never run.
-	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0", true)
 	if err != nil {
 		t.Fatalf("provisional version: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestAClosedNamesakeVersionDoesNotBlockAdoption(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2", true)
 	if err != nil {
 		t.Fatalf("provisional version: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestALockedVersionStaysACandidate(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.3")
+	pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.3", true)
 	releaseOn(t, db, pendingID, "3.1.3")
 
 	redmineVersion(t, db, 810, "3.1.3", "closed")
@@ -163,7 +163,7 @@ func TestTwoActiveVersionsOfTheSameNameStayUndecidable(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+	pendingID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2", true)
 	if err != nil {
 		t.Fatalf("provisional version: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAdoptionDoesNotDependOnReadOrder(t *testing.T) {
 		db := migrated(t)
 		ctx := context.Background()
 
-		pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+		pendingID, _ := db.EnsureVersion(ctx, testProjectID, "3.1.2", true)
 		releaseOn(t, db, pendingID, "3.1.2")
 
 		// Both active: the only case still undecidable, and therefore the only one where read
@@ -234,7 +234,7 @@ func TestAnUnmatchedProvisionalVersionStaysReported(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	if _, err := db.EnsureVersion(ctx, testProjectID, "9.9.9"); err != nil {
+	if _, err := db.EnsureVersion(ctx, testProjectID, "9.9.9", true); err != nil {
 		t.Fatalf("provisional: %v", err)
 	}
 	redmineVersion(t, db, 805, "v3.2.0", "open")
@@ -630,7 +630,7 @@ func TestEnsureVersionAttachesToARealVersionByNormalisedName(t *testing.T) {
 
 	realID := redmineVersion(t, db, 805, "v3.2.0", "open")
 
-	id, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
+	id, err := db.EnsureVersion(ctx, testProjectID, "3.2.0", true)
 	if err != nil {
 		t.Fatalf("attachment: %v", err)
 	}
@@ -659,7 +659,7 @@ func TestEnsureVersionPrefersTheActiveVersionOverTheClosedNamesake(t *testing.T)
 	redmineVersion(t, db, 803, "V3.1.2", "closed")
 	activeID := redmineVersion(t, db, 804, "v3.1.2", "open")
 
-	id, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+	id, err := db.EnsureVersion(ctx, testProjectID, "3.1.2", true)
 	if err != nil {
 		t.Fatalf("attachment: %v", err)
 	}
@@ -678,7 +678,7 @@ func TestEnsureVersionFallsBackToAProvisionalWhenUndecidable(t *testing.T) {
 	redmineVersion(t, db, 803, "V3.1.2", "open")
 	redmineVersion(t, db, 804, "v3.1.2", "open")
 
-	if _, err := db.EnsureVersion(ctx, testProjectID, "3.1.2"); err != nil {
+	if _, err := db.EnsureVersion(ctx, testProjectID, "3.1.2", true); err != nil {
 		t.Fatalf("attachment: %v", err)
 	}
 
@@ -1091,7 +1091,7 @@ func TestTwoProjectsDoNotStealEachOthersVersions(t *testing.T) {
 	}
 
 	// A release of the first project must find its own version.
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.1.2", true)
 	if err != nil {
 		t.Fatalf("attachment: %v", err)
 	}
@@ -1108,7 +1108,7 @@ func TestTwoProjectsDoNotStealEachOthersVersions(t *testing.T) {
 	// And the tag is unique only within a project: the same `1.0.0` must be able to exist
 	// on both sides.
 	for _, projectID := range []int64{testProjectID, second} {
-		version, err := db.EnsureVersion(ctx, projectID, "1.0.0")
+		version, err := db.EnsureVersion(ctx, projectID, "1.0.0", true)
 		if err != nil {
 			t.Fatalf("version 1.0.0 of project %d: %v", projectID, err)
 		}
@@ -1152,7 +1152,7 @@ func TestAProjectWithoutATrackerProducesDefinitiveVersions(t *testing.T) {
 		t.Fatalf("project with no tracker: %v", err)
 	}
 
-	versionID, err := db.EnsureVersion(ctx, untracked, "1.2.0")
+	versionID, err := db.EnsureVersion(ctx, untracked, "1.2.0", false)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -1187,7 +1187,7 @@ func TestATrackedProjectProducesAProvisionalVersion(t *testing.T) {
 	db := migrated(t)
 	ctx := context.Background()
 
-	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0")
+	versionID, err := db.EnsureVersion(ctx, testProjectID, "3.2.0", true)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -1227,7 +1227,7 @@ func TestAnOwnVersionHasNoExternalIdentifier(t *testing.T) {
 		t.Fatalf("project: %v", err)
 	}
 
-	versionID, err := db.EnsureVersion(ctx, untracked, "1.2.0")
+	versionID, err := db.EnsureVersion(ctx, untracked, "1.2.0", false)
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -1291,9 +1291,9 @@ func TestTheVersionListDoesNotSpillOntoAnotherProject(t *testing.T) {
 	var second int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
-		                       tracker_project, created_by)
+		                       created_by)
 		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
-		         'autre-suivi', 'test')
+		         'test')
 		 returning id`).Scan(&second); err != nil {
 		t.Fatalf("second project: %v", err)
 	}

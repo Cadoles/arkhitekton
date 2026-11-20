@@ -52,8 +52,6 @@ type fakeReleaseStore struct {
 	// notes and results are a release's note and measures, for the dossier.
 	notes   []store.NoteEntry
 	results []store.TestResult
-	// versionFile is the project's version file. Empty: none.
-	versionFile string
 	// attachments are the files kept, by result.
 	attachments map[int64][]store.ResultAttachment
 }
@@ -108,7 +106,7 @@ func (f *fakeReleaseStore) BuildableProject(context.Context) (store.Project, err
 	return fixtureProject(), nil
 }
 
-func (f *fakeReleaseStore) EnsureVersion(context.Context, int64, string) (int64, error) {
+func (f *fakeReleaseStore) EnsureVersion(context.Context, int64, string, bool) (int64, error) {
 	return 1, nil
 }
 
@@ -1400,7 +1398,6 @@ func (f *fakeReleaseStore) ProjectBySlug(_ context.Context, slug string) (store.
 	project := fixtureProject()
 	project.Slug = slug
 	project.ReleaseKinds = release.DefaultCycle()
-	project.VersionFile = f.versionFile
 	return project, nil
 }
 
@@ -1566,16 +1563,23 @@ func (f *versionForge) CommitFile(_ context.Context, branch, path, content, _ st
 	return "f11e5a", nil
 }
 
-// A project that keeps its version in a file has the tag committed there on the branch it builds,
-// and the release is built and tagged from that commit.
-func TestALaunchCommitsTheVersionFile(t *testing.T) {
+// The files a plugin gives, a version file for instance, are committed on the branch the release
+// builds, and the release is built and tagged from that commit.
+func TestALaunchCommitsThePluginsFiles(t *testing.T) {
 	fake := newFakeStore()
-	fake.versionFile = "version.txt"
 	forge := &versionForge{fakeForge: fakeForge{commit: "abc123def456"}}
-	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
+	var asked string
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge}).
+		WithReleaseFiles(func(_ context.Context, _, _ int64, tag, ref string) ([]ReleaseFile, []string) {
+			asked = tag + "@" + ref
+			return []ReleaseFile{{Path: "version.txt", Content: tag + "\n"}}, nil
+		})
 
 	launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
 
+	if asked != "3.2.0-rc1@main" {
+		t.Errorf("asked for %q", asked)
+	}
 	if strings.Join(forge.committed, ",") != "main:version.txt:3.2.0-rc1\n" {
 		t.Errorf("committed %q", forge.committed)
 	}
@@ -1587,6 +1591,29 @@ func TestALaunchCommitsTheVersionFile(t *testing.T) {
 	}
 	if got := fake.jobsOfKind("docker/build")[0].Params["revision"]; got != "f11e5a" {
 		t.Errorf("revision built %q", got)
+	}
+}
+
+// A plugin that cannot give its files is a caveat, and the release is anchored on the branch as it
+// stands: the tag would otherwise miss a file without anyone knowing.
+func TestAPluginThatGivesNoFilesIsACaveat(t *testing.T) {
+	fake := newFakeStore()
+	forge := &versionForge{fakeForge: fakeForge{commit: "abc123def456"}}
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge}).
+		WithReleaseFiles(func(context.Context, int64, int64, string, string) ([]ReleaseFile, []string) {
+			return nil, []string{"plugin mse did not give its release files: unavailable"}
+		})
+
+	recorder := launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)
+
+	if len(forge.committed) != 0 {
+		t.Errorf("committed %q", forge.committed)
+	}
+	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@abc123def456" {
+		t.Errorf("tags %v: the branch as it stands is the anchor", forge.tags)
+	}
+	if !strings.Contains(recorder.Body.String(), "did not give its release files") {
+		t.Errorf("the caveat is not said: %s", recorder.Body)
 	}
 }
 

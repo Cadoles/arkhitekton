@@ -138,6 +138,9 @@ func (s *Set) decode(raw []byte) error {
 		if envelope.Metadata != nil {
 			name = strings.TrimSpace(envelope.Metadata.Name)
 		}
+		if err := movedProjectKeys(envelope.Spec); err != nil {
+			return fmt.Errorf("project %q: spec: %w", name, err)
+		}
 		var project Project
 		if err := strict(envelope.Spec, &project); err != nil {
 			return fmt.Errorf("project %q: spec: %w", name, err)
@@ -146,6 +149,27 @@ func (s *Set) decode(raw []byte) error {
 		s.Projects = append(s.Projects, project)
 	default:
 		return fmt.Errorf("kind %q: expected %s or %s", envelope.Kind, KindInstance, KindProject)
+	}
+	return nil
+}
+
+// movedKeys are a project's keys that moved to a plugin's settings, with where they went: refused by
+// name rather than as an unknown field, so that an older file says what to change.
+var movedKeys = map[string]string{
+	"trackerProject": "it is the tracker plugin's setting: plugins.redmine.config.project",
+	"versionFile":    "it is the MSE plugin's setting: plugins.mse.config.versionFile",
+	"stack":          "the plugins install their pipelines; switch them in pipelines",
+}
+
+func movedProjectKeys(raw []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil
+	}
+	for key, where := range movedKeys {
+		if _, found := keys[key]; found {
+			return fmt.Errorf("%s is no longer a project's key: %s", key, where)
+		}
 	}
 	return nil
 }

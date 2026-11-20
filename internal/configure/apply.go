@@ -691,9 +691,8 @@ func projectInput(project configfile.Project) ProjectInput {
 		Repository: project.Repository, Label: project.Label, ForgeURL: project.ForgeURL,
 		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext, Slug: project.Name,
 		ImageRegistry: project.ImageRegistry, RegistrySecret: project.RegistrySecret,
-		VersionScheme: project.VersionScheme, Stack: project.Stack, TrackerProject: project.TrackerProject,
-		MultiStage: project.MultiStage, Targets: targets, ReleaseKinds: project.ReleaseKinds,
-		VersionFile: project.VersionFile,
+		VersionScheme: project.VersionScheme,
+		MultiStage:    project.MultiStage, Targets: targets, ReleaseKinds: project.ReleaseKinds,
 	}
 }
 

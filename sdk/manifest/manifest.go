@@ -142,12 +142,14 @@ const (
 	HookSchemeCheck            Hook = "schemeCheck"
 	HookPromotionFacts         Hook = "promotionFacts"
 	HookProjectSettings        Hook = "projectSettings"
+	// HookReleaseFiles gives the files a release's launch commits before its tag is set.
+	HookReleaseFiles Hook = "releaseFiles"
 )
 
 // Hooks are every extension point a plugin may answer.
 var Hooks = []Hook{
 	HookDeployments, HookPromotions, HookEnvironmentSuggestions, HookSchemeCheck, HookPromotionFacts,
-	HookProjectSettings,
+	HookProjectSettings, HookReleaseFiles,
 }
 
 // Route is an API route the plugin's program serves. The dashboard authenticates the caller,

@@ -17,6 +17,7 @@ type (
 		Dockerfile    string
 		BuildContext  string
 		ImageRegistry string
+		// Stack is always empty: a project no longer declares one.
 		Stack         string
 		VersionScheme string
 		Targets       []Target
@@ -111,6 +112,21 @@ type (
 		Digest      string
 		JobID       *int64
 		PushedAt    time.Time
+	}
+
+	// ReleaseLaunch is a release being launched, before its tag is set.
+	ReleaseLaunch struct {
+		ProjectID int64
+		ReleaseID int64
+		Tag       string
+		// GitRef is the branch the release builds, where its files are committed.
+		GitRef string
+	}
+
+	// ReleaseFile is a file a release's launch commits, path relative to the repository's root.
+	ReleaseFile struct {
+		Path    string
+		Content string
 	}
 
 	// Event is a fact the plugin states. Type is the suffix its manifest declares; the dashboard

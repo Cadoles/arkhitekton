@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -255,18 +254,12 @@ func overlayConfig(global, project map[string]string) map[string]string {
 
 // seedPlugins moves plugin configuration from the environment into the database, once.
 //
-// Two gestures, and the second is the one that counts. The instance's settings are born
-// from the deployment's configuration — a tracker's URL and key, the forge, the Flux
-// namespace. Then every project already attached to a tracker receives its own setting,
-// with the identifier it already carried.
-//
-// Without that second gesture, an existing deployment would see its synchronisation
-// stop the day the code reads settings rather than configuration: the connection would
-// be there, but no project would say what to synchronise. A silent failure.
+// The instance's settings are born from the deployment's configuration: a tracker's URL and
+// key, the forge, the Flux namespace. The projects' own trackers are the `trackers` step's.
 //
 // Nothing is overwritten: `on conflict do nothing`. A setting already made — through the
 // interface, or by an earlier pass — beats what the configuration suggests.
-func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, trackerID string) (int, error) {
+func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings) (int, error) {
 	posed := 0
 
 	for _, entry := range settings {
@@ -283,25 +276,7 @@ func (db *DB) seedPlugins(ctx context.Context, settings []PluginSettings, tracke
 		posed += int(tag.RowsAffected())
 	}
 
-	if strings.TrimSpace(trackerID) == "" {
-		return posed, nil
-	}
-
-	// Attaching the projects. `tracker_project` stays the source: the column exists, it is
-	// right, and copying it into the setting is what lets a second project name another
-	// server without the first moving.
-	const attach = `
-		insert into project_plugins (project_id, plugin_id, enabled, config)
-		select id, $1, true, jsonb_build_object('project', tracker_project)
-		from projects
-		where btrim(tracker_project) <> ''
-		on conflict (project_id, plugin_id) do nothing`
-
-	tag, err := db.pool.Exec(ctx, attach, trackerID)
-	if err != nil {
-		return posed, fmt.Errorf("attaching the projects to the tracker: %w", err)
-	}
-	return posed + int(tag.RowsAffected()), nil
+	return posed, nil
 }
 
 // orEmptyConfig avoids writing `null` into a column declared not null.

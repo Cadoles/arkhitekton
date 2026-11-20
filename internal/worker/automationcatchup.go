@@ -75,7 +75,7 @@ func NewAutomationCatchUp(
 	return &AutomationCatchUp{store: db, catalog: registry, logger: logger}
 }
 
-// WithStacks names the stacks whose kinds a project chains only when it declares that stack.
+// WithStacks names the language plugins, whose kinds a catch-up chains only for the legacy one.
 func (r *AutomationCatchUp) WithStacks(names ...string) *AutomationCatchUp {
 	r.stacks = map[string]bool{}
 	for _, name := range names {
@@ -84,8 +84,8 @@ func (r *AutomationCatchUp) WithStacks(names ...string) *AutomationCatchUp {
 	return r
 }
 
-// legacyStack is the stack of a project that declares none. Its kinds were the only ones a build
-// chained before a second stack existed, and a catch-up composes what ran before.
+// legacyStack is the language whose kinds were the only ones a build chained before a second one
+// existed, and a catch-up composes what ran before.
 const legacyStack = "php"
 
 // Run catches up the projects with no automation.
@@ -130,15 +130,11 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 	return nil
 }
 
-// enabled returns the filter of a project's enabled kinds: those it ticked, less those of a
-// stack it does not declare. A PHP project never ran Go's tests.
+// enabled returns the filter of a project's enabled kinds: those it ticked, less those of another
+// language than the legacy one. A project that never declared its automation never ran Go's tests.
 func (r *AutomationCatchUp) enabled(ctx context.Context, project store.Project) func(string) bool {
-	stack := project.Stack
-	if stack == "" {
-		stack = legacyStack
-	}
 	return func(kind string) bool {
-		if prefix, _, found := strings.Cut(kind, "/"); found && r.stacks[prefix] && prefix != stack {
+		if prefix, _, found := strings.Cut(kind, "/"); found && r.stacks[prefix] && prefix != legacyStack {
 			return false
 		}
 		enabled, err := r.store.PipelineEnabled(ctx, project.ID, kind)

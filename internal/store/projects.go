@@ -134,12 +134,6 @@ type Project struct {
 	// the same place, and repeating it would let the last one diverge at the first
 	// registry change.
 	ImageRegistry string
-	// Stack names the project's technology stack — `php`, or empty.
-	//
-	// It decides which reference library the dashboard installs: the Tasks and
-	// Pipelines specific to a language. Empty is the normal value for a project that
-	// brings its own.
-	Stack string
 	// VersionScheme names this project's tag scheme — `semver` or `opaque`. Empty means
 	// `semver`.
 	//
@@ -147,10 +141,6 @@ type Project struct {
 	// explicit tag all work. It loses the next-version suggestion and range selection,
 	// and the tool must say so rather than compute something arbitrary.
 	VersionScheme string
-	// VersionFile is the file of the repository that carries the version, `version.txt` for
-	// instance. Set, launching a release commits its tag there on the branch it builds. Empty,
-	// nothing is committed.
-	VersionFile string
 	// ReleaseKinds declares the project's release kinds. Never empty: the migration
 	// gives each project the historical cycle, and an empty cycle would describe a
 	// project that is declared and unusable.
@@ -164,14 +154,6 @@ type Project struct {
 	// names it. See docs/09-security.md.
 	RegistrySecret string
 	MultiStage     bool
-	// TrackerProject names this project in the tracking tool. Empty means the project
-	// has no tracker at all: its versions are then those the dashboard derives from
-	// tags, and nothing waits for outside confirmation.
-	//
-	// Carried by the project and not by the deployment's configuration: that could only
-	// give one answer for all, and two projects tracked together have no reason to
-	// share a tool — or to have one at all.
-	TrackerProject string
 	// Targets carries the buildable stages. A single entry with no Stage describes a
 	// single-image Dockerfile: a second field would say the same thing another way, and
 	// one would have to know which prevails.
@@ -270,8 +252,8 @@ var ErrProjectExists = errors.New("repository already declared")
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
-		        stack, multi_stage, tracker_project, targets,
+		        image_registry, registry_secret, version_scheme, release_kinds,
+		        multi_stage, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -297,8 +279,8 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
-		        stack, multi_stage, tracker_project, targets,
+		        image_registry, registry_secret, version_scheme, release_kinds,
+		        multi_stage, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -338,40 +320,6 @@ func SlugFor(repository string) string {
 	return strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(last), "-"), "-")
 }
 
-// TrackedProject is a project and the name it carries in its tracking tool.
-type TrackedProject struct {
-	ID int64
-	// Slug names the project on the dashboard's side. Returned because synchronisation
-	// logs and fails per project now that there may be several: a message that does not
-	// say which helps nobody.
-	Slug           string
-	TrackerProject string
-}
-
-// TrackedProjects returns the projects that declare a tracking tool.
-//
-// The others have nothing to synchronise: their versions are the ones the dashboard
-// derives, and nothing external will confirm them.
-func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
-	rows, err := db.pool.Query(ctx,
-		`select id, slug, tracker_project from projects
-		 where coalesce(trim(tracker_project), '') <> '' order by id`)
-	if err != nil {
-		return nil, fmt.Errorf("tracked projects: %w", err)
-	}
-	defer rows.Close()
-
-	var tracked []TrackedProject
-	for rows.Next() {
-		var entry TrackedProject
-		if err := rows.Scan(&entry.ID, &entry.Slug, &entry.TrackerProject); err != nil {
-			return nil, fmt.Errorf("tracked projects: %w", err)
-		}
-		tracked = append(tracked, entry)
-	}
-	return tracked, rows.Err()
-}
-
 // ProjectBySlug returns a project by the name it carries in URLs.
 //
 // This is the resolution every request with a project in its path performs. An
@@ -380,8 +328,8 @@ func (db *DB) TrackedProjects(ctx context.Context) ([]TrackedProject, error) {
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
 		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, version_file, release_kinds,
-		        stack, multi_stage, tracker_project, targets,
+		        image_registry, registry_secret, version_scheme, release_kinds,
+		        multi_stage, targets,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -406,9 +354,8 @@ func scanProject(rows pgx.Rows) (Project, error) {
 	var targets, kinds []byte
 	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
 		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.ImageRegistry, &project.RegistrySecret, &project.VersionScheme, &project.VersionFile,
-		&kinds, &project.Stack, &project.MultiStage,
-		&project.TrackerProject, &targets,
+		&project.ImageRegistry, &project.RegistrySecret, &project.VersionScheme,
+		&kinds, &project.MultiStage, &targets,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
 		&project.DeployKeyActive, &project.DeployKeyError, &project.KeyNote, &project.KeysURL, &project.UID,
@@ -461,16 +408,16 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 	err = db.pool.QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, dockerfile,
 		                       build_context, image_registry, registry_secret,
-		                       version_scheme, release_kinds, stack, multi_stage,
-		                       tracker_project, targets, created_by, version_file)
+		                       version_scheme, release_kinds, multi_stage,
+		                       targets, created_by)
 		 values ($1, $2, $3, $4, $5, $6, $7, $8, coalesce(nullif($9, ''), 'semver'),
-		         $10, $11, $12, $13, $14, $15, $16)
+		         $10, $11, $12, $13)
 		 on conflict (repository) do nothing
 		 returning id`,
 		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
 		project.BuildContext, project.ImageRegistry, project.RegistrySecret,
-		project.VersionScheme, kinds, project.Stack, project.MultiStage,
-		project.TrackerProject, targets, project.CreatedBy, project.VersionFile).Scan(&id)
+		project.VersionScheme, kinds, project.MultiStage,
+		targets, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` returned nothing: the repository is already declared.
@@ -523,10 +470,9 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		`update projects
 		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
 		     build_context = $6, image_registry = $7, multi_stage = $8,
-		     targets = $9, slug = $10, tracker_project = $11, registry_secret = $12,
-		     version_scheme = coalesce(nullif($13, ''), 'semver'),
-		     release_kinds = coalesce($14::jsonb, release_kinds), stack = $15,
-		     version_file = $16,
+		     targets = $9, slug = $10, registry_secret = $11,
+		     version_scheme = coalesce(nullif($12, ''), 'semver'),
+		     release_kinds = coalesce($13::jsonb, release_kinds),
 		     -- The verdict survives only an unchanged repository. The comparison
 		     -- is on the stored value, still readable during the update: a prior
 		     -- read would open a window between the verdict and the write.
@@ -537,8 +483,8 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
 		project.Dockerfile, project.BuildContext, project.ImageRegistry,
-		project.MultiStage, targets, project.Slug, project.TrackerProject,
-		project.RegistrySecret, project.VersionScheme, kinds, project.Stack, project.VersionFile)
+		project.MultiStage, targets, project.Slug,
+		project.RegistrySecret, project.VersionScheme, kinds)
 	if err != nil {
 		// A repository already declared elsewhere: two entries would describe it, and
 		// nothing would say which prevails. The caller must be able to say so rather than

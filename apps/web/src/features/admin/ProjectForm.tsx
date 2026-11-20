@@ -28,9 +28,6 @@ export const EMPTY: ProjectDraft = {
   build_context: '.',
   image_registry: '',
   registry_secret: '',
-  stack: '',
-  tracker_project: '',
-  version_file: '',
   multi_stage: false,
   targets: [],
 }
@@ -45,9 +42,6 @@ export function toDraft(project: Project): ProjectDraft {
     slug: project.slug,
     image_registry: project.image_registry,
     registry_secret: project.registry_secret,
-    stack: project.stack,
-    tracker_project: project.tracker_project,
-    version_file: project.version_file ?? '',
     multi_stage: project.multi_stage,
     targets: project.targets,
   }
@@ -214,71 +208,6 @@ export function ProjectForm({
               emploient celui du déploiement.
             </span>
           </label>
-
-          {/* Le suivi décide d'où viennent les versions du projet. Le champ est
-              indispensable au formulaire : sans lui, l'enregistrement écrivait
-              une valeur vide et effaçait la déclaration — la synchronisation
-              s'arrêtait alors sans un mot, et l'écran des versions proposait
-              d'en déclarer à la main comme si le projet n'avait jamais eu de
-              suivi. */}
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-700">Projet dans l'outil de suivi</span>
-            <input
-              value={form.tracker_project}
-              onChange={(event) => set('tracker_project', event.target.value)}
-              placeholder="aucun"
-              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-            />
-            <span className="text-xs text-zinc-500">
-              Son identifiant dans l'outil de suivi. Vide, ce projet n'a aucun suivi : ses versions
-              se déclarent à la main.
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-700">Fichier de version</span>
-            <input
-              value={form.version_file}
-              onChange={(event) => set('version_file', event.target.value)}
-              placeholder="aucun"
-              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-            />
-            <span className="text-xs text-zinc-500">
-              <span className="font-mono">version.txt</span> par exemple. Renseigné, le lancement
-              d&apos;une release y commite son tag sur la branche construite, et la release est
-              construite depuis ce commit.
-            </span>
-          </label>
-
-          {/* La pile décide de la bibliothèque de référence que le dashboard
-              pose — les Task propres à un langage. Vide est la valeur normale
-              d'un projet qui apporte les siennes : le normatif est le contrat
-              des pipelines, pas la bibliothèque. */}
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-700">Pile</span>
-            <input
-              value={form.stack}
-              onChange={(event) => set('stack', event.target.value)}
-              placeholder="aucune"
-              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-            />
-            <span className="text-xs text-zinc-500">
-              Le dashboard posera les pipelines de référence de cette pile. Laisser vide si le
-              projet apporte les siens.
-            </span>
-          </label>
-
-          {/* Ce que ces entrées ne décident plus.
-              Elles composaient la construction d'une release. Ce n'est plus le
-              cas : l'onglet automatisation le déclare, geste par geste (doc 15
-              §15.5). Elles restent lues par la **promotion**, qui doit savoir
-              quelles images un re-tag propage — et le taire ferait croire qu'on
-              modifie ici ce qui se construit. */}
-          <p className="rounded-md bg-zinc-50 p-2 text-xs text-zinc-600">
-            Ces images ne décident plus de ce qui se construit : l'onglet{' '}
-            <strong>Automatisation</strong> le déclare. Elles disent lesquelles une promotion
-            re-tague.
-          </p>
 
           <label className="flex items-center gap-2 text-sm text-zinc-700">
             <input
@@ -465,8 +394,8 @@ function Reference({ registry, image }: { registry: string; image?: string }) {
  * colle dans les réglages du dépôt. La moitié privée n'a jamais quitté le
  * cluster et n'est disponible nulle part — pas même pour l'administrateur.
  *
- * Tant qu'aucune clé n'a été posée, l'écran le dit et renvoie à la clé partagée
- * plutôt que d'afficher un vide qu'on prendrait pour une panne.
+ * Tant qu'aucune clé n'a été posée, l'écran dit qu'elle se prépare plutôt que
+ * d'afficher un vide qu'on prendrait pour une panne.
  */
 
 /**
@@ -500,9 +429,8 @@ export function ProjectKey({ project }: { project: Project }) {
     }
     return (
       <p className="text-xs text-zinc-500">
-        Pas encore de clé propre — elle sera posée au prochain passage du worker. Tant
-        qu'elle n'est pas en place dans le dépôt, les constructions de ce projet refusent
-        de partir : il n'y a plus de clé partagée sur laquelle retomber.
+        Clé en préparation par le worker, en quelques secondes. Les constructions de ce projet
+        partent une fois la clé en place dans le dépôt.
       </p>
     )
   }

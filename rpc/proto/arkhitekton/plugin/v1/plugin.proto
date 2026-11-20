@@ -28,6 +28,9 @@ service Plugin {
   rpc CheckScheme(Scheme) returns (Refusal);
   rpc Promoted(PromotedRequest) returns (Event);
   rpc ProjectSettings(ProjectRef) returns (Settings);
+  // ReleaseFiles returns the files a release's launch commits on the branch it builds, before its
+  // tag is set: the tag then carries them.
+  rpc ReleaseFiles(ReleaseFilesRequest) returns (ReleaseFileList);
 
   // RunModule runs the plugin's module until the call is cancelled. The stream carries nothing but
   // the end: an error ends the module until the supervisor's next tick.
@@ -171,6 +174,7 @@ message Project {
   string dockerfile = 6;
   string build_context = 7;
   string image_registry = 8;
+  // Always empty: a project no longer declares a stack. Kept for the plugins built before.
   string stack = 9;
   string version_scheme = 10;
   repeated Target targets = 11;
@@ -378,6 +382,24 @@ message Suggestions {
 message Scheme {
   // Id is the version scheme: `semver`, `opaque`.
   string id = 1;
+}
+
+message ReleaseFilesRequest {
+  int64 project_id = 1;
+  int64 release_id = 2;
+  string tag = 3;
+  // GitRef is the branch the release builds, where the files are committed.
+  string git_ref = 4;
+}
+
+message ReleaseFile {
+  // Path is relative to the repository's root.
+  string path = 1;
+  string content = 2;
+}
+
+message ReleaseFileList {
+  repeated ReleaseFile files = 1;
 }
 
 message Refusal {

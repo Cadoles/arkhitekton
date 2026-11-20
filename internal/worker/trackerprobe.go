@@ -102,13 +102,8 @@ func (p trackerProbe) Schedule() Schedule {
 func (p trackerProbe) Poll(
 	ctx context.Context, project store.Project, config map[string]string, cursor string,
 ) ([]event.Event, string, error) {
-	// The project's identifier in the tracker comes from the setting, and falls back to the
-	// `tracker_project` column: it predates the plugins, it is right, and a deployment whose
-	// bootstrap did not run must not stop synchronising for that.
+	// The project's identifier in the tracker is the plugin's setting.
 	trackerProject := strings.TrimSpace(config["project"])
-	if trackerProject == "" {
-		trackerProject = strings.TrimSpace(project.TrackerProject)
-	}
 	if trackerProject == "" {
 		// **Not an error**, and that is a fix.
 		//

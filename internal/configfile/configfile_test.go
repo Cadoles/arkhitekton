@@ -26,7 +26,6 @@ kind: Project
 metadata: {name: mse-test-project}
 spec:
   repository: vcarroy/mse-test-project
-  stack: php
   targets: [{stage: portal, image: portal}, {image: cli, promote: false}]
   plugins:
     mse: {config: {deployer: flux}}
@@ -166,6 +165,10 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec:\n  repository: a/b\n" +
 				"  releaseAutomation: {enable: false, stages: []}\n",
 			want: "enable",
+		},
+		"a key moved to a plugin": {
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec: {repository: a/b, versionFile: version.txt}\n",
+			want: "plugins.mse.config.versionFile",
 		},
 		"bad slug": {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: My_Project}\nspec: {repository: a/b}\n",
