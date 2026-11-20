@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockFetch } from '../../test/http'
 import { render } from '../../test/render'
-import { CapabilityCard, bindingOf, draftOf } from './CapabilitiesScreen'
+import { BindingForm, PipelineSettings, PipelinesScreen, bindingOf, draftOf } from './PipelinesScreen'
 import type { Capability } from './capabilities'
 
 /*
@@ -96,27 +96,30 @@ describe('bindingOf', () => {
   })
 })
 
-describe('CapabilityCard', () => {
+describe('BindingForm', () => {
   it('montre en lecture seule ce que lie le fichier', () => {
-    render(<CapabilityCard capability={{ ...gotest, bound_by: 'file' }} />)
+    render(<BindingForm capability={{ ...gotest, bound_by: 'file' }} />)
 
     expect(screen.getByText(/se modifie avec le déploiement/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Enregistrer la liaison' })).not.toBeInTheDocument()
   })
 
   it("dit à quoi sert la ConfigMap qu'elle attend", () => {
-    render(<CapabilityCard capability={audit} />)
+    render(<BindingForm capability={audit} />)
 
     expect(screen.getByLabelText(/^ConfigMap de/)).toBeInTheDocument()
     expect(screen.getByText(/le barème de sévérité/)).toBeInTheDocument()
   })
 
   it('propose de lier ce que le fichier ne lie pas', async () => {
-    render(<CapabilityCard capability={gotest} />)
+    render(<BindingForm capability={gotest} />)
 
     await userEvent.type(screen.getByLabelText(/Besoin/), 'git-credentials')
     expect(screen.getByRole('button', { name: 'Enregistrer la liaison' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Délier' })).not.toBeInTheDocument()
+    // Le parallélisme se règle par la file, plus dans la liaison.
+    expect(screen.queryByLabelText(/simultanés/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Source du secret/).className).toContain('bg-white')
   })
 })
 
@@ -127,7 +130,7 @@ describe('le poids dans le score', () => {
     const calls = mockFetch([
       { path: '/admin/capabilities/gotest/unit-tests/weight', method: 'PUT', body: { weight: 0 } },
     ])
-    render(<CapabilityCard capability={{ ...gotest, bound_by: 'file' }} />)
+    render(<PipelineSettings capability={{ ...gotest, bound_by: 'file' }} />)
 
     const field = screen.getByLabelText('Poids dans le score')
     expect(field).toHaveAttribute('placeholder', '25 (sa nature : unit)')
@@ -139,8 +142,54 @@ describe('le poids dans le score', () => {
   })
 
   it('dit hors score pour une nature que le score ne connaît pas', () => {
-    render(<CapabilityCard capability={{ ...gotest, default_weight: 0, group: 'accessibility' }} />)
+    render(<PipelineSettings capability={{ ...gotest, default_weight: 0, group: 'accessibility' }} />)
 
     expect(screen.getByLabelText('Poids dans le score')).toHaveAttribute('placeholder', 'hors score')
+  })
+})
+
+const unitQueue = {
+  kind: 'gotest/unit-tests', label: 'Tests Go', max_concurrent: 2, default_max_concurrent: 4,
+  overridden: true, known: true, running: 0, waiting: 0, jobs: [],
+}
+
+describe("l'onglet Pipelines", () => {
+  beforeEach(() => vi.unstubAllGlobals())
+
+  it('tient un pipeline sur une ligne : liaison, score, parallélisme', async () => {
+    mockFetch([
+      { path: '/admin/capabilities', body: { capabilities: [{ ...gotest, bound_by: 'file' }, { ...audit, weight: 0, unavailable: 'no ConfigMap' }] } },
+      { path: '/queue', body: { queues: [unitQueue], kinds: [], suggestions: {}, max_concurrent: 10 } },
+    ])
+    render(<PipelinesScreen />)
+
+    const row = (await screen.findByText('gotest/unit-tests')).closest('tr') as HTMLElement
+    expect(row).toHaveTextContent('Fichier')
+    expect(row).toHaveTextContent('25 (nature)')
+    expect(row).toHaveTextContent('2 (défaut 4)')
+    const other = screen.getByText('gotest/audit').closest('tr') as HTMLElement
+    expect(other).toHaveTextContent('Non liée')
+    expect(other).toHaveTextContent('hors score')
+    expect(screen.getByText(/Au plus 10 exécutions à la fois/)).toBeInTheDocument()
+  })
+
+  it('règle le parallélisme depuis la fenêtre des paramètres', async () => {
+    const calls = mockFetch([
+      { path: '/admin/capabilities', body: { capabilities: [gotest] } },
+      { path: '/queue/limits/gotest%2Funit-tests', method: 'PUT', body: { kind: 'gotest/unit-tests' } },
+      { path: '/queue/limits/gotest%2Funit-tests', method: 'DELETE', body: { kind: 'gotest/unit-tests' } },
+      { path: '/queue', body: { queues: [unitQueue], kinds: [], suggestions: {}, max_concurrent: 10 } },
+    ])
+    render(<PipelinesScreen />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Paramètres de Tests Go' }))
+    const field = screen.getByLabelText('Maximum en parallèle')
+    await userEvent.clear(field)
+    await userEvent.type(field, '3')
+    await userEvent.click(screen.getAllByRole('button', { name: 'Enregistrer' })[1] as HTMLElement)
+    expect(calls.find((call) => call.method === 'PUT')?.body).toEqual({ max_concurrent: 3 })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revenir au défaut (4)' }))
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
   })
 })

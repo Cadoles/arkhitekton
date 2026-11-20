@@ -26,8 +26,10 @@ podTemplate: {}              # optional, the pull secrets of every pipeline pod
 There is no other way to declare a pipeline: a pipeline enters the dashboard only through a
 plugin. A catalogue that binds no available capability stops start-up. The former `score:` key is
 refused. A pipeline's weight in the score is not part of its binding: it is set from the
-Administration screen's capabilities tab, or under `scoreWeights` in the versioned configuration
-(doc 10), and defaults to its nature's (§5.8).
+Administration screen's *Pipelines* tab, or under `scoreWeights` in the versioned configuration
+(doc 10), and defaults to its nature's (§5.8). A pipeline's queue ceiling is set there too, or
+under `queueLimits`: it overrides the binding's `maxConcurrent` at once, which the screen's
+binding form no longer edits.
 
 `podTemplate` is `{ imagePullSecrets: [name] }` or `{ imagePullSecretsConfigKey:
 pipeline.imagePullSecret }`. An entry's own `podTemplate` replaces it entirely, with no merge; a
@@ -62,7 +64,7 @@ a capability its plugin does not bring, or a parameter, a need or a volume the c
 not declare, stops start-up.
 
 **Bindings recorded from the screen.** An administrator binds, from the Administration screen's
-capabilities tab (*Capacités*), what the file does not: the capabilities of a plugin installed
+*Pipelines* tab (a pipeline's *Paramètres*), what the file does not: the capabilities of a plugin installed
 from a registry first (doc 06 §6.12). A recorded binding has the shape of an entry above, but a
 `serviceAccountName` under a need is refused: a capability that needs `cluster-deploy` is bound
 by the file only. **The file

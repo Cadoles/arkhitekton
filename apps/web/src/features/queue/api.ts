@@ -77,6 +77,15 @@ type QueueResponse = {
   max_concurrent: number
 }
 
+/** Les files et leurs plafonds, lus une fois : l'écran des pipelines règle, il ne
+ *  suit pas l'occupation. */
+export function useQueueLimits() {
+  return useQuery({
+    queryKey: ['queue', 'limits'],
+    queryFn: () => request<QueueResponse>('/queue'),
+  })
+}
+
 export function useQueue() {
   return useQuery({
     queryKey: ['queue', currentProject()],
@@ -140,7 +149,7 @@ export function useSetLimit() {
             body: JSON.stringify({ max_concurrent: max }),
           }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['queue', currentProject()] })
+      void queryClient.invalidateQueries({ queryKey: ['queue'] })
     },
   })
 }

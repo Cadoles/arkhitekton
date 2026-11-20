@@ -5,7 +5,7 @@ import { NotFound } from '../components/NotFound'
 import { Placeholder } from '../components/Placeholder'
 import { registerComponent, type BlockComponentProps } from '../lib/components'
 import { AutomationsScreen } from '../features/admin/AutomationsScreen'
-import { CapabilitiesScreen } from '../features/admin/CapabilitiesScreen'
+import { PipelinesScreen } from '../features/admin/PipelinesScreen'
 import { JournalScreen } from '../features/admin/JournalScreen'
 import { PluginsScreen } from '../features/admin/PluginsScreen'
 import { ProjectLayout } from '../features/admin/ProjectLayout'
@@ -18,7 +18,6 @@ import {
 import { ProjectsScreen } from '../features/admin/ProjectsScreen'
 import { UsersScreen } from '../features/admin/UsersScreen'
 import { QueueScreen } from '../features/queue/QueueScreen'
-import { QueueSettingsScreen } from '../features/queue/QueueSettingsScreen'
 import {
   ArtifactsBlock,
   ExecutionsBlock,
@@ -90,10 +89,9 @@ export function registerCoreComponents(): void {
     run: RunScreen,
     queue: QueueScreen,
     'plan-runs': PlanRunsScreen,
-    'queue-settings': QueueSettingsScreen,
     projects: ProjectsScreen,
     plugins: PluginsScreen,
-    capabilities: CapabilitiesScreen,
+    capabilities: PipelinesScreen,
     users: UsersScreen,
     journal: JournalScreen,
     'project-layout': ProjectLayout,
