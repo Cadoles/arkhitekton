@@ -70,6 +70,11 @@ reading go, and a comment every 20 seconds keeps an idle stream open.
 | `PUT /queue/limits/{kind}` | `admin` |
 | `DELETE /queue/limits/{kind}` | `admin` |
 
+`GET /queue` returns the `queues`, one per kind with its ceiling and how many of its jobs run and
+wait, and the active `jobs` of every queue in the order of service: running, then waiting. A job
+says what it is about with its `project`, `release_tag` or `pull_request`, and why it waits with
+its `queue_reason`.
+
 ## 7.5 Releases
 
 All scoped to a project; the permission is checked **in that project**.

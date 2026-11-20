@@ -20,7 +20,7 @@ import (
 // QueueStore is what the handlers need from the database.
 type QueueStore interface {
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
-	ListQueue(ctx context.Context) ([]store.Job, error)
+	ListQueue(ctx context.Context) ([]store.QueuedJob, error)
 	GetJob(ctx context.Context, id int64) (store.Job, error)
 	CancelQueuedJob(ctx context.Context, id int64, reason string) (bool, error)
 	RequestCancel(ctx context.Context, id int64, reason string) (bool, error)
@@ -88,6 +88,11 @@ type jobPayload struct {
 	// produces needless retries.
 	QueueReason string `json:"queue_reason,omitempty"`
 	RunName     string `json:"run_name,omitempty"`
+	// Project, ReleaseTag and PullRequest say what the job is about: two jobs of the same kind
+	// are otherwise told apart by nothing.
+	Project     string `json:"project,omitempty"`
+	ReleaseTag  string `json:"release_tag,omitempty"`
+	PullRequest int64  `json:"pull_request,omitempty"`
 }
 
 // inputPayload describes a field of the launch form.
@@ -125,7 +130,8 @@ func (h *QueueHandler) WithEnvironmentSuggestions(environments func(ctx context.
 	return h
 }
 
-// queuePayload is one queue: its ceiling, its occupancy, its jobs.
+// queuePayload is one queue: its ceiling and its occupancy. Its jobs are counted, and returned
+// once, in the listing's own `jobs`.
 //
 // One queue per kind, including empty ones. Returning only the busy queues would make
 // half the settings disappear from the screen, and it is precisely when a queue is
@@ -144,10 +150,9 @@ type queuePayload struct {
 	// Known tells a catalogue queue from an observed one: local tasks — the release note,
 	// a plugin installation — do not become PipelineRuns and are absent from it, but they do
 	// occupy a queue.
-	Known   bool         `json:"known"`
-	Running int          `json:"running"`
-	Waiting int          `json:"waiting"`
-	Jobs    []jobPayload `json:"jobs"`
+	Known   bool `json:"known"`
+	Running int  `json:"running"`
+	Waiting int  `json:"waiting"`
 }
 
 // List returns the queues, their occupancy and the catalogue.
@@ -166,13 +171,16 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// The jobs are distributed into their queue keeping the order received, which is the
 	// order of service. Re-sorting by kind would be enough to lie about who goes first.
+	all := make([]jobPayload, 0, len(jobs))
 	byKind := map[string][]jobPayload{}
 	order := make([]string, 0, len(jobs))
 	for _, job := range jobs {
 		if _, seen := byKind[job.Kind]; !seen {
 			order = append(order, job.Kind)
 		}
-		byKind[job.Kind] = append(byKind[job.Kind], h.toJobPayload(job, who))
+		entry := h.toJobPayload(job, who)
+		all = append(all, entry)
+		byKind[job.Kind] = append(byKind[job.Kind], entry)
 	}
 
 	overrides, err := h.queue.QueueLimits(r.Context())
@@ -217,7 +225,9 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"queues":      queues,
+		"queues": queues,
+		// Every active job across the queues, in the order of service: running, then waiting.
+		"jobs":        all,
 		"kinds":       kinds,
 		"suggestions": h.suggestions(r.Context(), r.URL.Query().Get("project")),
 		// The global ceiling, across every queue. It prevails over the per-kind ones: without
@@ -355,8 +365,11 @@ func pipelineLabel(pipeline catalog.Pipeline) string {
 	return pipeline.Kind
 }
 
-func (h *QueueHandler) toJobPayload(job store.Job, who actors) jobPayload {
+func (h *QueueHandler) toJobPayload(job store.QueuedJob, who actors) jobPayload {
 	entry := jobPayload{
+		Project:     job.Project,
+		ReleaseTag:  job.ReleaseTag,
+		PullRequest: job.PullRequest,
 		ID:          job.ID,
 		Kind:        job.Kind,
 		Label:       job.Kind,
@@ -382,17 +395,12 @@ func (h *QueueHandler) toQueuePayload(
 	queue := queuePayload{
 		Kind: kind, Label: label,
 		MaxConcurrent: fromCatalog, DefaultMax: fromCatalog, Known: known,
-		Jobs: byKind[kind],
 	}
 	if limit, set := overrides[kind]; set {
 		queue.MaxConcurrent = limit
 		queue.Overridden = true
 	}
-	if queue.Jobs == nil {
-		// An empty array and not null: the interface iterates over it without having to
-		queue.Jobs = []jobPayload{}
-	}
-	for _, job := range queue.Jobs {
+	for _, job := range byKind[kind] {
 		if job.State == store.JobRunning {
 			queue.Running++
 			continue
