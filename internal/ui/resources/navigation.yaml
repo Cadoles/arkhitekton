@@ -10,6 +10,7 @@ spec:
     - { id: core.pulls, label: Pull requests, icon: branch, to: /pulls }
     # One entry for the execution views: history and queue are tabs, not separate destinations.
     - { id: core.runs, label: Exécutions, icon: beaker, to: /runs }
+    - { id: core.stats, label: Statistiques, icon: gauge, to: /stats, permission: pipeline:run }
     - { id: core.admin, label: Administration, icon: cog, to: /admin }
 ---
 apiVersion: ui.arkhitekton/v1

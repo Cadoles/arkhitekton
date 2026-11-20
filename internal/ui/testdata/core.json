@@ -203,6 +203,18 @@
       ]
     },
     {
+      "name": "stats",
+      "path": "stats",
+      "parent": "shell",
+      "permission": "pipeline:run",
+      "blocks": [
+        {
+          "id": "core.stats",
+          "component": "core/stats"
+        }
+      ]
+    },
+    {
       "name": "queue",
       "path": "queue",
       "parent": "executions",
@@ -520,6 +532,13 @@
           "label": "Exécutions",
           "icon": "beaker",
           "to": "/runs"
+        },
+        {
+          "id": "core.stats",
+          "label": "Statistiques",
+          "icon": "gauge",
+          "to": "/stats",
+          "permission": "pipeline:run"
         },
         {
           "id": "core.admin",

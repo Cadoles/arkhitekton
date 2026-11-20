@@ -419,6 +419,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			// second load could offer something else.
 			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger).
 				WithSchedules(db),
+			dashhttp.NewStatsHandler(db, inForce.Catalogs()),
 			middleware, mounts...),
 		nil, readiness...).
 		// An installed plugin's schema comes and goes with its installation.

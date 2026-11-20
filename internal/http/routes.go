@@ -17,7 +17,7 @@ func NewAPIRouter(
 	versions *VersionsHandler, syncAdmin *SyncAdminHandler,
 	forge *ForgeHandler, admin *AdminHandler, projects *ProjectsHandler,
 	plugins *PluginsHandler, projectPipelines *ProjectPipelinesHandler,
-	journal *JournalHandler, reactions *AutomationsHandler,
+	journal *JournalHandler, reactions *AutomationsHandler, stats *StatsHandler,
 	middleware *Middleware, mounts ...Mount,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -68,6 +68,10 @@ func NewAPIRouter(
 	// privilege, and that is precisely what avoids needless retries.
 	mux.Handle("GET /queue", Chain(http.HandlerFunc(queue.List),
 		middleware.Authenticate, middleware.Require(auth.PermRead)))
+
+	// The statistics. The handler counts only the projects the caller is an operator in, and refuses
+	// a named project they are not: the permission depends on each project.
+	mux.Handle("GET /stats", Chain(http.HandlerFunc(stats.List), middleware.Authenticate))
 
 	// Launching and cancelling modify state: a CSRF check in addition to the permission, and
 	// `pipeline:run` rather than `read`.
