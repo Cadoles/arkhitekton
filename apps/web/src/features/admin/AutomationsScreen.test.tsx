@@ -409,12 +409,9 @@ describe("l'interrupteur d'une automatisation", () => {
     render(<AutomationsScreen />)
 
     await screen.findByText(reaction.name)
-    const boutons = screen.getAllByRole('button', { name: 'Éteindre' })
-    // L'automatisation de release, allumée, a aussi le sien : celui de la
-    // réaction est le dernier rendu.
-    const dernier = boutons.at(-1)
-    if (!dernier) throw new Error("aucun bouton d'extinction")
-    await userEvent.click(dernier)
+    const interrupteur = screen.getByRole('switch', { name: `Allumer la réaction ${reaction.name}` })
+    expect(interrupteur).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(interrupteur)
 
     const sent = calls.find((call) => call.method === 'PUT')
     expect(sent?.url).toContain('/projects/mstore/reactions/3/enabled')
@@ -432,8 +429,9 @@ describe("l'interrupteur d'une automatisation", () => {
     render(<AutomationsScreen />)
 
     expect(await screen.findByText(/ne lancent aucun pipeline/)).toBeInTheDocument()
-    expect(screen.getByText('éteinte')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Allumer' }))
+    const interrupteur = screen.getByRole('switch', { name: "Allumer l'automatisation de release" })
+    expect(interrupteur).toHaveAttribute('aria-checked', 'false')
+    await userEvent.click(interrupteur)
 
     const sent = calls.find((call) => call.method === 'PUT')
     expect(sent?.url).toContain('/projects/mstore/automation/enabled')
@@ -445,6 +443,6 @@ describe("l'interrupteur d'une automatisation", () => {
     render(<AutomationsScreen />)
 
     await screen.findByText(/composée depuis les cibles du projet/)
-    expect(screen.queryByRole('button', { name: 'Éteindre' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: "Allumer l'automatisation de release" })).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 import { useOutletContext } from 'react-router'
 import { Card, EmptyState } from '../../components/primitives'
+import { Switch } from '../../components/Switch'
 import { SyncPanel } from './SyncPanel'
 import { PluginRow } from './PluginCard'
 import { ProjectForm, ProjectKey, toDraft } from './ProjectForm'
@@ -121,18 +122,15 @@ export function ProjectPipelinesScreen() {
               key={pipeline.kind}
               className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-zinc-200 px-3 py-2"
             >
-              <label className="flex items-center gap-2 text-sm text-zinc-900">
-                <input
-                  type="checkbox"
+              <span className="flex items-center gap-2 text-sm text-zinc-900">
+                <Switch
                   checked={pipeline.enabled}
                   disabled={save.isPending}
-                  onChange={(event) =>
-                    save.mutate({ kind: pipeline.kind, enabled: event.target.checked })
-                  }
-                  className="size-4 rounded border-zinc-300"
+                  label={`Retenir ${pipeline.label} pour ce projet`}
+                  onChange={(enabled) => save.mutate({ kind: pipeline.kind, enabled })}
                 />
                 {pipeline.label}
-              </label>
+              </span>
 
               <span className="font-mono text-xs text-zinc-500">{pipeline.kind}</span>
 

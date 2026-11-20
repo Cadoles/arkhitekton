@@ -4,6 +4,7 @@ import { Card, EmptyState, Skeleton } from '../../components/primitives'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { Select } from '../../components/Select'
+import { Switch } from '../../components/Switch'
 import { formatDateTime } from '../../lib/format'
 import type { Project } from './api'
 import {
@@ -179,25 +180,24 @@ function SchedulesCard({ slug, catalogue }: { slug: string; catalogue: Catalogue
 /** Allume ou éteint une automatisation sans ouvrir son formulaire. */
 function SwitchButton({
   enabled,
+  label,
   pending,
   error,
   onSwitch,
 }: {
   enabled: boolean
+  /** Ce que l'interrupteur allume, pour qui ne le voit pas. */
+  label: string
   pending: boolean
   error: Error | null
   onSwitch: (enabled: boolean) => void
 }) {
   return (
     <>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => onSwitch(!enabled)}
-        className="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
-      >
-        {enabled ? 'Éteindre' : 'Allumer'}
-      </button>
+      <span className="flex items-center gap-1.5 self-center text-xs text-zinc-600">
+        {enabled ? 'Active' : 'Éteinte'}
+        <Switch checked={enabled} disabled={pending} label={label} onChange={onSwitch} />
+      </span>
       {error && <span className="text-xs text-critical-700">{error.message}</span>}
     </>
   )
@@ -225,14 +225,10 @@ function ScheduleRow({
         <span className="text-sm font-medium text-zinc-900">{schedule.name}</span>
         <span className="font-mono text-xs text-zinc-600">{schedule.cron}</span>
         <span className="text-xs text-zinc-500">{schedule.timezone || 'UTC'}</span>
-        {!schedule.enabled && (
-          <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
-            éteinte
-          </span>
-        )}
         <span className="ml-auto flex items-baseline gap-2">
           <SwitchButton
             enabled={schedule.enabled}
+            label={`Allumer la planification ${schedule.name}`}
             pending={toggle.isPending}
             error={toggle.error as Error | null}
             onSwitch={(enabled) => toggle.mutate({ target: schedule.id, enabled })}
@@ -363,14 +359,10 @@ function ScheduleEditor({
               className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(change) => set('enabled', change.target.checked)}
-            />
+          <span className="flex items-center gap-2 self-center text-sm text-zinc-700">
+            <Switch checked={draft.enabled} label="Active" onChange={(enabled) => set('enabled', enabled)} />
             Active
-          </label>
+          </span>
         </div>
         <p className="text-xs text-zinc-500">
           Minute, heure, jour du mois, mois, jour de la semaine : <span className="font-mono">0 3 * * *</span>{' '}
@@ -459,16 +451,12 @@ function ReleaseAutomationCard({
           </div>
         ) : (
           <div className="flex items-baseline gap-2">
-            {!automation.enabled && (
-              <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
-                éteinte
-              </span>
-            )}
             {/* Rien à basculer tant que rien n'est déclaré : enregistrer une
                 automatisation, même vide, empêcherait le worker de la composer. */}
             {automation.declared && (
               <SwitchButton
                 enabled={automation.enabled}
+                label="Allumer l'automatisation de release"
                 pending={toggle.isPending}
                 error={toggle.error as Error | null}
                 onSwitch={(enabled) => toggle.mutate({ target: null, enabled })}
@@ -569,12 +557,6 @@ function ReactionRow({
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="text-sm font-medium text-zinc-900">{reaction.name}</span>
 
-        {!reaction.enabled && (
-          <span className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-600">
-            éteinte
-          </span>
-        )}
-
         {/* Inerte plutôt qu'effacée : une extinction peut être temporaire, et
             effacer ferait perdre une configuration. */}
         {reaction.inert && (
@@ -589,6 +571,7 @@ function ReactionRow({
         <span className="ml-auto flex items-baseline gap-2">
           <SwitchButton
             enabled={reaction.enabled}
+            label={`Allumer la réaction ${reaction.name}`}
             pending={toggle.isPending}
             error={toggle.error as Error | null}
             onSwitch={(enabled) => toggle.mutate({ target: reaction.id, enabled })}
@@ -707,14 +690,10 @@ function ReactionEditor({
             </Select>
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(change) => set('enabled', change.target.checked)}
-            />
+          <span className="flex items-center gap-2 self-center text-sm text-zinc-700">
+            <Switch checked={draft.enabled} label="Active" onChange={(enabled) => set('enabled', enabled)} />
             Active
-          </label>
+          </span>
         </div>
 
         <MatchEditor
