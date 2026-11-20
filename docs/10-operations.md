@@ -61,6 +61,7 @@ to a dependency that is briefly unavailable.
 | Capability reload | 30 s |
 | Module supervisor | 30 s |
 | Deploy keys | 1 min |
+| Project checks (access and deploy key) | 1 h, the first 5 min after start-up |
 | Pipeline definitions | 10 min |
 | Purge (sessions, auth flows) | 15 min |
 | Probes | each probe's cadence (tracker 5 min, pull requests 1 min), raised to `PROBE_INTERVAL` (default 5 min, never under 1 min); the early passes a webhook asks for are read every 2 s |
@@ -69,6 +70,14 @@ to a dependency that is briefly unavailable.
 
 The supervisor's cadence bounds how long switching a module on or off takes; what a module
 does at its own pace is its own.
+
+**Putting a project in service.** Declaring a repository leads to its page, where a card follows
+the three steps: the dashboard reads the repository (checked at once), the worker prepares the
+project's deploy key (within a minute), an administrator pastes it into the repository's deploy
+keys, read-only, from the link the card gives. The card checks the repository again every ten
+seconds until it finds the key, for ten minutes, then offers to check again; the hourly check
+keeps the list right afterwards. The dashboard never pastes the key itself: writing a key into a
+repository stays a human act. A check that finds nothing new records nothing in the journal.
 
 ## 10.5 Logs
 
