@@ -10,6 +10,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
 type contextKey string
@@ -169,7 +170,7 @@ func (m *Middleware) RequireIn(permission auth.Permission) func(http.Handler) ht
 				writeProblem(w, http.StatusForbidden, "Insufficient permission", "")
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(store.WithProject(r.Context(), projectID)))
 		})
 	}
 }
@@ -207,7 +208,7 @@ func (m *Middleware) RequireDeploy(pathValue string) func(http.Handler) http.Han
 				writeProblem(w, http.StatusForbidden, "Insufficient permission", "")
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(store.WithProject(r.Context(), projectID)))
 		})
 	}
 }

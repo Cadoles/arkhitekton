@@ -42,3 +42,25 @@ func TestAuditKeepsWhatWasRequested(t *testing.T) {
 		t.Errorf("payload = %v, expected the tag actually pushed", scoped[0].Payload)
 	}
 }
+
+// An action done on a project's route records that project; one done on the instance, none.
+func TestAnActionRecordsTheProjectOfItsRoute(t *testing.T) {
+	db := migrated(t)
+	ctx := context.Background()
+
+	if err := db.Audit(WithProject(ctx, testProjectID), "vcarroy", AuditReleaseCreate, "1.8.0", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Audit(ctx, "vcarroy", AuditRoleGrant, "alice", nil); err != nil {
+		t.Fatal(err)
+	}
+	var attached, unattached int
+	if err := db.pool.QueryRow(ctx,
+		`select count(*) filter (where project_id = $1), count(*) filter (where project_id is null) from audit_log`,
+		testProjectID).Scan(&attached, &unattached); err != nil {
+		t.Fatal(err)
+	}
+	if attached != 1 || unattached != 1 {
+		t.Errorf("attached %d, unattached %d", attached, unattached)
+	}
+}

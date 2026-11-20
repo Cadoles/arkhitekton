@@ -72,7 +72,23 @@ const (
 	AuditRoleRevoke = "role.revoke"
 )
 
-// Audit records an action.
+// projectKey carries the project a request acts on, so that its actions record it.
+type projectKey struct{}
+
+// WithProject says which project the work under ctx acts on. Set where a route resolves the
+// project of its path: every action recorded below it is then attached to that project, without
+// each call site having to say so.
+func WithProject(ctx context.Context, projectID int64) context.Context {
+	return context.WithValue(ctx, projectKey{}, projectID)
+}
+
+// ProjectFrom returns the project [WithProject] set.
+func ProjectFrom(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(projectKey{}).(int64)
+	return id, ok
+}
+
+// Audit records an action, attached to the project of ctx when there is one.
 //
 // "Who promoted what, and when" must have an answer without consulting application logs.
 //
@@ -89,9 +105,13 @@ func (db *DB) Audit(ctx context.Context, actor, action, target string, payload m
 		}
 	}
 
+	var project *int64
+	if id, ok := ProjectFrom(ctx); ok {
+		project = &id
+	}
 	_, err := db.pool.Exec(ctx,
-		`insert into audit_log (actor, action, target, payload) values ($1, $2, $3, $4)`,
-		actor, action, nullIfEmpty(target), encoded)
+		`insert into audit_log (actor, action, target, payload, project_id) values ($1, $2, $3, $4, $5)`,
+		actor, action, nullIfEmpty(target), encoded, project)
 	if err != nil {
 		return fmt.Errorf("journal d'audit %q: %w", action, err)
 	}
