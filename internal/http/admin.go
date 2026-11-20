@@ -3,13 +3,12 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -25,61 +24,40 @@ type AdminStore interface {
 	RevokeRoleIn(ctx context.Context, subject string, projectID *int64) error
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	Directory(ctx context.Context) (map[string]string, error)
+	ListAccounts(ctx context.Context) ([]store.Account, error)
+	ListGroupRoles(ctx context.Context) ([]store.GroupRole, error)
+	SetGroupRoleIn(ctx context.Context, group, role string, projectID *int64, grantedBy string) error
+	ClearGroupRoleIn(ctx context.Context, group string, projectID *int64) error
 }
 
-// AdminHandler exposes role granting.
-type AdminHandler struct{ store AdminStore }
-
-func NewAdminHandler(admin AdminStore) *AdminHandler { return &AdminHandler{store: admin} }
-
-type userRolePayload struct {
-	Subject  string `json:"subject"`
-	Username string `json:"username,omitempty"`
-	Role     string `json:"role"`
-	// GrantedBy is `bootstrap` for accounts promoted by configuration. The interface flags it:
-	// removing such a role without touching the configuration makes it reappear at the next
-	// restart.
-	GrantedBy string    `json:"granted_by"`
-	GrantedAt time.Time `json:"granted_at"`
-	// Project names the scope. Empty for a global role — the vast majority.
-	Project string `json:"project,omitempty"`
-	// ProjectLabel is its readable label, so as not to display a bare slug.
-	ProjectLabel string     `json:"project_label,omitempty"`
-	LastSeen     *time.Time `json:"last_seen,omitempty"`
-	Sessions     int        `json:"sessions"`
+// AdminHandler exposes who may use the dashboard, and granting roles.
+type AdminHandler struct {
+	store AdminStore
+	// access writes the roles, the same way the versioned configuration does.
+	access configure.Access
 }
 
-// Roles returns the granted roles and what they allow.
-func (h *AdminHandler) Roles(w http.ResponseWriter, r *http.Request) {
-	roles, err := h.store.ListUserRoles(r.Context())
-	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "Cannot read the roles", "")
-		return
-	}
+func NewAdminHandler(admin AdminStore) *AdminHandler {
+	return &AdminHandler{store: admin, access: configure.Access{Store: admin}}
+}
 
-	who := resolveActors(r.Context(), h.store, slog.Default())
-
-	payload := make([]userRolePayload, 0, len(roles))
-	for _, role := range roles {
-		payload = append(payload, userRolePayload{
-			Subject: role.Subject, Username: role.Username, Role: role.Role,
-			GrantedBy: who.name(role.GrantedBy), GrantedAt: role.GrantedAt,
-			Project: role.ProjectSlug, ProjectLabel: role.ProjectLabel,
-			LastSeen: role.LastSeen, Sessions: role.Sessions,
-		})
-	}
-
-	// The catalogue of roles comes with the list: the interface must offer the possible values
-	// without hard-coding them, and what a role allows is decided by internal/auth.
+// Roles returns what each role allows. The people and their roles are read at `/admin/people`.
+func (h *AdminHandler) Roles(w http.ResponseWriter, _ *http.Request) {
+	// The catalogue is served: the interface must offer the possible values without hard-coding
+	// them, and what a role allows is decided by internal/auth.
 	catalogue := make([]map[string]any, 0, len(auth.AllRoles))
 	for _, role := range auth.AllRoles {
 		catalogue = append(catalogue, map[string]any{
 			"role":        string(role),
 			"permissions": auth.PermissionsOf(role),
+			// Promoting depends on the environment's sensitivity, not on a named permission.
+			"deploy": map[string]bool{
+				"open":      role.Allows(auth.RoleForDeploy(false)),
+				"sensitive": role.Allows(auth.RoleForDeploy(true)),
+			},
 		})
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"roles": payload, "catalogue": catalogue})
+	writeJSON(w, http.StatusOK, map[string]any{"catalogue": catalogue})
 }
 
 type grantRequest struct {
@@ -107,59 +85,13 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request.Subject = strings.TrimSpace(request.Subject)
-	if request.Subject == "" {
-		writeProblem(w, http.StatusBadRequest, "Subject required",
-			"the identity provider's identifier, not the displayed name")
+	if err := h.access.SetPerson(r.Context(), identity.Subject, request.Subject, request.Username,
+		request.Role, request.Project); err != nil {
+		writeRefusal(w, err)
 		return
 	}
-
-	role, err := auth.ParseRole(request.Role)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Unknown role", err.Error())
-		return
-	}
-
-	// The scope is optional: without it the role holds everywhere, which is still the common
-	// case. A named project restricts the grant to it alone.
-	var projectID *int64
-	if slug := strings.TrimSpace(request.Project); slug != "" {
-		project, err := h.store.ProjectBySlug(r.Context(), slug)
-		if err != nil {
-			if errors.Is(err, store.ErrProjectNotFound) {
-				writeProblem(w, http.StatusNotFound, "Unknown project", slug)
-				return
-			}
-			writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
-			return
-		}
-		projectID = &project.ID
-	}
-
-	err = h.store.SetRoleIn(r.Context(), request.Subject,
-		strings.TrimSpace(request.Username), string(role), projectID, identity.Subject)
-	if err != nil && projectID != nil && role == auth.RoleAdmin {
-		writeProblem(w, http.StatusUnprocessableEntity, "Impossible scope",
-			"the administrator role governs the accounts and the repositories, which belong to no project")
-		return
-	}
-	if err != nil {
-		if errors.Is(err, store.ErrLastAdmin) {
-			// 409 and not 403: the request is legitimate and the caller has the right, it is the
-			// system's state that forbids it.
-			writeProblem(w, http.StatusConflict, "Last administrator", err.Error())
-			return
-		}
-		writeProblem(w, http.StatusInternalServerError, "Cannot assign", "")
-		return
-	}
-
-	h.audit(r, store.AuditRoleGrant, request.Subject, map[string]any{
-		"role": string(role), "username": request.Username,
-	})
-
 	writeJSON(w, http.StatusOK, map[string]any{
-		"subject": request.Subject, "role": string(role),
+		"subject": strings.TrimSpace(request.Subject), "role": request.Role,
 		// The change closes the person's sessions: saying so keeps an administrator from believing
 		// the old role is still in force, or the opposite.
 		"sessions_closed": true,
@@ -168,37 +100,18 @@ func (h *AdminHandler) Grant(w http.ResponseWriter, r *http.Request) {
 
 // Revoke removes a user's role.
 func (h *AdminHandler) Revoke(w http.ResponseWriter, r *http.Request) {
-	subject := r.PathValue("subject")
-
-	// The scope comes from the request: removing "someone's role" no longer has a single
-	// meaning now that they may have one per project.
-	var projectID *int64
-	if slug := strings.TrimSpace(r.URL.Query().Get("project")); slug != "" {
-		project, err := h.store.ProjectBySlug(r.Context(), slug)
-		if err != nil {
-			if errors.Is(err, store.ErrProjectNotFound) {
-				writeProblem(w, http.StatusNotFound, "Unknown project", slug)
-				return
-			}
-			writeProblem(w, http.StatusInternalServerError, "Cannot read the project", "")
-			return
-		}
-		projectID = &project.ID
-	}
-
-	if err := h.store.RevokeRoleIn(r.Context(), subject, projectID); err != nil {
-		switch {
-		case errors.Is(err, store.ErrRoleNotFound):
-			writeProblem(w, http.StatusNotFound, "Role not found", "")
-		case errors.Is(err, store.ErrLastAdmin):
-			writeProblem(w, http.StatusConflict, "Last administrator", err.Error())
-		default:
-			writeProblem(w, http.StatusInternalServerError, "Cannot remove", "")
-		}
+	identity, ok := IdentityFrom(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
 		return
 	}
-
-	h.audit(r, store.AuditRoleRevoke, subject, nil)
+	subject := r.PathValue("subject")
+	// The scope comes from the request: removing "someone's role" no longer has a single
+	// meaning now that they may have one per project.
+	if err := h.access.ClearPerson(r.Context(), identity.Subject, subject, r.URL.Query().Get("project")); err != nil {
+		writeRefusal(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"subject": subject, "sessions_closed": true})
 }
 

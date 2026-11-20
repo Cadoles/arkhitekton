@@ -170,6 +170,14 @@ func NewAPIRouter(
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	mux.Handle("DELETE /admin/roles/{subject}", Chain(http.HandlerFunc(admin.Revoke),
 		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("GET /admin/people", Chain(http.HandlerFunc(admin.People),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("GET /admin/groups", Chain(http.HandlerFunc(admin.Groups),
+		middleware.Authenticate, middleware.Require(auth.PermAdmin)))
+	mux.Handle("PUT /admin/groups/{group}/roles", Chain(http.HandlerFunc(admin.SetGroupRole),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
+	mux.Handle("DELETE /admin/groups/{group}/roles", Chain(http.HandlerFunc(admin.ClearGroupRole),
+		middleware.Authenticate, middleware.CSRF, middleware.Require(auth.PermAdmin)))
 	// The journal, actions and events together. The actions say who did what across the
 	// instance, and an event's payload may carry a third-party forge's: it is the
 	// administrators'.

@@ -57,6 +57,10 @@ const (
 	// promoted whom" must have an answer without consulting application logs.
 	AuditRoleGrant  = "role.grant"
 	AuditRoleRevoke = "role.revoke"
+	// A group's role reaches everyone the identity provider puts in the group: it is recorded
+	// like a person's.
+	AuditGroupGrant  = "group.grant"
+	AuditGroupRevoke = "group.revoke"
 )
 
 // projectKey carries the project a request acts on, so that its actions record it.
