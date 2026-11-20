@@ -146,6 +146,12 @@ export type Project = {
   deploy_key_active: boolean
   /** Pourquoi le worker n'a pas pu poser la clé. Absent dès qu'il y arrive. */
   deploy_key_error?: string
+  /** Ce que la dernière vérification a constaté de la clé, surtout quand elle n'a
+   *  pas pu conclure. */
+  key_note?: string
+  /** La page de la forge qui liste les clés de déploiement du dépôt : là où coller
+   *  celle du projet. */
+  keys_url?: string
   /** L'identifiant unique du projet, dont ses Secrets tirent leur nom. */
   uid: string
   created_by: string
@@ -201,11 +207,11 @@ export function useSaveProject() {
     // constats d'accès porteraient sur ce qui n'a pas été testé.
     mutationFn: ({ id, draft }: { id?: number; draft: ProjectDraft }) =>
       id === undefined
-        ? request<{ id: number }>('/projects', {
+        ? request<{ id: number; slug?: string }>('/projects', {
             method: 'POST',
             body: JSON.stringify(draft),
           })
-        : request<{ id: number }>(`/projects/${id}`, {
+        : request<{ id: number; slug?: string }>(`/projects/${id}`, {
             method: 'PUT',
             body: JSON.stringify(draft),
           }),

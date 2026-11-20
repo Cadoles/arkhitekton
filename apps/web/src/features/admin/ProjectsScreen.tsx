@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
-import { useDeleteProject, useProbeProject, useProjects, type Project } from './api'
+import { useDeleteProject, useProjects, type Project } from './api'
 import { AccessBadge, EMPTY, ProjectForm } from './ProjectForm'
+import { inService } from './SetupCard'
 
 /*
  * La liste des dépôts que le dashboard pilote.
@@ -21,6 +22,7 @@ import { AccessBadge, EMPTY, ProjectForm } from './ProjectForm'
 export function ProjectsScreen() {
   const { data, isPending, error, refetch } = useProjects()
   const [adding, setAdding] = useState(false)
+  const navigate = useNavigate()
 
   return (
     <div className="flex flex-col gap-4">
@@ -53,6 +55,12 @@ export function ProjectsScreen() {
                   image_registry: data.image_registry,
                 }}
                 onDone={() => setAdding(false)}
+                // Le projet déclaré se met en service depuis sa page : y aller tout de suite
+                // plutôt que de le laisser dans la liste à attendre un test.
+                onSaved={(saved) => {
+                  setAdding(false)
+                  if (saved.slug) navigate(`/admin/projects/${encodeURIComponent(saved.slug)}`)
+                }}
               />
             </div>
           )}
@@ -64,11 +72,7 @@ export function ProjectsScreen() {
           ) : (
             <ul className="flex flex-col gap-2">
               {data.projects.map((project) => (
-                <ProjectRow
-                  key={project.id}
-                  project={project}
-                  probeConfigured={data.probe_configured}
-                />
+                <ProjectRow key={project.id} project={project} />
               ))}
             </ul>
           )}
@@ -78,14 +82,7 @@ export function ProjectsScreen() {
   )
 }
 
-function ProjectRow({
-  project,
-  probeConfigured,
-}: {
-  project: Project
-  probeConfigured: boolean
-}) {
-  const probe = useProbeProject()
+function ProjectRow({ project }: { project: Project }) {
   const remove = useDeleteProject()
   const [confirming, setConfirming] = useState(false)
 
@@ -128,33 +125,20 @@ function ProjectRow({
 
         <AccessBadge project={project} />
 
-        {/* La clé de déploiement : le seul état dont l'absence **empêche de
-            construire** depuis que la clé partagée a été retirée. Il mérite donc
-            de se voir depuis la liste, sans ouvrir chaque projet. Constaté par le
-            test d'accès, jamais affirmé à la main. */}
-        {!project.deploy_key_active && (
-          <span
-            className="rounded border border-critical-500 bg-critical-50 px-1.5 py-0.5 text-xs text-critical-700"
-            title="Les constructions de ce projet refuseront de partir — testez l'accès une fois la clé collée dans le dépôt"
+        {/* Ce qui manque pour construire se règle depuis la page du projet, où la
+            mise en service se suit seule. Constaté par la vérification, jamais
+            affirmé à la main. */}
+        {!inService(project) && (
+          <Link
+            to={`/admin/projects/${encodeURIComponent(project.slug)}`}
+            className="rounded border border-warn-500 bg-warn-50 px-1.5 py-0.5 text-xs text-warn-700 hover:underline"
+            title="Les constructions de ce projet refusent de partir tant que son dépôt ne se lit pas et que sa clé n'y est pas"
           >
-            clé absente du dépôt
-          </span>
+            à mettre en service
+          </Link>
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            disabled={!probeConfigured || probe.isPending}
-            onClick={() => probe.mutate(project.id)}
-            title={
-              probeConfigured
-                ? "Lit ce dépôt par l'API de la forge, et y cherche la clé de déploiement du projet"
-                : "La forge n'est pas configurée : le test ne peut pas conclure"
-            }
-            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-50"
-          >
-            {probe.isPending ? 'Test…' : "Tester l'accès"}
-          </button>
           <Link
             to={`/admin/projects/${encodeURIComponent(project.slug)}`}
             className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
@@ -174,20 +158,6 @@ function ProjectRow({
       {project.check_note && (
         <p className={`text-xs ${project.check_ok ? 'text-zinc-500' : 'text-critical-700'}`}>
           {project.check_note}
-        </p>
-      )}
-
-      {/* Le verdict sur la clé, rendu par le test qu'on vient de lancer.
-          Affiché en plus du badge : celui-ci ne connaît que deux états — présente
-          ou non — alors que le test peut n'avoir pas conclu, et « je ne sais
-          pas » se corrige autrement qu'une absence. */}
-      {probe.data && (
-        <p
-          className={`text-xs ${
-            probe.data.key_present === false ? 'text-critical-700' : 'text-zinc-500'
-          }`}
-        >
-          {probe.data.key_note}
         </p>
       )}
 
