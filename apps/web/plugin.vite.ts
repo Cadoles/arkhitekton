@@ -1,7 +1,10 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+import { layerPluginStyles } from './src/lib/pluginLayers'
 import { SHARED } from './src/lib/shared'
 
 /*
@@ -21,6 +24,23 @@ import { SHARED } from './src/lib/shared'
  * `src/lib/shared.ts`.
  */
 
+/** Range la feuille produite pour qu'elle ne défasse jamais celle du noyau
+ *  (`src/lib/pluginLayers.ts`). */
+function pluginLayers(): Plugin {
+  return {
+    name: 'arkhitekton-plugin-layers',
+    // Une fois les fichiers écrits : en bibliothèque, Vite émet la feuille après les
+    // `generateBundle` des plugins.
+    writeBundle(options, bundle) {
+      for (const file of Object.keys(bundle)) {
+        if (!file.endsWith('.css') || !options.dir) continue
+        const path = join(options.dir, file)
+        writeFileSync(path, layerPluginStyles(readFileSync(path, 'utf8')))
+      }
+    },
+  }
+}
+
 const entry = process.env.ARKHITEKTON_PLUGIN_ENTRY
 const outDir = process.env.ARKHITEKTON_PLUGIN_OUT
 if (!entry || !outDir) {
@@ -28,7 +48,7 @@ if (!entry || !outDir) {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), pluginLayers()],
   resolve: {
     alias: {
       '@arkhitekton/host/plugin.css': fileURLToPath(new URL('./src/styles/plugin.css', import.meta.url)),

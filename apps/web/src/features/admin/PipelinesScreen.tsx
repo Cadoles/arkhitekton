@@ -54,10 +54,7 @@ export function PipelinesScreen() {
         <EmptyState>Aucun pipeline sur cette instance.</EmptyState>
       ) : (
         <table className="w-full text-sm">
-          {/* Des variantes `max-sm:` seulement, sans utilitaire d'affichage de base : la
-              feuille d'un plugin, chargée après celle-ci, redéfinit `.flex` ou `.hidden`
-              et l'emporterait sur une variante `sm:` d'ici. */}
-          <thead className="text-left text-xs text-zinc-500 max-sm:hidden">
+          <thead className="hidden text-left text-xs text-zinc-500 sm:table-header-group">
             <tr>
               <th className="py-1 pr-3 font-medium">Pipeline</th>
               <th className="px-2 py-1 font-medium">Liaison</th>
@@ -125,8 +122,8 @@ function PipelineRow({
   onSettings: () => void
 }) {
   return (
-    <tr className="border-t border-zinc-200 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:py-1.5">
-      <td className="py-1.5 pr-3 max-sm:w-full">
+    <tr className="flex flex-wrap items-center gap-x-3 border-t border-zinc-200 py-1.5 sm:table-row">
+      <td className="w-full py-1.5 pr-3 sm:w-auto">
         <span className="font-medium text-zinc-900">{capability.label}</span>
         <span className="ml-2 font-mono text-xs text-zinc-500">{capability.ref}</span>
       </td>
@@ -155,7 +152,7 @@ function PipelineRow({
           '–'
         )}
       </td>
-      <td className="py-1 text-right max-sm:ml-auto">
+      <td className="ml-auto py-1 text-right">
         <button
           type="button"
           onClick={onSettings}
