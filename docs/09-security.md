@@ -34,6 +34,19 @@ role and a map of project roles; a route scoped to a project resolves the role *
 project*. Someone may be an operator on one project and a viewer on another. `admin` is only
 ever global.
 
+**A role comes from the person or from their groups.** A group is what the identity provider
+puts in the token (`OIDC_GROUPS_CLAIM`): with Gitea, an organisation or `organisation:team`. At
+each scope, the instance or one project, the person's own role wins, which lets a member of a
+team be restricted; failing one, the highest role among their groups'. Then a project's role
+wins over the instance's. A group's role is read at each request: changing it applies at once.
+Joining or leaving a group at the provider applies at the next sign-in, the groups being those
+of the token. The last administrator who cannot be removed is a person's own global
+`admin`: a group may be emptied at the next sign-in.
+
+Everyone who signs in is remembered (`accounts`), with or without a role: someone waiting for
+access appears in Administration, *Utilisateurs*, and is given a role there without anyone
+having to look up their identifier.
+
 ## 9.3 Deployment permissions
 
 Promoting to an environment requires `deploy:<environment>` **in the project that owns

@@ -12,9 +12,11 @@ for brevity.
 
 | Table | Key columns | Purpose |
 |---|---|---|
-| `sessions` | `id`, `subject`, `username`, `email`, `expires_at`, `last_used` | Server-side sessions. The cookie carries the id, nothing else |
+| `sessions` | `id`, `subject`, `username`, `email`, `groups`, `expires_at`, `last_used` | Server-side sessions. The cookie carries the id, nothing else; `groups` are the token's at sign-in |
+| `accounts` | `subject`, `username`, `email`, `groups`, `first_seen`, `last_seen` | Everyone who signed in, with a role or waiting for one. Never purged |
 | `auth_flows` | `state`, `nonce`, `code_verifier`, `redirect_after`, `expires_at` | In-flight OIDC authorization codes. Purged when expired |
-| `user_roles` | `subject`, `username`, `role`, `project_id`, `granted_by`, `last_seen` | A role, globally (`project_id` null) or in one project |
+| `user_roles` | `subject`, `username`, `role`, `project_id`, `granted_by`, `last_seen` | A person's own role, globally (`project_id` null) or in one project |
+| `group_roles` | `group_name`, `role`, `project_id`, `granted_by` | A role given to a group of the identity provider, globally or in one project; `admin` only globally |
 | `bootstrap_grants` | `identifier`, `role`, `claimed_at`, `claimed_by` | Roles waiting for their first sign-in, from `BOOTSTRAP_*` |
 | `bootstrap_steps` | `step`, `applied_at` | Which one-off start-up steps already ran |
 | `audit_log` | `actor`, `action`, `target`, `payload`, `project_id` | Every administrative act; `project_id` when done on a project's route (a plugin's acts are not attached yet) |
