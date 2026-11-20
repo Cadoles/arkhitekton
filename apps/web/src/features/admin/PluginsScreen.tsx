@@ -1,7 +1,7 @@
 import { Card, EmptyState, ErrorState, Skeleton } from '../../components/primitives'
 import { InstallationsCard } from './InstallationsCard'
 import { LeftoversCard } from './LeftoversCard'
-import { PluginCard } from './PluginCard'
+import { PluginRow } from './PluginCard'
 import { usePlugins, useSavePlugin } from './plugins'
 
 /*
@@ -32,22 +32,18 @@ export function PluginsScreen() {
       <InstallationsCard />
       <LeftoversCard />
       <Card title={`Plugins (${data.plugins.length})`}>
-        <p className="mb-3 text-sm text-zinc-500">
-          Ce que cette version du dashboard sait faire. Un plugin retiré ici disparaît des écrans de
-          projet : un interrupteur qu'on ne peut pas atteindre vaut mieux qu'un réglage qui ne fait
-          rien.
+        <p className="mb-1 text-sm text-zinc-500">
+          Un plugin désactivé ici disparaît des écrans de projet ; ses réglages valent pour toute
+          l&apos;instance, et chaque projet peut s&apos;en écarter.
         </p>
 
         {data.plugins.length === 0 ? (
           <EmptyState>Aucun plugin n'est disponible sur cette instance.</EmptyState>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col divide-y divide-zinc-200">
             {data.plugins.map((plugin) => (
-              <PluginCard
-                // L'état d'activation entre dans la clé : un enregistrement remonte
-                // la liste, et sans cela la carte conserverait son état local,
-                // affichant une valeur que le serveur a remplacée.
-                key={`${plugin.id}:${String(plugin.enabled)}`}
+              <PluginRow
+                key={plugin.id}
                 plugin={plugin}
                 scope="global"
                 saving={save.isPending}

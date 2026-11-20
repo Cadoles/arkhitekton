@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { render } from '../../test/render'
-import { PluginCard } from './PluginCard'
+import { PluginRow, PluginSettings } from './PluginCard'
 import type { Plugin } from './plugins'
 
 /*
@@ -30,12 +30,12 @@ const redmine: Plugin = {
   secrets_configured: true,
 }
 
-describe('PluginCard', () => {
+describe('les réglages d’un plugin', () => {
   // La valeur d'un champ sensible n'est jamais rendue par l'API, donc jamais
   // affichée. L'écran n'en connaît que la présence — c'est ce qui rend la saisie
   // d'une clé depuis un navigateur acceptable.
   it("n'affiche jamais la valeur d'un champ sensible, seulement sa présence", () => {
-    render(<PluginCard plugin={redmine} scope="global" saving={false} onSave={vi.fn()} />)
+    render(<PluginSettings plugin={redmine} scope="global" saving={false} onSave={vi.fn()} />)
 
     const cle = screen.getByLabelText("Clé d'API")
     expect(cle).toHaveValue('')
@@ -47,7 +47,7 @@ describe('PluginCard', () => {
   // une URL suffirait alors à couper la synchronisation.
   it('soumet un champ sensible vide sans demander son effacement', async () => {
     const onSave = vi.fn()
-    render(<PluginCard plugin={redmine} scope="global" saving={false} onSave={onSave} />)
+    render(<PluginSettings plugin={redmine} scope="global" saving={false} onSave={onSave} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
 
@@ -60,7 +60,7 @@ describe('PluginCard', () => {
   // L'effacement existe, et demande un geste distinct de « laisser vide ».
   it("demande explicitement l'effacement d'un champ sensible", async () => {
     const onSave = vi.fn()
-    render(<PluginCard plugin={redmine} scope="global" saving={false} onSave={onSave} />)
+    render(<PluginSettings plugin={redmine} scope="global" saving={false} onSave={onSave} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Effacer' }))
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
@@ -73,7 +73,7 @@ describe('PluginCard', () => {
   // tapé une clé de production est le pire moment pour l'apprendre.
   it('désactive les champs sensibles quand le scellement manque', () => {
     render(
-      <PluginCard
+      <PluginSettings
         plugin={{ ...redmine, secrets_configured: false }}
         scope="global"
         saving={false}
@@ -90,13 +90,13 @@ describe('PluginCard', () => {
   it("ne propose le retour au réglage de l'instance qu'à la portée projet", async () => {
     const onClear = vi.fn()
     const { unmount } = render(
-      <PluginCard plugin={redmine} scope="global" saving={false} onSave={vi.fn()} />,
+      <PluginSettings plugin={redmine} scope="global" saving={false} onSave={vi.fn()} />,
     )
     expect(screen.queryByRole('button', { name: /réglage de l'instance/ })).toBeNull()
     unmount()
 
     render(
-      <PluginCard
+      <PluginSettings
         plugin={redmine}
         scope="project"
         saving={false}
@@ -108,26 +108,10 @@ describe('PluginCard', () => {
     expect(onClear).toHaveBeenCalledTimes(1)
   })
 
-  // Un plugin sans lequel le dashboard ne fonctionne pas n'offre pas d'interrupteur :
-  // le serveur refuserait de l'éteindre.
-  it("n'offre pas d'interrupteur pour un plugin obligatoire", () => {
-    render(
-      <PluginCard
-        plugin={{ ...redmine, id: 'core', label: 'Socle', mandatory: true, fields: [] }}
-        scope="global"
-        saving={false}
-        onSave={vi.fn()}
-      />,
-    )
-
-    expect(screen.queryByRole('checkbox')).toBeNull()
-    expect(screen.getByText('Toujours actif')).toBeInTheDocument()
-  })
-
   // L'adresse se colle telle quelle dans la forge : complète, avec l'origine.
   it("montre l'adresse du webhook d'un plugin qui en reçoit", () => {
     render(
-      <PluginCard
+      <PluginSettings
         plugin={{ ...redmine, webhook_path: '/api/v1/hooks/gitea/projects/mstore' }}
         scope="project"
         saving={false}
@@ -141,7 +125,62 @@ describe('PluginCard', () => {
   })
 
   it("ne montre aucune adresse pour un plugin qui n'en reçoit pas", () => {
-    render(<PluginCard plugin={redmine} scope="project" saving={false} onSave={vi.fn()} />)
+    render(<PluginSettings plugin={redmine} scope="project" saving={false} onSave={vi.fn()} />)
     expect(screen.queryByLabelText('Adresse du webhook')).not.toBeInTheDocument()
+  })
+})
+
+describe('la ligne d’un plugin', () => {
+  // Un plugin sans lequel le dashboard ne fonctionne pas n'offre pas d'interrupteur :
+  // le serveur refuserait de l'éteindre.
+  it("n'offre pas d'interrupteur pour un plugin obligatoire", () => {
+    render(
+      <PluginRow
+        plugin={{ ...redmine, id: 'core', label: 'Socle', mandatory: true, fields: [] }}
+        scope="global"
+        saving={false}
+        onSave={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(screen.getByText('Toujours actif')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Paramètres de Socle' })).toBeDisabled()
+  })
+
+  // L'interrupteur n'enregistre que l'activation : le réglage reste celui qui est
+  // enregistré, la clé d'API comprise, qui n'est pas renvoyée.
+  it("bascule l'activation sans toucher au réglage", async () => {
+    const onSave = vi.fn()
+    render(<PluginRow plugin={redmine} scope="global" saving={false} onSave={onSave} />)
+
+    const toggle = screen.getByRole('switch', { name: "Activer Redmine sur l'instance" })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(toggle)
+
+    expect(onSave).toHaveBeenCalledWith({ enabled: false, config: redmine.config })
+  })
+
+  it('ouvre ses réglages dans une fenêtre, qui garde l’activation', async () => {
+    const onSave = vi.fn()
+    render(<PluginRow plugin={{ ...redmine, enabled: false }} scope="global" saving={false} onSave={onSave} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Paramètres de Redmine' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    expect(onSave.mock.calls[0]![0].enabled).toBe(false)
+  })
+
+  // Activé mais sans ce qu'il lui faut, un plugin ne fait rien : la ligne le dit.
+  it('signale un plugin activé à qui manque un champ requis', () => {
+    const required = {
+      ...redmine,
+      fields: [{ name: 'url', label: "URL de l'instance", type: 'url' as const, required: true }],
+      config: {},
+    }
+    render(<PluginRow plugin={required} scope="global" saving={false} onSave={vi.fn()} />)
+
+    expect(screen.getByText('à configurer')).toBeInTheDocument()
   })
 })

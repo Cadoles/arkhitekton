@@ -1,7 +1,7 @@
 import { useOutletContext } from 'react-router'
 import { Card, EmptyState } from '../../components/primitives'
 import { SyncPanel } from './SyncPanel'
-import { PluginCard } from './PluginCard'
+import { PluginRow } from './PluginCard'
 import { ProjectForm, ProjectKey, toDraft } from './ProjectForm'
 import type { Project } from './api'
 import {
@@ -70,10 +70,10 @@ export function ProjectPluginsScreen() {
           Aucun plugin ne se règle par projet, ou l'instance les a tous désactivés.
         </EmptyState>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col divide-y divide-zinc-200">
           {data.plugins.map((plugin) => (
-            <PluginCard
-              key={`${plugin.id}:${String(plugin.enabled)}`}
+            <PluginRow
+              key={plugin.id}
               plugin={plugin}
               scope="project"
               saving={save.isPending}

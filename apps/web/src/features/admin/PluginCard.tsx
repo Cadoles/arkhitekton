@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { Icon } from '../../components/Icon'
-import type { Plugin, PluginDraft, PluginField } from './plugins'
 import { FieldInput } from '../../components/FieldInput'
+import { Icon } from '../../components/Icon'
+import { Modal } from '../../components/Modal'
+import { Switch } from '../../components/Switch'
+import type { Plugin, PluginDraft, PluginField } from './plugins'
 
 /*
- * Le formulaire d'un plugin, à l'une ou l'autre portée.
+ * Un plugin, à l'une ou l'autre portée : une ligne avec son interrupteur, et ses
+ * réglages dans une fenêtre qui s'ouvre à la demande.
  *
  * Le **même** composant pour l'instance et pour un projet, et ce n'est pas une
  * économie de lignes : les deux portées décrivent leurs champs par le même
@@ -20,56 +23,99 @@ import { FieldInput } from '../../components/FieldInput'
  * la relire ne suffit pas à la voler.
  */
 
-export function PluginCard({
-  plugin,
-  scope,
-  saving,
-  onSave,
-  onClear,
-}: {
+type PluginProps = {
   plugin: Plugin
   scope: 'global' | 'project'
   saving: boolean
   onSave: (draft: PluginDraft) => void
   /** Présent à la portée projet seulement : rend le projet à l'héritage. */
   onClear?: () => void
-}) {
-  const [enabled, setEnabled] = useState(plugin.enabled)
+}
+
+/** Les champs requis qu'aucune valeur ne remplit : à l'instance, un plugin activé
+ *  ainsi ne fera rien. À un projet, un champ vide reprend celui de l'instance. */
+function missing(plugin: Plugin): string[] {
+  return plugin.fields
+    .filter((field) => field.required)
+    .filter((field) => (field.secret ? !plugin.secrets_set.includes(field.name) : !plugin.config[field.name]?.trim()))
+    .map((field) => field.label)
+}
+
+/** La ligne d'un plugin : ce qu'il est, son interrupteur, et ses réglages. */
+export function PluginRow(props: PluginProps) {
+  const { plugin, scope, saving, onSave } = props
+  const [open, setOpen] = useState(false)
+  const kinds = [...new Set(plugin.capabilities.map((capability) => capability.kind_label))]
+  const settable = plugin.fields.length > 0 || Boolean(plugin.webhook_path)
+  const unset = scope === 'global' && plugin.enabled ? missing(plugin) : []
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-medium text-zinc-900">{plugin.label}</span>
+          {kinds.map((label) => (
+            <span key={label} className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500">
+              {label}
+            </span>
+          ))}
+          {unset.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-warn-700" title={unset.join(', ')}>
+              <Icon name="alert" className="size-3.5" />à configurer
+            </span>
+          )}
+        </div>
+        <p className="truncate text-xs text-zinc-500" title={plugin.summary}>
+          {plugin.summary}
+        </p>
+      </div>
+
+      {plugin.mandatory ? (
+        <span className="text-xs text-zinc-500">Toujours actif</span>
+      ) : (
+        <label className="flex items-center gap-2 text-xs text-zinc-600">
+          {plugin.enabled ? (scope === 'global' ? 'Activé' : 'Appliqué') : 'Désactivé'}
+          <Switch
+            checked={plugin.enabled}
+            disabled={saving}
+            label={scope === 'global' ? `Activer ${plugin.label} sur l'instance` : `Appliquer ${plugin.label} à ce projet`}
+            // Le réglage reste celui qui est enregistré : l'interrupteur ne change que l'activation.
+            onChange={(enabled) => onSave({ enabled, config: plugin.config })}
+          />
+        </label>
+      )}
+
+      <button
+        type="button"
+        disabled={!settable}
+        onClick={() => setOpen(true)}
+        aria-label={`Paramètres de ${plugin.label}`}
+        title={settable ? undefined : 'Ce plugin ne se règle pas'}
+        className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-40"
+      >
+        <Icon name="cog" className="size-3.5" />
+        Paramètres
+      </button>
+
+      {open && (
+        <Modal title={`Paramètres : ${plugin.label}`} onClose={() => setOpen(false)}>
+          <PluginSettings {...props} />
+        </Modal>
+      )}
+    </li>
+  )
+}
+
+/** Les réglages d'un plugin. L'activation ne s'y change pas : c'est l'interrupteur
+ *  de la ligne, et l'enregistrement la garde telle qu'elle est. */
+export function PluginSettings({ plugin, scope, saving, onSave, onClear }: PluginProps) {
   const [config, setConfig] = useState<Record<string, string>>(plugin.config)
   const [cleared, setCleared] = useState<string[]>([])
 
   const secretsSet = plugin.secrets_set.filter((name) => !cleared.includes(name))
 
   return (
-    <li className="flex flex-col gap-3 rounded-md border border-zinc-200 px-3 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-medium text-zinc-900">{plugin.label}</span>
-        {[...new Set(plugin.capabilities.map((capability) => capability.kind_label))].map(
-          (label) => (
-            <span
-              key={label}
-              className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500"
-            >
-              {label}
-            </span>
-          ),
-        )}
-
-        {plugin.mandatory ? (
-          <span className="ml-auto text-sm text-zinc-500">Toujours actif</span>
-        ) : (
-          <label className="ml-auto flex items-center gap-1.5 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-              className="size-4 rounded border-zinc-300"
-            />
-            {scope === 'global' ? 'Disponible sur cette instance' : 'Appliqué à ce projet'}
-          </label>
-        )}
-      </div>
-
+    <div className="flex flex-col gap-3">
       <p className="text-sm text-zinc-500">{plugin.summary}</p>
 
       {plugin.fields.length > 0 && (
@@ -109,7 +155,7 @@ export function PluginCard({
           disabled={saving}
           onClick={() =>
             onSave({
-              enabled,
+              enabled: plugin.enabled,
               config,
               cleared_secrets: cleared.length > 0 ? cleared : undefined,
             })
@@ -134,7 +180,7 @@ export function PluginCard({
           <span className="text-xs text-zinc-400">réglé par {plugin.updated_by}</span>
         )}
       </div>
-    </li>
+    </div>
   )
 }
 
