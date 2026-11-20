@@ -29,6 +29,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
 	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
@@ -707,7 +708,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			// where each returns `ctx.Err()`. The process would still exit, but leaving behind loops that
 			// were never able to conclude — and a goroutine profile that accuses a leak where there is
 			// only a channel that is too short.
-			errs := make(chan error, 11)
+			errs := make(chan error, 13)
 			// The bound capabilities' definitions, installed and checked before the first launch. Under the
 			// lease like the rest: two workers putting the same definition in place would rewrite each
 			// other's.
@@ -738,6 +739,12 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			keys := projectKeys(cluster, cfg, pipelines, logger)
 			go func() {
 				errs <- worker.NewKeyReconciler(db, keys, logger).Run(leadingCtx)
+			}()
+			// Every project's access and key, checked again every hour: a key removed from its
+			// repository shows on the list without anyone testing.
+			go func() {
+				checks := configure.Checks{Store: db, Prober: links, Logger: logger}
+				errs <- worker.NewProjectChecker(checks, logger).Run(leadingCtx)
 			}()
 
 			// The probes, which produce a plugin's facts. Under the lease like the rest: two workers

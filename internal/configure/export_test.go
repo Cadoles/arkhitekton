@@ -2,6 +2,7 @@ package configure
 
 import (
 	"context"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestTheExportCarriesNoSecretAndNoObservedState(t *testing.T) {
 	i := configured(t)
 	ctx := context.Background()
 	project, _ := i.db.ProjectBySlug(ctx, "portal")
-	if err := i.db.RecordProjectCheck(ctx, project.ID, true, "default branch: main"); err != nil {
+	if _, err := i.db.RecordProjectProbe(ctx, project.ID, store.ProjectProbe{OK: true, Note: "default branch: main"}); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 

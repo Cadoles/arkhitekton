@@ -199,6 +199,9 @@ type Probe struct {
 	// KeyNote says what the question answered, above all when it did not conclude: without it, a
 	// `nil` would send one hunting at random.
 	KeyNote string
+	// KeysURL is the page of the forge listing the repository's deploy keys, where an
+	// administrator pastes the project's. Empty when the forge has none to give.
+	KeysURL string
 }
 
 // RepositoryProber tests access to an **arbitrary** repository.
