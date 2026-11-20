@@ -1,4 +1,5 @@
 import { Link, Outlet, useParams } from 'react-router'
+import { SetupCard } from './SetupCard'
 import { NavTabs } from '../../components/NavTabs'
 import { ErrorState, Skeleton } from '../../components/primitives'
 import { useProjects, type Project } from './api'
@@ -54,6 +55,9 @@ export function ProjectLayout() {
         <span className="font-mono text-xs text-zinc-500">{project.data.repository}</span>
       </div>
 
+      {/* La clé entre dans la clé du composant : un autre projet ouvert dans la même vue
+          repart de sa propre mise en service. */}
+      <SetupCard key={project.data.id} project={project.data} />
       <NavTabs navigation="project" label={`Réglages de ${project.data.label}`} />
       <Outlet context={project.data} />
     </div>

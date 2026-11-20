@@ -83,12 +83,15 @@ export function ProjectForm({
   id,
   draft,
   onDone,
+  onSaved,
 }: {
   id?: number
   draft: ProjectDraft
   /** Absent sur la page d'un projet : il n'y a pas de ligne dépliée à replier, le
    *  formulaire **est** l'écran. */
   onDone?: () => void
+  /** Après l'enregistrement, avec le nom du projet dans les URL. Absent : `onDone`. */
+  onSaved?: (saved: { id: number; slug?: string }) => void
 }) {
   const [form, setForm] = useState<ProjectDraft>(draft)
   const save = useSaveProject()
@@ -107,7 +110,7 @@ export function ProjectForm({
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault()
-        save.mutate({ id, draft: form }, { onSuccess: onDone })
+        save.mutate({ id, draft: form }, { onSuccess: (saved) => (onSaved ? onSaved(saved) : onDone?.()) })
       }}
     >
       <div className="flex flex-wrap items-end gap-3">
@@ -532,8 +535,8 @@ export function ProjectKey({ project }: { project: Project }) {
         </button>
       </div>
 
-      {/* Constaté, jamais affirmé : c'est « Tester l'accès » qui lit les clés du
-          dépôt et tranche. Le dashboard ne peut toujours pas coller la clé —
+      {/* Constaté, jamais affirmé : la vérification lit les clés du dépôt et
+          tranche. Le dashboard ne peut toujours pas coller la clé —
           cela appartient à un humain — mais il n'a plus besoin qu'on le lui
           confirme. */}
       {project.deploy_key_active ? (
@@ -543,8 +546,8 @@ export function ProjectKey({ project }: { project: Project }) {
         </p>
       ) : (
         <p className="text-xs text-zinc-500">
-          Pas encore constatée dans le dépôt — collez-la dans ses clés de déploiement, puis
-          lancez « Tester l'accès ». Tant qu'elle n'y est pas, les constructions de ce
+          Pas encore constatée dans le dépôt : collez-la dans ses clés de déploiement, la
+          vérification est automatique. Tant qu'elle n'y est pas, les constructions de ce
           projet refusent de partir.
         </p>
       )}
