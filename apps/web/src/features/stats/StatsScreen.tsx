@@ -28,12 +28,9 @@ export function StatsScreen() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold text-zinc-900">Statistiques</h1>
-        <div className="flex flex-wrap gap-3">
-          <Toggle label="Portée" options={scopes} value={scope} onChange={setScope} />
-          <Toggle label="Période" options={RANGES} value={range} onChange={setRange} />
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Toggle label="Portée" options={scopes} value={scope} onChange={setScope} />
+        <Toggle label="Période" options={RANGES} value={range} onChange={setRange} />
       </div>
 
       {isPending && <Skeleton className="h-64 w-full" />}

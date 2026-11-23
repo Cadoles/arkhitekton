@@ -203,16 +203,10 @@
       ]
     },
     {
-      "name": "stats",
+      "name": "stats-former",
       "path": "stats",
       "parent": "shell",
-      "permission": "pipeline:run",
-      "blocks": [
-        {
-          "id": "core.stats",
-          "component": "core/stats"
-        }
-      ]
+      "redirect": "/admin/stats"
     },
     {
       "name": "queue",
@@ -329,6 +323,18 @@
         {
           "id": "core.projects",
           "component": "core/projects"
+        }
+      ]
+    },
+    {
+      "name": "admin-stats",
+      "path": "stats",
+      "parent": "admin",
+      "permission": "pipeline:run",
+      "blocks": [
+        {
+          "id": "core.stats",
+          "component": "core/stats"
         }
       ]
     },
@@ -487,6 +493,13 @@
           "label": "Journal",
           "icon": "doc",
           "to": "/admin/journal"
+        },
+        {
+          "id": "core.stats",
+          "label": "Statistiques",
+          "icon": "gauge",
+          "to": "/admin/stats",
+          "permission": "pipeline:run"
         }
       ]
     },
@@ -532,13 +545,6 @@
           "label": "Exécutions",
           "icon": "beaker",
           "to": "/runs"
-        },
-        {
-          "id": "core.stats",
-          "label": "Statistiques",
-          "icon": "gauge",
-          "to": "/stats",
-          "permission": "pipeline:run"
         },
         {
           "id": "core.admin",

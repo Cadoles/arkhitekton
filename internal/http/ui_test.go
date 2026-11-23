@@ -103,11 +103,11 @@ func TestTheInterfaceFollowsTheProjectAndTheRole(t *testing.T) {
 		t.Errorf("served = %+v", on)
 	}
 	// The statistics are the operators': a viewer has neither the entry nor the screen.
-	if servesScreen(on, "stats") {
+	if servesScreen(on, "admin-stats") {
 		t.Error("the statistics are served to a viewer")
 	}
-	if admin := readInterface(t, call(mux, auth.RoleAdmin, "GET", "/ui?project=app")); len(admin.Navigations["main"].Items) != 8 ||
-		!servesScreen(admin, "stats") {
+	if admin := readInterface(t, call(mux, auth.RoleAdmin, "GET", "/ui?project=app")); len(admin.Navigations["main"].Items) != 7 ||
+		!servesScreen(admin, "admin-stats") {
 		t.Errorf("main, admin = %+v", admin.Navigations["main"])
 	}
 

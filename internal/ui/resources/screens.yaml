@@ -59,15 +59,14 @@ spec:
   parent: executions
   blocks: [{ id: core.runs, component: core/runs }]
 ---
-# The statistics: what is delivered, for the operators of a project.
+# The statistics' former address, kept for links already shared.
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: stats }
+metadata: { name: stats-former }
 spec:
   path: stats
   parent: shell
-  permission: pipeline:run
-  blocks: [{ id: core.stats, component: core/stats }]
+  redirect: /admin/stats
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
@@ -159,6 +158,16 @@ spec:
   path: projects
   parent: admin
   blocks: [{ id: core.projects, component: core/projects }]
+---
+# What is delivered, for the operators of a project.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-stats }
+spec:
+  path: stats
+  parent: admin
+  permission: pipeline:run
+  blocks: [{ id: core.stats, component: core/stats }]
 ---
 # What happened in the application: actions and events in one feed.
 apiVersion: ui.arkhitekton/v1
