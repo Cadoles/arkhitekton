@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/restmapper"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/agent"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
@@ -37,6 +39,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/oauth"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -391,39 +394,52 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		{Name: "minio", Check: storage.Ping},
 	}
 
-	server := dashhttp.NewServer(cfg.HTTP, logger,
-		dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
-			releasesHandler, dashhttp.NewBenchHandler(db), testsHandler,
-			// The project's tracker plugin composes the outgoing links. With none, the links are
-			// omitted rather than rendered broken.
-			dashhttp.NewVersionsHandler(db, connections),
-			dashhttp.NewSyncAdminHandler(db, connections),
-			// With no forge plugin enabled for the project, the release form falls back to free-text
-			// entry of the git_ref and says so.
-			dashhttp.NewForgeHandler(db, connections),
-			dashhttp.NewAdminHandler(db),
-			// The access test uses the forge's token, with one client per repository: the configuration's
-			// is bound to its own, and the test bears precisely on another. With no token, the screen
-			// says so rather than returning a failure one would take for a permission problem.
-			projectsHandler(cfg, db, answers.schemeCheck(), connections),
-			// The cipher may be nil: with no key, the settings are read and enabled, only writing a
-			// sensitive field is refused — with a message that names the variable, in the place where one
-			// types it.
-			dashhttp.NewPluginsHandler(inForce.Registries(), db, cipher, logger),
-			// The same catalogue as the queue: the screen shows what the instance can launch, and a
-			// second load could show something else.
-			dashhttp.NewProjectPipelinesHandler(db, inForce.Catalogs(), logger),
-			// The journal: actions and events, each event with the automations it set off.
-			dashhttp.NewJournalHandler(db, logger),
-			// The same catalogue as the queue: the editor offers what the instance can launch, and a
-			// second load could offer something else.
-			dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger).
-				WithSchedules(db),
-			dashhttp.NewStatsHandler(db, inForce.Catalogs()),
-			middleware, mounts...),
-		nil, readiness...).
+	// The AI agents: the consent and the list of agents in the API, the OAuth server and the MCP
+	// server at the root.
+	var agents *oauth.Server
+	if cfg.HTTP.MCP {
+		agents = oauth.New(db, sessions, cfg.HTTP.PublicURL, logger)
+		mounts = append(mounts, dashhttp.NewAgentsHandler(agents, db, logger).Mount)
+	}
+
+	api := dashhttp.NewAPIRouter(authHandler, runsHandler, logsHandler, queueHandler,
+		releasesHandler, dashhttp.NewBenchHandler(db), testsHandler,
+		// The project's tracker plugin composes the outgoing links. With none, the links are
+		// omitted rather than rendered broken.
+		dashhttp.NewVersionsHandler(db, connections),
+		dashhttp.NewSyncAdminHandler(db, connections),
+		// With no forge plugin enabled for the project, the release form falls back to free-text
+		// entry of the git_ref and says so.
+		dashhttp.NewForgeHandler(db, connections),
+		dashhttp.NewAdminHandler(db),
+		// The access test uses the forge's token, with one client per repository: the configuration's
+		// is bound to its own, and the test bears precisely on another. With no token, the screen
+		// says so rather than returning a failure one would take for a permission problem.
+		projectsHandler(cfg, db, answers.schemeCheck(), connections),
+		// The cipher may be nil: with no key, the settings are read and enabled, only writing a
+		// sensitive field is refused — with a message that names the variable, in the place where one
+		// types it.
+		dashhttp.NewPluginsHandler(inForce.Registries(), db, cipher, logger),
+		// The same catalogue as the queue: the screen shows what the instance can launch, and a
+		// second load could show something else.
+		dashhttp.NewProjectPipelinesHandler(db, inForce.Catalogs(), logger),
+		// The journal: actions and events, each event with the automations it set off.
+		dashhttp.NewJournalHandler(db, logger),
+		// The same catalogue as the queue: the editor offers what the instance can launch, and a
+		// second load could offer something else.
+		dashhttp.NewAutomationsHandler(db, inForce.Catalogs(), inForce.Registries(), logger).
+			WithSchedules(db),
+		dashhttp.NewStatsHandler(db, inForce.Catalogs()),
+		middleware, mounts...)
+	server := dashhttp.NewServer(cfg.HTTP, logger, api, nil, readiness...).
 		// An installed plugin's schema comes and goes with its installation.
 		WithReadiness(installedSchemas(sources, db.Pool(), logger))
+	if agents != nil {
+		server.WithRoot(func(mux *http.ServeMux) {
+			agents.Routes(mux)
+			mux.Handle("/mcp", agent.Handler(api, agents, version, logger))
+		})
+	}
 
 	return server.Run(ctx)
 }
@@ -699,7 +715,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 			purger := worker.NewPurger(
 				auth.NewSessionStore(db.Pool(), cfg.OIDC.SessionTTL),
 				auth.NewDBFlowStore(db.Pool(), 10*time.Minute),
-				logger)
+				logger).WithOAuth(db)
 
 			// One slot per loop, and no fewer: only the **first** error is read — a dead loop must make
 			// the lease be lost rather than let the other run half-way — and the following ones are
