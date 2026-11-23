@@ -366,3 +366,42 @@ func TestPluginAdministrationWritesCheckTheCSRFToken(t *testing.T) {
 		}
 	}
 }
+
+// An AI agent's request, made in memory by the MCP server, carries its identity: no cookie, no CSRF
+// token, and every action it records names the agent.
+func TestAnAgentIsAuthenticatedByTheContextAlone(t *testing.T) {
+	m := testMiddleware(&stubSessions{})
+	var seen auth.Identity
+	var agent string
+	handler := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen, _ = IdentityFrom(r.Context())
+		agent, _ = store.AgentFrom(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}), m.Authenticate, m.CSRF, m.Require(auth.PermPipelineRun))
+
+	identity := auth.Identity{Subject: "s", Username: "alice", Role: auth.RoleOperator}
+	req := httptest.NewRequest(http.MethodPost, "/queue", nil)
+	req = req.WithContext(WithAgent(req.Context(), identity, "Claude Code"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || seen.Username != "alice" || agent != "Claude Code" {
+		t.Fatalf("code %d, identity %+v, agent %q", rec.Code, seen, agent)
+	}
+
+	// The same request from the network, without the context, is refused as before.
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/queue", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("no session: %d", rec.Code)
+	}
+
+	// The agent's role still decides.
+	viewer := auth.Identity{Subject: "v", Role: auth.RoleViewer}
+	req = httptest.NewRequest(http.MethodPost, "/queue", nil)
+	req = req.WithContext(WithAgent(req.Context(), viewer, "Claude Code"))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a viewer's agent launching: %d", rec.Code)
+	}
+}

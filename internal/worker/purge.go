@@ -36,7 +36,20 @@ type Flows interface {
 type Purger struct {
 	sessions Expirable
 	flows    Flows
+	oauth    OAuthRecords
 	logger   *slog.Logger
+}
+
+// OAuthRecords cleans what AI agents' authorisations leave behind: requests never answered, codes
+// never exchanged, grants lapsed, clients registered and never authorised.
+type OAuthRecords interface {
+	PurgeOAuth(ctx context.Context, now time.Time) (int64, error)
+}
+
+// WithOAuth adds the AI agents' authorisations to the purge.
+func (p *Purger) WithOAuth(records OAuthRecords) *Purger {
+	p.oauth = records
+	return p
 }
 
 func NewPurger(sessions Expirable, flows Flows, logger *slog.Logger) *Purger {
@@ -77,5 +90,14 @@ func (p *Purger) once(ctx context.Context) {
 		p.logger.Error("purging the authentication transactions", "error", err)
 	} else if flows > 0 {
 		p.logger.Info("abandoned authentication transactions deleted", "count", flows)
+	}
+
+	if p.oauth == nil {
+		return
+	}
+	if records, err := p.oauth.PurgeOAuth(ctx, time.Now().UTC()); err != nil {
+		p.logger.Error("purging the agents' authorisations", "error", err)
+	} else if records > 0 {
+		p.logger.Info("lapsed agent authorisations deleted", "count", records)
 	}
 }

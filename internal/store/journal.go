@@ -53,6 +53,8 @@ type JournalEntry struct {
 	Actor  string
 	Action string
 	Target string
+	// Agent is the AI agent that acted on the actor's behalf, empty when the actor acted.
+	Agent string
 
 	// An event's.
 	Type    string
@@ -115,7 +117,8 @@ func (db *DB) ListJournal(ctx context.Context, query JournalQuery) ([]JournalEnt
 
 func (db *DB) journalActions(ctx context.Context, projectID *int64, search string, limit int) ([]JournalEntry, error) {
 	rows, err := db.pool.Query(ctx,
-		`select a.id, a.at, coalesce(p.slug, ''), a.actor, a.action, coalesce(a.target, ''), a.payload
+		`select a.id, a.at, coalesce(p.slug, ''), a.actor, a.action, coalesce(a.target, ''), a.payload,
+		        coalesce(a.agent, '')
 		 from audit_log a
 		 left join projects p on p.id = a.project_id
 		 where ($1::bigint is null or a.project_id = $1)
@@ -132,7 +135,7 @@ func (db *DB) journalActions(ctx context.Context, projectID *int64, search strin
 		entry := JournalEntry{Nature: JournalAction}
 		var payload []byte
 		if err := rows.Scan(&entry.ID, &entry.At, &entry.Project, &entry.Actor, &entry.Action,
-			&entry.Target, &payload); err != nil {
+			&entry.Target, &payload, &entry.Agent); err != nil {
 			return nil, fmt.Errorf("journal actions: %w", err)
 		}
 		if len(payload) > 0 {

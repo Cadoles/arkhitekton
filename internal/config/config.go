@@ -218,6 +218,8 @@ type HTTPConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+	// MCP serves the MCP server at `/mcp` and the OAuth server that authorises AI agents on it.
+	MCP bool
 }
 
 type DatabaseConfig struct {
@@ -290,6 +292,7 @@ func Load(role Role) (Config, error) {
 			ReadTimeout:     durationOr("HTTP_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout:    durationOr("HTTP_WRITE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout: durationOr("HTTP_SHUTDOWN_TIMEOUT", 20*time.Second),
+			MCP:             boolOr("MCP_ENABLED", true),
 		},
 		Database: DatabaseConfig{
 			DSN:             os.Getenv("DATABASE_DSN"),

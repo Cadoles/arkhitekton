@@ -15,7 +15,25 @@ import (
 
 type contextKey string
 
-const identityKey contextKey = "identity"
+const (
+	identityKey contextKey = "identity"
+	// agentKey marks a request an AI agent makes through the MCP server, never one from the
+	// network: only code in this process can put a value in a request's context.
+	agentKey contextKey = "agent"
+)
+
+// WithAgent says that the request under ctx is made by an AI agent, on behalf of identity: the
+// MCP server calls the routes in memory with it. Authentication takes the identity as it is, the
+// CSRF check lets it through (a bearer token is not a cookie a third-party page could ride), and
+// every action recorded names the agent.
+func WithAgent(ctx context.Context, identity auth.Identity, agent string) context.Context {
+	return store.WithAgent(context.WithValue(ctx, agentKey, identity), agent)
+}
+
+func agentIdentity(ctx context.Context) (auth.Identity, bool) {
+	identity, ok := ctx.Value(agentKey).(auth.Identity)
+	return identity, ok
+}
 
 // IdentityFrom returns the identity the authentication middleware set.
 func IdentityFrom(ctx context.Context) (auth.Identity, bool) {
@@ -53,6 +71,10 @@ func (m *Middleware) WithProjects(projects projectResolver) *Middleware {
 // grant — rather than send them back to the sign-in page in a loop.
 func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if identity, ok := agentIdentity(r.Context()); ok {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey, identity)))
+			return
+		}
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil || cookie.Value == "" {
 			writeProblem(w, http.StatusUnauthorized, "Not authenticated", "")
@@ -79,6 +101,7 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 			Subject:  session.Subject,
 			Username: session.Username,
 			Email:    session.Email,
+			Groups:   session.Groups,
 			Role:     role,
 			Projects: projects,
 		}
@@ -97,6 +120,10 @@ var safeMethods = []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 func (m *Middleware) CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if slices.Contains(safeMethods, r.Method) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := agentIdentity(r.Context()); ok {
 			next.ServeHTTP(w, r)
 			return
 		}

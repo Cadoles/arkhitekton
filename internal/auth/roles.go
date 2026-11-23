@@ -82,6 +82,9 @@ type Identity struct {
 	Subject  string
 	Username string
 	Email    string
+	// Groups are those read at sign-in, on which group roles resolve. An AI agent the person
+	// authorises keeps them.
+	Groups []string
 	// Projects carries roles granted per project, keyed by identifier. Empty in the
 	// common case: most grants hold everywhere.
 	//

@@ -155,6 +155,29 @@ func TestRevokeSubjectClosesEverySession(t *testing.T) {
 	}
 }
 
+// The AI agents a person authorised go with their sessions.
+func TestRevokeSubjectWithdrawsTheAgents(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	store := NewSessionStore(pool, time.Hour)
+
+	if _, err := pool.Exec(ctx,
+		`insert into oauth_clients (id, name, redirect_uris) values ('c', 'Claude Code', '{http://127.0.0.1/cb}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx,
+		`insert into oauth_grants (client_id, subject, scopes) values ('c', 'sub-5', '{dashboard:read}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RevokeSubject(ctx, "sub-5"); err != nil {
+		t.Fatalf("RevokeSubject: %v", err)
+	}
+	var left int
+	if err := pool.QueryRow(ctx, `select count(*) from oauth_grants where subject = 'sub-5'`).Scan(&left); err != nil || left != 0 {
+		t.Errorf("%d agent(s) left, %v", left, err)
+	}
+}
+
 // An account deliberately demoted must not become an administrator again at its
 // next sign-in.
 func TestBootstrapDoesNotOverrideExistingRole(t *testing.T) {

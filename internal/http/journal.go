@@ -46,7 +46,9 @@ type journalEntry struct {
 	Project string         `json:"project,omitempty"`
 	Payload map[string]any `json:"payload,omitempty"`
 
-	Actor  string `json:"actor,omitempty"`
+	Actor string `json:"actor,omitempty"`
+	// Agent is the AI agent that acted on the actor's behalf.
+	Agent  string `json:"agent,omitempty"`
 	Action string `json:"action,omitempty"`
 	Target string `json:"target,omitempty"`
 
@@ -118,6 +120,7 @@ func (h *JournalHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		if entry.Nature == store.JournalAction {
 			view.Actor = who.name(entry.Actor)
+			view.Agent = entry.Agent
 		}
 		// To the second: both instants are written in the same transaction for a core event, and
 		// a difference of microseconds would display a gap that is not one.

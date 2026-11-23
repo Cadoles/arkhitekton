@@ -61,6 +61,9 @@ const (
 	// like a person's.
 	AuditGroupGrant  = "group.grant"
 	AuditGroupRevoke = "group.revoke"
+	// An AI agent authorised to act on a person's behalf, and that authorisation withdrawn.
+	AuditAgentAuthorize = "agent.authorize"
+	AuditAgentRevoke    = "agent.revoke"
 )
 
 // projectKey carries the project a request acts on, so that its actions record it.
@@ -77,6 +80,21 @@ func WithProject(ctx context.Context, projectID int64) context.Context {
 func ProjectFrom(ctx context.Context) (int64, bool) {
 	id, ok := ctx.Value(projectKey{}).(int64)
 	return id, ok
+}
+
+// agentKey carries the AI agent a request comes from, so that its actions say so.
+type agentKey struct{}
+
+// WithAgent says that the work under ctx is done by an AI agent, on behalf of the actor: every
+// action recorded below it names the agent beside the person.
+func WithAgent(ctx context.Context, agent string) context.Context {
+	return context.WithValue(ctx, agentKey{}, agent)
+}
+
+// AgentFrom returns the agent [WithAgent] set.
+func AgentFrom(ctx context.Context) (string, bool) {
+	agent, ok := ctx.Value(agentKey{}).(string)
+	return agent, ok
 }
 
 // Audit records an action, attached to the project of ctx when there is one.
@@ -100,9 +118,11 @@ func (db *DB) Audit(ctx context.Context, actor, action, target string, payload m
 	if id, ok := ProjectFrom(ctx); ok {
 		project = &id
 	}
+	agent, _ := AgentFrom(ctx)
 	_, err := db.pool.Exec(ctx,
-		`insert into audit_log (actor, action, target, payload, project_id) values ($1, $2, $3, $4, $5)`,
-		actor, action, nullIfEmpty(target), encoded, project)
+		`insert into audit_log (actor, action, target, payload, project_id, agent)
+		 values ($1, $2, $3, $4, $5, $6)`,
+		actor, action, nullIfEmpty(target), encoded, project, nullIfEmpty(agent))
 	if err != nil {
 		return fmt.Errorf("journal d'audit %q: %w", action, err)
 	}

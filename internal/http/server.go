@@ -31,6 +31,14 @@ type Server struct {
 	// more are the checks that change while the server runs: an installed plugin's schema.
 	more func(context.Context) []ReadinessCheck
 	http *http.Server
+	mux  *http.ServeMux
+}
+
+// WithRoot adds routes outside the API prefix: the MCP server and its authorisation server, whose
+// `.well-known` paths are fixed. Called before [Server.Run].
+func (s *Server) WithRoot(register func(mux *http.ServeMux)) *Server {
+	register(s.mux)
+	return s
 }
 
 // WithReadiness adds checks read at each probe, for dependencies that come and go while the
@@ -65,6 +73,7 @@ func NewServer(
 		mux.Handle("/", handler)
 	}
 
+	s.mux = mux
 	s.http = &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      mux,

@@ -137,29 +137,37 @@ func (s *SessionStore) LookupRoles(
 		return Session{}, "", nil, fmt.Errorf("reading the session: %w", err)
 	}
 
+	role, projects, err := s.ResolveRoles(ctx, session.Subject, session.Groups)
+	return session, role, projects, err
+}
+
+// ResolveRoles returns the global role and the per-project roles of a subject in the given groups:
+// a session's, or an AI agent's, which keeps those of the session that authorised it. Resolved at
+// each request, so that a role withdrawn applies at once.
+func (s *SessionStore) ResolveRoles(ctx context.Context, subject string, groups []string) (Role, map[int64]Role, error) {
 	personal, err := s.grants(ctx,
-		`select role, project_id, '' from user_roles where subject = $1`, session.Subject)
+		`select role, project_id, '' from user_roles where subject = $1`, subject)
 	if err != nil {
-		return session, "", nil, err
+		return "", nil, err
 	}
-	groups, err := s.grants(ctx,
-		`select role, project_id, group_name from group_roles where group_name = any($1)`, session.Groups)
+	byGroup, err := s.grants(ctx,
+		`select role, project_id, group_name from group_roles where group_name = any($1)`, groups)
 	if err != nil {
-		return session, "", nil, err
+		return "", nil, err
 	}
 
-	access := Resolve(personal, groups)
+	access := Resolve(personal, byGroup)
 	if access.None() {
 		// Authenticated but without a role: the user exists and must appear in the
 		// administration screen awaiting a grant, rather than receive an opaque error
 		// followed by a ticket.
-		return session, "", nil, ErrNoRole
+		return "", nil, ErrNoRole
 	}
 	projects := make(map[int64]Role, len(access.Projects))
 	for id, effective := range access.Projects {
 		projects[id] = effective.Role
 	}
-	return session, access.Global.Role, projects, nil
+	return access.Global.Role, projects, nil
 }
 
 // grants reads role grants: the role, its project, and the group it was given to.
@@ -201,10 +209,13 @@ func (s *SessionStore) Revoke(ctx context.Context, id string) error {
 	return err
 }
 
-// RevokeSubject deletes every session of a user. Used when removing a role and in
-// incident response.
+// RevokeSubject deletes every session of a user, and the AI agents they authorised. Used when
+// removing a role and in incident response.
 func (s *SessionStore) RevokeSubject(ctx context.Context, subject string) error {
-	_, err := s.pool.Exec(ctx, `delete from sessions where subject = $1`, subject)
+	if _, err := s.pool.Exec(ctx, `delete from sessions where subject = $1`, subject); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `delete from oauth_grants where subject = $1`, subject)
 	return err
 }
 
