@@ -36,6 +36,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'role.revoke': 'Retrait de rôle',
   'group.grant': 'Rôle donné à un groupe',
   'group.revoke': "Retrait du rôle d'un groupe",
+  'agent.authorize': "Autorisation d'un agent IA",
+  'agent.revoke': "Révocation d'un agent IA",
   'queue.limit': "Plafond de file d'attente",
   'score.weight': 'Poids dans le score',
   'project.set': 'Déclaration de projet',

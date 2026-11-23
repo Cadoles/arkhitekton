@@ -18,6 +18,8 @@ import {
 import { ProjectsScreen } from '../features/admin/ProjectsScreen'
 import { UsersScreen } from '../features/admin/UsersScreen'
 import { StatsScreen } from '../features/stats/StatsScreen'
+import { AgentsScreen } from '../features/agents/AgentsScreen'
+import { ConsentScreen } from '../features/agents/ConsentScreen'
 import { QueueScreen } from '../features/queue/QueueScreen'
 import {
   ArtifactsBlock,
@@ -94,6 +96,8 @@ export function registerCoreComponents(): void {
     capabilities: PipelinesScreen,
     users: UsersScreen,
     journal: JournalScreen,
+    agents: AgentsScreen,
+    'agent-consent': ConsentScreen,
     'project-layout': ProjectLayout,
     'project-general': ProjectGeneralScreen,
     'project-plugins': ProjectPluginsScreen,

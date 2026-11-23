@@ -178,6 +178,25 @@ spec:
   parent: admin
   blocks: [{ id: core.journal, component: core/journal }]
 ---
+# The AI agents each person authorised, to connect one and to revoke one; an administrator sees
+# everyone's.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: admin-agents }
+spec:
+  path: agents
+  parent: admin
+  blocks: [{ id: core.agents, component: core/agents }]
+---
+# An AI agent asks to act on behalf of the person signed in.
+apiVersion: ui.arkhitekton/v1
+kind: Screen
+metadata: { name: agent-consent }
+spec:
+  path: connect/:request
+  parent: shell
+  blocks: [{ id: core.agent-consent, component: core/agent-consent }]
+---
 # The addresses of the audit log and of a project's facts, kept for links already shared: both
 # are read in the journal now.
 apiVersion: ui.arkhitekton/v1

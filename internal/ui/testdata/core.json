@@ -350,6 +350,28 @@
       ]
     },
     {
+      "name": "admin-agents",
+      "path": "agents",
+      "parent": "admin",
+      "blocks": [
+        {
+          "id": "core.agents",
+          "component": "core/agents"
+        }
+      ]
+    },
+    {
+      "name": "agent-consent",
+      "path": "connect/:request",
+      "parent": "shell",
+      "blocks": [
+        {
+          "id": "core.agent-consent",
+          "component": "core/agent-consent"
+        }
+      ]
+    },
+    {
       "name": "admin-logs-former",
       "path": "admin/logs",
       "parent": "shell",
@@ -493,6 +515,12 @@
           "label": "Journal",
           "icon": "doc",
           "to": "/admin/journal"
+        },
+        {
+          "id": "core.agents",
+          "label": "Agents IA",
+          "icon": "shield",
+          "to": "/admin/agents"
         },
         {
           "id": "core.stats",

@@ -54,6 +54,8 @@ export type JournalEntry = {
   payload?: Record<string, unknown>
 
   actor?: string
+  /** L'agent IA qui a agi au nom de `actor`. */
+  agent?: string
   action?: string
   target?: string
 

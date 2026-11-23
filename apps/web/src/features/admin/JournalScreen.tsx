@@ -187,7 +187,10 @@ function ActionLine({ entry }: { entry: JournalEntry }) {
     <>
       <span className="font-medium text-zinc-900">{ACTION_LABEL[action] ?? action}</span>
       {entry.target && <span className="font-mono text-zinc-600">{entry.target}</span>}
-      <span className="text-zinc-500">par {entry.actor}</span>
+      <span className="text-zinc-500">
+        par {entry.actor}
+        {entry.agent && <>, via {entry.agent}</>}
+      </span>
       {entry.payload && Object.keys(entry.payload).length > 0 && (
         <span className="text-xs text-zinc-500">
           {Object.entries(entry.payload)

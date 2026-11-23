@@ -30,6 +30,7 @@ spec:
     - { id: core.capabilities, label: Pipelines, icon: layers, to: /admin/pipelines }
     - { id: core.users, label: Utilisateurs, icon: user, to: /admin/users }
     - { id: core.journal, label: Journal, icon: doc, to: /admin/journal }
+    - { id: core.agents, label: Agents IA, icon: shield, to: /admin/agents }
     - { id: core.stats, label: Statistiques, icon: gauge, to: /admin/stats, permission: pipeline:run }
 ---
 apiVersion: ui.arkhitekton/v1
