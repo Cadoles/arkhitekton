@@ -23,6 +23,7 @@ Each role validates only what it uses. In the tables below, **Required** means r
 | `HTTP_READ_TIMEOUT` | `15s` | | Request read deadline |
 | `HTTP_WRITE_TIMEOUT` | `60s` | | Response write deadline. Streaming routes are exempt |
 | `HTTP_SHUTDOWN_TIMEOUT` | `20s` | | Grace period on SIGTERM |
+| `MCP_ENABLED` | `true` | | Serves the MCP server at `/mcp` and the OAuth server that authorises AI agents on it (doc 09 §9.12). `false`: neither is served, nor the routes of the consent screen and of the *Agents IA* tab |
 
 `PUBLIC_URL` is also read by the worker, unvalidated there: it is the base of the links a commit
 status carries back to the dashboard.

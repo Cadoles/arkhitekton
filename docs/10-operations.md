@@ -63,13 +63,21 @@ to a dependency that is briefly unavailable.
 | Deploy keys | 1 min |
 | Project checks (access and deploy key) | 1 h, the first 5 min after start-up |
 | Pipeline definitions | 10 min |
-| Purge (sessions, auth flows) | 15 min |
+| Purge (sessions, auth flows, agents' authorisations) | 15 min |
 | Probes | each probe's cadence (tracker 5 min, pull requests 1 min), raised to `PROBE_INTERVAL` (default 5 min, never under 1 min); the early passes a webhook asks for are read every 2 s |
 | Plugin update check | `PLUGIN_UPDATE_INTERVAL`, default 6 h |
 | Object purge | 24 h |
 
 The supervisor's cadence bounds how long switching a module on or off takes; what a module
 does at its own pace is its own.
+
+**Connecting an AI agent.** Administration, *Agents IA*, gives the MCP server's address
+(`PUBLIC_URL/mcp`) and, for the common agents (Claude Code, Claude on the web and Desktop, Codex,
+Gemini CLI, opencode, Pi, Cursor, VS Code with Copilot, Windsurf), how to declare it: a command or a file to copy.
+Any other MCP client connects the same way, over streamable HTTP. At its first call, the agent opens
+the browser on the dashboard, where the person signs in and authorises it; the agent then acts with
+their roles. Claude on the web and Desktop reaches the server from the Internet: the dashboard must be
+reachable there. The same tab revokes an agent.
 
 **Putting a project in service.** Declaring a repository leads to its page, where a card follows
 the three steps: the dashboard reads the repository (checked at once), the worker prepares the

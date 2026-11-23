@@ -19,7 +19,11 @@ for brevity.
 | `group_roles` | `group_name`, `role`, `project_id`, `granted_by` | A role given to a group of the identity provider, globally or in one project; `admin` only globally |
 | `bootstrap_grants` | `identifier`, `role`, `claimed_at`, `claimed_by` | Roles waiting for their first sign-in, from `BOOTSTRAP_*` |
 | `bootstrap_steps` | `step`, `applied_at` | Which one-off start-up steps already ran |
-| `audit_log` | `actor`, `action`, `target`, `payload`, `project_id` | Every administrative act; `project_id` when done on a project's route (a plugin's acts are not attached yet) |
+| `audit_log` | `actor`, `action`, `target`, `payload`, `project_id`, `agent` | Every administrative act; `project_id` when done on a project's route (a plugin's acts are not attached yet); `agent` when an AI agent acted on the actor's behalf |
+| `oauth_clients` | `id`, `name`, `redirect_uris` | AI agents registered themselves (RFC 7591). The name is the one the agent gives itself. Purged a day after registration while it holds no grant |
+| `oauth_requests` | `id`, `client_id`, `redirect_uri`, `state`, `code_challenge`, `scopes`, `expires_at` | An authorisation request waiting for consent, ten minutes at most |
+| `oauth_grants` | `client_id`, `subject`, `username`, `groups`, `scopes`, `last_used`, `access_hash`, `refresh_hash`, `previous_refresh` | What a person authorised an agent to do; `groups` are those of the session that consented, roles resolve on them at each call. Tokens are kept as SHA-256 hashes only. Purged when the refresh token lapses |
+| `oauth_codes` | `hash`, `grant_id`, `redirect_uri`, `code_challenge`, `expires_at` | An authorisation code, used once, ten minutes at most |
 | `instance` | `lock_id`, `id` | The instance's own identity, one row. Labels PipelineRuns so that a run left over from another database is never mistaken for one of ours |
 
 ## 8.2 Projects

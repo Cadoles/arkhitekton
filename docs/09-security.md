@@ -261,3 +261,44 @@ uninstalled, its tables purged, capability bound, limit changed, project created
 its actor, target and payload, and the project when it was done on a project's route. It is read
 in Administration, *Journal*, beside the events (`GET /api/v1/admin/journal`), by an administrator
 only: the actions cover the whole instance, and an event's payload may carry a third-party forge's.
+
+## 9.12 AI agents
+
+An AI agent (Claude Code, claude.ai, any MCP client) reads and drives the dashboard through its MCP
+server, `/mcp`, on behalf of a person. The dashboard is the agent's OAuth 2.1 authorisation server,
+as the MCP authorisation specification describes it; it authenticates no one itself:
+
+- **Registration.** An agent registers itself (RFC 7591), as a public client: no secret, PKCE
+  `S256` required. Its redirect URIs are `https`, `http` on a loopback address, where a native
+  client such as Claude Code listens (any port, RFC 8252), or a native application's own scheme
+  (RFC 8252 §7.1), such as Cursor's `cursor://`; a scheme a browser handles itself (`javascript`,
+  `data`, `file`…) is refused. Its name is the one it gives itself.
+- **Consent.** The agent opens the browser on `/oauth/authorize`, which sends it to the consent
+  screen (`/connect/{request}`) behind the usual sign-in. The screen names the agent and the host
+  the browser returns to, and what it may do: read, always, and act (scope `dashboard:run`), a box
+  the person may untick. Approving issues a code bound to the redirect URI and to the PKCE challenge.
+- **Tokens.** Opaque, kept as SHA-256 hashes only, for the resource `PUBLIC_URL/mcp` only. An
+  access token lasts one hour; a refresh token, thirty days from its last use, rotates at each
+  refresh. A refresh token already replaced that comes back revokes the grant: someone other than
+  the agent holds it.
+- **Roles.** The grant keeps the subject and the groups of the session that consented. The roles
+  resolve on them at **each call**: a role withdrawn applies at once, and withdrawing a person's
+  role (`RevokeSubject`) withdraws their agents with their sessions.
+- **Reach.** An agent's token opens `/mcp`, never `/api/v1`. Each tool calls a route of the API in
+  memory, with the agent's identity: the same permissions, the same checks, the same journal. The
+  tools read (runs and logs, queue, releases and their results, pull requests, versions,
+  statistics, the journal for an administrator) and, with `dashboard:run`, launch and cancel
+  pipelines and create, launch, rebuild and approve releases. None administers (projects, roles,
+  plugins, automations) nor promotes to an environment.
+- **Trace.** An action an agent made is recorded with the person as actor and the agent's name
+  (`audit_log.agent`); the journal shows "par alice, via Claude Code". Authorising and revoking an
+  agent are recorded too (`agent.authorize`, `agent.revoke`).
+- **Revocation.** Administration, *Agents IA*: each person sees and revokes their own agents, an
+  administrator everyone's. Revoking stops the agent's tokens at once.
+
+The issuer and the resource are PUBLIC_URL's host with the scheme the request arrived on (TLS, or
+`X-Forwarded-Proto`): a client checks that the resource it is told about is the URL it called, and
+an instance served over both http and https answers each in its own. A request for another host
+gets PUBLIC_URL as it is.
+
+`MCP_ENABLED=false` serves neither the MCP server nor the authorisation server.

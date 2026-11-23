@@ -264,4 +264,42 @@ body above 4 MiB. The plugin documents its routes.
 |---|---|
 | `GET /healthz` | The process is alive |
 | `GET /readyz` | Every dependency answers; see [10 §10.3](10-operations.md#103-health-and-readiness) |
+| `POST /mcp` | The MCP server, for AI agents (§7.12) |
+| `GET /.well-known/oauth-protected-resource/mcp` | The MCP server's protected resource metadata (RFC 9728) |
+| `GET /.well-known/oauth-authorization-server` | The authorisation server's metadata (RFC 8414) |
+| `POST /oauth/register` · `GET /oauth/authorize` · `POST /oauth/token` · `POST /oauth/revoke` | Registration (RFC 7591), authorisation, tokens and revocation (RFC 7009) of AI agents; doc 09 §9.12 |
 | `GET /` | The web interface |
+
+## 7.12 AI agents
+
+`/mcp` is an MCP server over streamable HTTP, stateless, answering in JSON. It takes a bearer
+token from `/oauth/token`; without one, or with an invalid one, `401` and a `WWW-Authenticate`
+header naming the resource metadata, from which a client finds where to authorise. Each tool calls
+a route of the API in memory, as the person who authorised the agent: a refusal is the route's,
+returned as a tool error with its status and title (`403 Insufficient permission`).
+
+| Tools | Scope | Route |
+|---|---|---|
+| `whoami` | `dashboard:read` | `GET /me` |
+| `list_runs`, `get_run`, `read_task_log` (the end of the log without `offset`) | `dashboard:read` | `GET /runs…` |
+| `get_queue` (the jobs, and the pipeline kinds with their inputs) | `dashboard:read` | `GET /queue` |
+| `list_releases`, `get_release`, `get_release_notes`, `get_test_results`, `get_security_report`, `get_bench` | `dashboard:read` | `GET /projects/{project}/releases…` |
+| `list_pull_requests`, `get_pull_request` | `dashboard:read` | `GET /projects/{project}/pulls…` |
+| `list_versions`, `get_version`, `list_forge_refs` | `dashboard:read` | `GET /projects/{project}/versions…`, `…/forge/refs` |
+| `get_statistics` | `dashboard:read` | `GET /stats` |
+| `read_journal` | `dashboard:read` | `GET /admin/journal` (administrators) |
+| `launch_pipeline`, `cancel_job` | `dashboard:run` | `POST /queue`, `POST /queue/{id}/cancel` |
+| `create_release`, `launch_release`, `rebuild_release`, `run_release_pipeline`, `approve_release` | `dashboard:run` | `POST /projects/{project}/releases…` |
+| `launch_pull_request_pipeline` | `dashboard:run` | `POST /projects/{project}/pulls/{number}/launch` |
+
+A token without `dashboard:run` is not offered the tools that act. An answer above 256 KiB is cut,
+and says so.
+
+In the API, signed in:
+
+| Route | Permission | Purpose |
+|---|---|---|
+| `GET /oauth/requests/{id}` | authenticated | A request waiting for consent: `client`, `redirect_host`, `scopes`; `404` when unknown, expired or answered |
+| `POST /oauth/requests/{id}/approve` · `POST /oauth/requests/{id}/deny` | CSRF | Approves (`{scopes}`, those kept among those asked; reading always) or refuses; answers `{redirect}`, where to send the browser |
+| `GET /agents` | authenticated | The agents the caller authorised (`id`, `name`, `scopes`, `created_at`, `last_used`), everyone's with their `owner` to an administrator (`all`), and the `mcp_url` |
+| `DELETE /agents/{id}` | CSRF | Revokes an agent: the caller's own, anyone's for an administrator |
