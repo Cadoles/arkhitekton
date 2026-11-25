@@ -129,7 +129,8 @@ The dashboard's processes only read the registry: digests, published images, plu
 account is enough for the variables below.
 
 Images are pushed by the pipelines, `docker/build` and `docker/retag`, with the credentials bound to
-their `registry-push` need: `PIPELINE_REGISTRY_SECRET` (§4.5) unless a binding names another Secret.
+their `registry-push` need: `PIPELINE_REGISTRY_SECRET` (§4.5) unless the project's `docker` setting
+`registrySecret` or a binding names another Secret.
 
 | Variable | Default | Meaning |
 |---|---|---|

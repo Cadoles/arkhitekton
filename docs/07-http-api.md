@@ -98,11 +98,14 @@ All scoped to a project; the permission is checked **in that project**.
 | `PUT /projects/{project}/releases/{tag}/actions` | `release:edit` |
 
 Creating a release creates a draft (`201`, state `draft`): its note is detected, and nothing
-else leaves. `launch` resolves its reference, sets its git tag and opens its plan, or queues
-the re-tag of a final, one job per image its candidate published and promotes; a second launch
-answers `409`, and so does a launch whose tag the forge already carries on another commit (the
-draft stays a draft, to be given another tag), and a final whose candidate published no promoted
-image. `draft` changes the git reference of a
+else leaves. `launch` resolves its reference, sets its git tag and opens its plan; a release
+whose kind is `from-source`, a final, opens a plan of what its source built instead: one re-tag
+per image the source published and promotes, and the build again of what does not re-tag, from
+the source's commit under the release's tag. The release is `building` until that plan's build
+stage concludes, then `ready`, or `failed`, which `build` relaunches. A project that declares no
+automation releases a tag, `ready` at once. A second launch answers `409`, and so does a launch
+whose tag the forge already carries on another commit (the draft stays a draft, to be given
+another tag). `draft` changes the git reference of a
 draft that builds (`{"git_ref": "…"}`), `DELETE` removes a draft, and `notes/detect` detects
 its note again; each answers `409` once the release is launched. Launching or deleting also
 requires the permission the release's kind declares, as creating it does (a final:

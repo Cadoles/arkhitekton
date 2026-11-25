@@ -73,9 +73,11 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
    tag.
 3. The draft is launched, emitting `release.created`: the reference is resolved to the commit
    it names at that instant, the git tag is set, and the project's declared plan starts:
-   build, then the tests and audits it requires. A final release by re-tag goes to `ready`
-   and its re-tag is queued instead. The reactions listening for `release.created` start
-   here.
+   build, then the tests and audits it requires. A release produced from its source, a final,
+   runs what its source built instead: each image re-tagged, what cannot be re-tagged built
+   again under its own tag, then `ready` with no verification. A project that declares
+   nothing to run releases a tag, `ready` at once. The reactions listening for
+   `release.created` start here.
 4. Each job is queued, dispatched to Tekton, and observed. Its results — test cases,
    security findings, benchmark measures, artifacts — are read back from the object
    store and the pipeline's own output.
@@ -89,7 +91,7 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 | Term | Meaning |
 |---|---|
 | **capability** | What a plugin brings: a pipeline, a tracker, a forge, probes, actions, or a module. |
-| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `mstore/security-audit`, …). The core names only `docker/build` and `docker/retag`. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `mstore/security-audit`, …). The core names none: a pipeline producing an image or binaries builds, and one declaring how it promotes, a Docker build, is re-tagged rather than rebuilt for a final. |
 | **catalogue** | The YAML file that binds the plugins' pipelines to this instance: which Secret fills a need, which account deploys, timeouts, volumes. See [05](05-pipeline-catalogue.md). |
 | **step** | One pipeline or action inside a plan stage (`gestes` in a stored plan). |
 | **fact** | An event normalised to a type a reaction can match. |

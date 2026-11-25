@@ -105,9 +105,18 @@ messages to a channel). The merged security audit is the Mstore plugin's.
 A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
 the Mstore plugin produces the Mstore one, from the release's dossier (below).
 
+**Building.** A pipeline that produces an image or binaries builds: its step goes in a plan's
+`build` stage, its failure marks the release, and a release produced from its source, a final,
+carries what it built. A pipeline may declare how it **promotes** (`Promote`: one of its plugin's
+pipelines, and what it declares, `{artifact.name}` being the image's short name): the final then
+runs it once per image the step published and promotes, `docker/retag` for `docker/build`. A
+pipeline declaring none is built again, from the source's commit and under the final's tag, as
+`go/build` is. A built-in plugin may propose the build steps of a project that has no automation
+yet (`DefaultBuild`). An installed plugin produces results only, never what a release ships.
+
 **The `docker` plugin.** `docker/build` builds one image and pushes it, `docker/retag` sets an extra
-tag on a published one, and the dashboard names both: its releases are images. It cannot be switched
-off, and a project sets it in its Plugins tab:
+tag on a published one. A project that publishes no image switches it off in its Plugins tab, where
+a project that does sets it:
 
 | Setting | Scope | Meaning |
 |---|---|---|
@@ -313,9 +322,12 @@ version is refused at the handshake.
 | its actions (`actions:`) | when a plan carries one of the steps it declares |
 | its webhook (`webhook:`) | for a delivery the dashboard has authenticated (§6.5) |
 
-**What the dashboard lends it** is the `Host` service: a project, a release, the queue, the audit
-log, its own settings for a project (unsealed), the environments a project declares, and the
-dashboard's authorisation. Its own tables it reaches with the database connection it is given.
+**What the dashboard lends it** is the `Host` service: a project, a release with the images it
+promotes (`Release.Images`: its builds' images without `promote: false`, a final's being its
+source's under its own tag), the queue, the audit log, its own settings for a project (unsealed),
+the environments a project declares, and the dashboard's authorisation. A project no longer
+carries Docker settings or targets: those fields are reserved in the contract, and a plugin built
+against an older `rpc` reads them empty. Its own tables it reaches with the database connection it is given.
 
 In the API, the Host also lends a release's **dossier** (`ReleaseDossier`): the tracker version,
 the manual actions, the note, what the automation produced with its digests, the results, the
@@ -553,7 +565,7 @@ core's schema never mentions them.
 The core knows a project's **environments**, declared per project in the catalogue (doc 05
 §5.5) with their rank, namespace, visibility, observability and sensitivity, and the
 `deploy:<environment>` permission they derive (doc 09 §9.3). It does not deploy anything
-itself: re-tagging an image (`docker/retag`) is the only promotion it can launch.
+itself: a plugin that deploys re-tags an image, `docker/retag` for the Mstore plugin.
 
 How a promotion reaches an environment, how the dashboard learns what an environment actually
 runs, and who signs a release off are one way of deploying, brought by an installed plugin

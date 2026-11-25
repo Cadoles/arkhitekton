@@ -49,7 +49,8 @@ for brevity.
 writes them, `MAJOR.MINOR.PATCH[-prerelease]` with no leading zero and no build metadata, orders
 them by its precedence (`1.8.0-rc.2` before `1.8.0-rc.10`, both before `1.8.0`), and proposes
 `-rc.<N+1>` as a line's next candidate. `opaque` asserts nothing about a tag. `release_kinds` is the
-project's cycle: each kind has a mode, `build` or `retag`, and a tag rule, `any`,
+project's cycle: each kind has a mode, `build` or `from-source` (`retag` before migration 0087,
+and refused since), and a tag rule, `any`,
 `prerelease-required`, `prerelease-forbidden` or `rc-required`, the last accepting only a release
 candidate `X.Y.Z-rc.N`, N from 1. The rules other than `any` need a scheme that tells a
 pre-release apart.
