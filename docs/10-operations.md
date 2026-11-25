@@ -205,8 +205,8 @@ metadata: {name: portal}
 spec:
   repository: team/portal
   plugins:
-    mstore: {config: {deployer: flux, versionFile: version.txt}}  # committed before a release's tag
-    redmine: {config: {project: portal}}                       # the project in the tracker
+    mstore: {config: {deployer: flux}}       # promotions through Flux
+    redmine: {config: {project: portal}}  # the project in the tracker
   pipelines: {mstore/e2e-tests: false}
   releaseAutomation:
     statuses: true              # each pipeline reported on the release's commit

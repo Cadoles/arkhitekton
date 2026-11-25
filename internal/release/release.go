@@ -114,7 +114,7 @@ func (e ErrInvalidTransition) Error() string {
 // CheckTrackedVersion checks the join with the tracker.
 //
 // `release tag = tracker version name [+ pre-release suffix]`. A candidate
-// `3.2.0-rc1` therefore attaches to version `3.2.0`, which is what links a
+// `3.2.0-rc.1` therefore attaches to version `3.2.0`, which is what links a
 // pre-release to its functional scope.
 //
 // The comparison is normalised ([NormalizeVersionName]) and not strict. Exact

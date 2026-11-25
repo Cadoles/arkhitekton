@@ -227,6 +227,9 @@ func NewAPIRouter(
 
 	mux.Handle("GET /projects/{project}/versions/{id}", Chain(http.HandlerFunc(versions.Get),
 		middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
+	// The tags the creation form offers, the repository's counted: read when the form opens.
+	mux.Handle("GET /projects/{project}/versions/{id}/suggested-tags", Chain(
+		http.HandlerFunc(versions.SuggestedTags), middleware.Authenticate, middleware.RequireIn(auth.PermRead)))
 
 	// The repository's references serve the release creation form. Readable by all: they are
 	// branch names, not secrets, and the token that reads them never leaves the server.

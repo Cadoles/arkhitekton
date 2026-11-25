@@ -26,7 +26,7 @@ spec:
     - name: version
       default: ""
       description: >
-        An imposed tag, with no promotion metadata (`1.8.0`, `1.8.0-rc1`). Empty to
+        An imposed tag, with no promotion metadata (`1.8.0`, `1.8.0-rc.1`). Empty to
         let mktools derive it from the branch and the revision.
     - name: branch-name
       default: ""

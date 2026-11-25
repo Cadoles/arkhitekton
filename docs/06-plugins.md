@@ -292,7 +292,7 @@ version is refused at the handshake.
 | `schemeCheck` | when a project's version scheme is saved |
 | `promotionFacts` | when a promotion job concludes; one plugin at most states it |
 | `projectSettings` | when a run is composed, for the configuration keys it adds |
-| `releaseFiles` | when a release is launched, before its tag: the files committed on its branch (Mstore's version file) |
+| `releaseFiles` | when a release is launched, before its tag: the files committed on its branch |
 | its module | under the worker's lease, while a project switches the plugin on (§6.9) |
 | its tracker, its forge (`tracker: true`, `forge: true`) | as a compiled plugin's (§6.5) |
 | its probes (`probes:`) | at the cadence the manifest declares, under the worker's lease |
@@ -432,7 +432,7 @@ The Gitea plugin's actions: `gitea.status` (a commit status), `gitea.comment` (a
 pull request; with a `marker`, the comment the plugin's account posted with that marker is edited
 rather than a new one added, which keeps one summary up to date at each push) and `gitea.release`
 (a release on a tag already set, marked pre-release on request; one already published on that tag
-is left as it is). Its writer also commits a file (a release's version file) and sets the statuses
+is left as it is). Its writer also commits the files a plugin gives at a release's launch and sets the statuses
 a plan asks for. The `rocketchat` plugin's `rocketchat.message` posts to the channel of an incoming
 webhook, whose address, carrying its token, is a sensitive setting of the instance or the project.
 

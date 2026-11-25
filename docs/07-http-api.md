@@ -99,7 +99,8 @@ All scoped to a project; the permission is checked **in that project**.
 
 Creating a release creates a draft (`201`, state `draft`): its note is detected, and nothing
 else leaves. `launch` resolves its reference, sets its git tag and opens its plan, or queues
-the re-tag of a final; a second launch answers `409`. `draft` changes the git reference of a
+the re-tag of a final; a second launch answers `409`, and so does a launch whose tag the forge
+already carries on another commit (the draft stays a draft, to be given another tag). `draft` changes the git reference of a
 draft that builds (`{"git_ref": "…"}`), `DELETE` removes a draft, and `notes/detect` detects
 its note again; each answers `409` once the release is launched. Launching or deleting also
 requires the permission the release's kind declares, as creating it does (a final:
@@ -159,6 +160,13 @@ no indicator of their own: what they record stays on their screens.
 | `GET /projects/{project}/versions` | `read` |
 | `POST /projects/{project}/versions` | `release:create` |
 | `GET /projects/{project}/versions/{id}` | `read` |
+| `GET /projects/{project}/versions/{id}/suggested-tags` | `read` |
+
+A version's `suggested_tags` propose one tag per release kind, from the dashboard's releases of
+that version: `X.Y.Z-rc.<N+1>` for a kind that requires a candidate, `X.Y.Z` for the others.
+`suggested-tags` counts the repository's tags as well, read from the forge, and says whether it
+could (`forge_read`): the creation form asks it when it opens, so that it does not propose a tag
+the repository already has.
 
 ## 7.8 Events, plans and automation
 

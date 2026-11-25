@@ -19,7 +19,7 @@ type Release struct {
 	// uniqueness is relative to its project.
 	ProjectID int64
 	VersionID int64
-	// Tag is the release's identity: `1.8.0-rc2`, `1.8.0`.
+	// Tag is the release's identity: `1.8.0-rc.2`, `1.8.0`.
 	Tag   string
 	Kind  string
 	State string
@@ -174,7 +174,7 @@ func (db *DB) SetReleaseState(ctx context.Context, id int64, state string) error
 //  1. the exact name — the case of a provisional version already created for this
 //     same number;
 //  2. the normalised name, preferring the version that is not closed — the nominal
-//     case since synchronisation: a release tagged `3.2.0-rc1` has base `3.2.0`,
+//     case since synchronisation: a release tagged `3.2.0-rc.1` has base `3.2.0`,
 //     while the tracker version is called `v3.2.0`. Searching the exact name alone
 //     created a phantom provisional version, adopted five minutes later by
 //     synchronisation; meanwhile the screen showed the release attached to a version

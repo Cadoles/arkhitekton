@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icon'
 import { Modal } from '../../components/Modal'
 import { hasAtLeast, useSession } from '../auth/session'
 import { useCreateRelease, useReleases, type ReleaseKind } from '../releases/api'
-import { useForgeRefs, type Version, type VersionRelease } from './api'
+import { useForgeRefs, useSuggestedTags, type Version, type VersionRelease } from './api'
 import { projectPath } from '../../lib/project'
 
 /*
@@ -83,7 +83,9 @@ export function CreateReleaseButton({
   // « nature de release inconnue », en désignant une valeur que l'utilisateur
   // n'avait jamais vue.
   const [kind, setKind] = useState<ReleaseKind>('')
-  const [tag, setTag] = useState('')
+  // Le tag saisi, qui ne compte qu'une fois édité : jusque-là, le champ montre la
+  // suggestion de la nature choisie.
+  const [typed, setTyped] = useState<string | null>(null)
   // '' = suivre la branche par défaut du dépôt ; CUSTOM_REF = saisie libre.
   const [refChoice, setRefChoice] = useState('')
   const [customRef, setCustomRef] = useState('')
@@ -92,12 +94,17 @@ export function CreateReleaseButton({
   const [confirming, setConfirming] = useState(false)
 
   const refs = useForgeRefs(open)
+  // La suggestion qui compte aussi les tags du dépôt, lue à l'ouverture comme ses
+  // branches. D'ici là, celle de l'écran, qui ne compte que les releases.
+  const fresh = useSuggestedTags(version.id, open)
+  const offered = fresh.data?.suggested_tags ?? suggestions
 
   // Le cycle vient du projet. Vide tant que la liste n'est pas chargée : le
   // formulaire ne propose alors rien plutôt que d'inventer des natures.
   const cycle = useReleases().data?.kinds ?? []
   const selected = cycle.find((entry) => entry.id === kind) ?? cycle[0]
   const buildMode = selected?.mode === 'build'
+  const tag = typed ?? offered[selected?.id ?? ''] ?? ''
 
   // La branche par défaut du dépôt tient lieu de choix tant que l'utilisateur n'a
   // rien sélectionné : c'est le cas courant, et il ne doit demander aucun geste.
@@ -125,13 +132,13 @@ export function CreateReleaseButton({
     // Le tag vient du serveur, qui connaît le schéma du projet. Absent, la
     // saisie reste libre : un schéma opaque ne propose rien, et inventer un
     // numéro serait pire que de laisser l'utilisateur écrire le sien.
-    setTag(suggestions[next] ?? '')
+    setTyped(null)
   }
 
   const openForm = () => {
     setOpen(true)
     // La suggestion de la première nature du cycle, qui est celle présélectionnée.
-    setTag(suggestions[selected?.id ?? ''] ?? '')
+    setTyped(null)
   }
 
   // La fermeture efface le résultat de la dernière création : dans une carte il
@@ -230,10 +237,15 @@ export function CreateReleaseButton({
               <span className="min-w-24 text-zinc-500">Tag</span>
               <input
                 value={tag}
-                onChange={(event) => setTag(event.target.value)}
+                onChange={(event) => setTyped(event.target.value)}
                 className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
               />
             </label>
+            {fresh.data && !fresh.data.forge_read && (
+              <p className="text-xs text-zinc-500">
+                Les tags du dépôt ne sont pas lus : le tag proposé compte les releases du dashboard seulement.
+              </p>
+            )}
 
             {buildMode && (
               <div className="flex flex-wrap items-center gap-2 text-sm">

@@ -406,7 +406,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		releasesHandler, dashhttp.NewBenchHandler(db), testsHandler,
 		// The project's tracker plugin composes the outgoing links. With none, the links are
 		// omitted rather than rendered broken.
-		dashhttp.NewVersionsHandler(db, connections),
+		dashhttp.NewVersionsHandler(db, connections).WithForges(connections),
 		dashhttp.NewSyncAdminHandler(db, connections),
 		// With no forge plugin enabled for the project, the release form falls back to free-text
 		// entry of the git_ref and says so.

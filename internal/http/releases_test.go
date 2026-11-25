@@ -17,6 +17,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/worker"
 )
 
@@ -280,7 +281,9 @@ func newFakeStore() *fakeReleaseStore {
 
 // fakeForge resolves and sets tags, keeping what it was asked for.
 type fakeForge struct {
-	commit     string
+	commit string
+	// refs, when set, are the only references the forge knows: branches and tags already set.
+	refs       map[string]string
 	resolveErr error
 	tagErr     error
 	tags       []string
@@ -291,6 +294,22 @@ func (f *fakeForge) ResolveCommit(_ context.Context, ref string) (string, error)
 	f.resolved = append(f.resolved, ref)
 	if f.resolveErr != nil {
 		return "", f.resolveErr
+	}
+	if f.refs != nil {
+		commit, ok := f.refs[ref]
+		if !ok {
+			return "", fmt.Errorf("reference %q names no commit", ref)
+		}
+		return commit, nil
+	}
+	// Without declared references, a branch names the commit, and a tag only once it is set.
+	if _, err := (version.SemVer{}).Parse(ref); err == nil {
+		for _, set := range f.tags {
+			if tag, commit, _ := strings.Cut(set, "@"); tag == ref {
+				return commit, nil
+			}
+		}
+		return "", fmt.Errorf("tag %q is not set", ref)
 	}
 	return f.commit, nil
 }
@@ -882,7 +901,7 @@ func TestADraftsReferenceChangesUntilItIsLaunched(t *testing.T) {
 	if recorder := launchDraft(handler, "3.2.0-rc1", auth.RoleReleaser); recorder.Code != http.StatusOK {
 		t.Fatalf("launch: code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(forge.resolved) != 1 || forge.resolved[0] != "release/3.2" {
+	if len(forge.resolved) == 0 || forge.resolved[0] != "release/3.2" {
 		t.Errorf("resolved %v, expected the reference edited", forge.resolved)
 	}
 	launched := fake.releases["3.2.0-rc1"]
@@ -1109,7 +1128,7 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 
 	// The branch is resolved into a commit, and the tag set on that commit — never on the
 	// branch, which would name something else a minute later.
-	if len(forge.resolved) != 1 || forge.resolved[0] != "main" {
+	if len(forge.resolved) == 0 || forge.resolved[0] != "main" {
 		t.Errorf("references resolved: %v", forge.resolved)
 	}
 	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@abc123def456" {
@@ -1129,6 +1148,37 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	// The tag is still carried by `version`, which becomes the image's tag.
 	if got := builds[0].Params["version"]; got != "3.2.0-rc1" {
 		t.Errorf("version %q, expected the release's tag", got)
+	}
+}
+
+// A tag the forge already carries on other code is refused at launch: building it would push an
+// image under a version that names something else, and leave the git tag where it was. On the same
+// commit, it is the same release, and the launch goes on.
+func TestATagSetOnAnotherCommitRefusesTheLaunch(t *testing.T) {
+	fake := newFakeStore()
+	forge := &fakeForge{refs: map[string]string{"main": "abc123def456", "3.2.0-rc.1": "0ld0ld0ld0ld"}}
+	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
+
+	creation := httptest.NewRecorder()
+	handler.Create(creation, asRole(httptest.NewRequest(http.MethodPost, "/releases",
+		strings.NewReader(`{"tag":"3.2.0-rc.1","kind":"pre","git_ref":"main"}`)), auth.RoleReleaser))
+	if creation.Code != http.StatusCreated {
+		t.Fatalf("creation: %d %s", creation.Code, creation.Body.String())
+	}
+	recorder := launchDraft(handler, "3.2.0-rc.1", auth.RoleReleaser)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "0ld0ld0l") {
+		t.Fatalf("launch: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forge.tags) != 0 || len(fake.jobsOfKind("docker/build")) != 0 {
+		t.Errorf("nothing must be tagged nor built: %v %+v", forge.tags, fake.jobs)
+	}
+	if got := fake.releases["3.2.0-rc.1"].State; got != "draft" {
+		t.Errorf("state %q, the release must stay a draft", got)
+	}
+
+	forge.refs["3.2.0-rc.1"] = "abc123def456"
+	if recorder := launchDraft(handler, "3.2.0-rc.1", auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Errorf("the tag names the same commit: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -1583,7 +1633,8 @@ func TestALaunchCommitsThePluginsFiles(t *testing.T) {
 	if strings.Join(forge.committed, ",") != "main:version.txt:3.2.0-rc1\n" {
 		t.Errorf("committed %q", forge.committed)
 	}
-	if len(forge.resolved) != 0 {
+	// Only the tag is looked up, to check it is free: the commit made is the anchor.
+	if strings.Join(forge.resolved, ",") != "3.2.0-rc1" {
 		t.Errorf("resolved %v: the commit made is the anchor", forge.resolved)
 	}
 	if len(forge.tags) != 1 || forge.tags[0] != "3.2.0-rc1@f11e5a" {

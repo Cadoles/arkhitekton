@@ -414,7 +414,7 @@ func scanCaseDiffs(rows pgx.Rows, group string) ([]CaseDiff, error) {
 // PreviousRelease returns a version's previous release, by creation date.
 //
 // Compared with the previous one and not with the last final release: a candidate is
-// compared with the candidate before it, otherwise `rc2` would be set against a
+// compared with the candidate before it, otherwise `rc.2` would be set against a
 // release shipped weeks earlier and everything would look like a change.
 func (db *DB) PreviousRelease(ctx context.Context, releaseID int64) (int64, error) {
 	var previous int64

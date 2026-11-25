@@ -54,8 +54,11 @@ const (
 	TagAny TagRule = "any"
 	// TagPrereleaseRequired requires a pre-release component.
 	TagPrereleaseRequired TagRule = "prerelease-required"
-	// TagPrereleaseForbidden l'interdit.
+	// TagPrereleaseForbidden forbids one.
 	TagPrereleaseForbidden TagRule = "prerelease-forbidden"
+	// TagReleaseCandidate requires a release candidate written `rc.N`, N from 1, and
+	// nothing else: `1.8.0-rc.2`, not `1.8.0-beta.1` nor `1.8.0-rc2`.
+	TagReleaseCandidate TagRule = "rc-required"
 )
 
 // KindSpec declares a kind of release.
@@ -169,7 +172,7 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 
 		switch spec.Tag {
 		case "", TagAny:
-		case TagPrereleaseRequired, TagPrereleaseForbidden:
+		case TagPrereleaseRequired, TagPrereleaseForbidden, TagReleaseCandidate:
 			// The kind × scheme coupling, refused here rather than discovered. On a scheme that
 			// does not distinguish pre-releases this constraint is meaningless: it could never
 			// be checked, and a release created believing it held would go to an environment
@@ -203,7 +206,7 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 
 // CheckTag checks that the tag's shape matches what the kind requires.
 //
-// The mistake it catches is banal and costly: creating `1.8.0-rc1` under a kind
+// The mistake it catches is banal and costly: creating `1.8.0-rc.1` under a kind
 // that forbids pre-releases, then finding production never picks it up — its
 // version range excluding them, the deployer ignores it silently.
 //
@@ -220,7 +223,13 @@ func CheckTag(spec KindSpec, parsed version.Version) error {
 	case TagPrereleaseRequired:
 		if !prerelease {
 			return fmt.Errorf(
-				"tag %q has no pre-release component: a %q release is written, for example, %s-rc1",
+				"tag %q has no pre-release component: a %q release is written, for example, %s-rc.1",
+				parsed.Raw, spec.ID, parsed.Base)
+		}
+	case TagReleaseCandidate:
+		if _, ok := version.RCNumber(parsed.Prerelease); !ok {
+			return fmt.Errorf(
+				"tag %q is not a release candidate: a %q release is written %s-rc.N, N from 1",
 				parsed.Raw, spec.ID, parsed.Base)
 		}
 	case TagPrereleaseForbidden:

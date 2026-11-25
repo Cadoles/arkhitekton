@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
 )
 
 /*
@@ -251,5 +254,85 @@ func TestTheListNamesTheTrackerPlugin(t *testing.T) {
 		if got != want {
 			t.Errorf("tracker = %q, expected %q", got, want)
 		}
+	}
+}
+
+// suggestingStore is a version `3.4.0` with its releases in the dashboard.
+type suggestingStore struct {
+	fakeVersionStore
+	releases []string
+}
+
+func (s *suggestingStore) GetVersionSummary(context.Context, int64) (store.VersionSummary, error) {
+	return store.VersionSummary{ID: 7, ProjectID: 1, Name: "v3.4.0"}, nil
+}
+
+func (s *suggestingStore) ListVersionReleases(context.Context, int64) ([]store.VersionRelease, error) {
+	releases := make([]store.VersionRelease, 0, len(s.releases))
+	for _, tag := range s.releases {
+		releases = append(releases, store.VersionRelease{Tag: tag, Kind: "pre"})
+	}
+	return releases, nil
+}
+
+// taggedForge is a repository carrying tags.
+type taggedForge struct {
+	provider.Forge
+	tags []string
+}
+
+func (f taggedForge) ListTags(context.Context) ([]provider.Ref, bool, error) {
+	refs := make([]provider.Ref, 0, len(f.tags))
+	for _, tag := range f.tags {
+		refs = append(refs, provider.Ref{Name: tag})
+	}
+	return refs, false, nil
+}
+
+type tagForges struct{ forge provider.Forge }
+
+func (f tagForges) Forge(context.Context, int64) (provider.Forge, error) { return f.forge, nil }
+
+func (f tagForges) TagWriter(context.Context, int64) (provider.TagWriter, error) {
+	return nil, connect.ErrNotConfigured
+}
+
+func suggested(t *testing.T, handler *VersionsHandler) (map[string]string, bool) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/projects/app/versions/7/suggested-tags", nil)
+	request.SetPathValue("project", "app")
+	request.SetPathValue("id", "7")
+	recorder := httptest.NewRecorder()
+	handler.SuggestedTags(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body)
+	}
+	var body struct {
+		Tags map[string]string `json:"suggested_tags"`
+		Read bool              `json:"forge_read"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Tags, body.Read
+}
+
+// The repository's candidates count: a tag set before the dashboard, or by hand, is taken, and
+// the next candidate follows the highest of them all.
+func TestTheSuggestionCountsTheRepositorysTags(t *testing.T) {
+	versions := &suggestingStore{
+		fakeVersionStore: fakeVersionStore{project: store.Project{ID: 1, Slug: "app", ReleaseKinds: release.DefaultCycle()}},
+		releases:         []string{"3.4.0-rc.1"},
+	}
+
+	tags, read := suggested(t, NewVersionsHandler(versions, nil))
+	if read || tags["pre"] != "3.4.0-rc.2" {
+		t.Errorf("without a forge: %v, read %v", tags, read)
+	}
+
+	forge := taggedForge{tags: []string{"3.4.0-rc.9", "3.4.0-rc.10", "3.5.0-rc.3", "3.3.0"}}
+	tags, read = suggested(t, NewVersionsHandler(versions, nil).WithForges(tagForges{forge: forge}))
+	if !read || tags["pre"] != "3.4.0-rc.11" || tags["final"] != "3.4.0" {
+		t.Errorf("with the forge: %v, read %v", tags, read)
 	}
 }

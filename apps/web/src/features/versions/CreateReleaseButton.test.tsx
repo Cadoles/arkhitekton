@@ -116,6 +116,51 @@ describe('CreateReleaseButton', () => {
     expect(post?.body).toMatchObject({ tag: 'build-4712' })
   })
 
+  it('propose le tag qui compte aussi les tags du dépôt, lu à l’ouverture', async () => {
+    const user = userEvent.setup()
+    setup([
+      sessionRoute('releaser'),
+      releasesRoute(),
+      { path: '/forge/refs', body: { configured: false, branches: [], tags: [] } },
+      // Le dépôt porte déjà 3.2.0-rc.2 : la suggestion de l'écran, qui ne compte
+      // que les releases du dashboard, nommerait un tag pris.
+      {
+        path: '/versions/7/suggested-tags',
+        body: { suggested_tags: { pre: '3.2.0-rc.3', final: '3.2.0' }, forge_read: true },
+      },
+    ])
+
+    render(<CreateReleaseButton version={version} releases={[]} suggestions={{ pre: '3.2.0-rc.1' }} />)
+    await user.click(await screen.findByRole('button', { name: /créer une release/i }))
+
+    expect(await screen.findByDisplayValue('3.2.0-rc.3')).toBeInTheDocument()
+    expect(screen.queryByText(/ne sont pas lus/)).not.toBeInTheDocument()
+
+    // Une saisie n'est pas écrasée par la suggestion.
+    const field = screen.getByDisplayValue('3.2.0-rc.3')
+    await user.clear(field)
+    await user.type(field, '3.2.0-rc.7')
+    expect(screen.getByDisplayValue('3.2.0-rc.7')).toBeInTheDocument()
+  })
+
+  it('dit quand les tags du dépôt ne sont pas lus', async () => {
+    const user = userEvent.setup()
+    setup([
+      sessionRoute('releaser'),
+      releasesRoute(),
+      { path: '/forge/refs', body: { configured: false, branches: [], tags: [] } },
+      {
+        path: '/versions/7/suggested-tags',
+        body: { suggested_tags: { pre: '3.2.0-rc.1', final: '3.2.0' }, forge_read: false },
+      },
+    ])
+
+    render(<CreateReleaseButton version={version} releases={[]} suggestions={{ pre: '3.2.0-rc.1' }} />)
+    await user.click(await screen.findByRole('button', { name: /créer une release/i }))
+
+    expect(await screen.findByText(/les tags du dépôt ne sont pas lus/i)).toBeInTheDocument()
+  })
+
   it('propose les natures que le projet déclare, et non une liste figée', async () => {
     const user = userEvent.setup()
     setup([

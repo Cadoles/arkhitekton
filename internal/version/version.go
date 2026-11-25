@@ -50,7 +50,7 @@ type Version struct {
 	// Raw is the tag as it was written. Always set: it is the only thing every scheme
 	// knows.
 	Raw string
-	// Base is the version line — `1.8.0` for `1.8.0-rc1`. Empty when the scheme does not
+	// Base is the version line: `1.8.0` for `1.8.0-rc.1`. Empty when the scheme does not
 	// know it.
 	Base string
 	// Prerelease is the pre-release component. Empty when there is none — or when the
@@ -127,9 +127,16 @@ func For(id string) (Scheme, error) {
 }
 
 // semverPattern covers the shape kept: MAJOR.MINOR.PATCH with an optional
-// pre-release. Build metadata is deliberately absent — the separator kept for
-// promotion is the underscore, since OCI tag grammar excludes `+`.
-var semverPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$`)
+// pre-release, as SemVer 2.0.0 writes them. A numeric identifier carries no leading
+// zero: `03.1.1` and `1.8.0-rc.01` are refused, as the specification requires. Build
+// metadata is deliberately absent: the separator kept for promotion is the
+// underscore, since OCI tag grammar excludes `+`.
+var semverPattern = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)` +
+	`(?:-(` + identifier + `(?:\.` + identifier + `)*))?$`)
+
+// identifier is a pre-release identifier: a number without a leading zero, or
+// alphanumerics with at least one non-digit.
+const identifier = `(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)`
 
 // SemVer is the scheme that answers everything.
 type SemVer struct{}
@@ -145,7 +152,7 @@ func (SemVer) Parse(tag string) (Version, error) {
 	matches := semverPattern.FindStringSubmatch(strings.TrimSpace(tag))
 	if matches == nil {
 		return Version{}, fmt.Errorf(
-			"tag %q invalid: expected MAJOR.MINOR.PATCH[-prerelease]", tag)
+			"tag %q invalid: expected MAJOR.MINOR.PATCH[-prerelease], with no leading zero", tag)
 	}
 
 	return Version{
@@ -158,9 +165,9 @@ func (SemVer) Parse(tag string) (Version, error) {
 
 // Compare orders by SemVer precedence.
 //
-// The rule that counts, and that a lexical sort misses: a pre-release always precedes
-// its final version — `1.8.0-rc1` comes before `1.8.0` — whereas `-` sorts after the
-// empty string the other way round.
+// Two rules a lexical sort misses: a pre-release always precedes its final version
+// (`1.8.0-rc.1` comes before `1.8.0`), and pre-releases compare identifier by
+// identifier, numbers as numbers: `1.8.0-rc.2` comes before `1.8.0-rc.10`.
 func (s SemVer) Compare(a, b string) (int, error) {
 	first, err := s.Parse(a)
 	if err != nil {
@@ -184,7 +191,51 @@ func (s SemVer) Compare(a, b string) (int, error) {
 	case second.Prerelease == "":
 		return -1, nil
 	}
-	return strings.Compare(first.Prerelease, second.Prerelease), nil
+	return comparePrereleases(first.Prerelease, second.Prerelease), nil
+}
+
+// comparePrereleases orders two pre-releases as SemVer 2.0.0 §11 does: identifier by
+// identifier, a numeric one numerically and before any alphanumeric one, an
+// alphanumeric one in ASCII order; when every shared identifier is equal, the
+// shorter pre-release comes first.
+func comparePrereleases(a, b string) int {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(left) && i < len(right); i++ {
+		leftNumeric, rightNumeric := numeric(left[i]), numeric(right[i])
+		var order int
+		switch {
+		case leftNumeric && rightNumeric:
+			order = compareNumbers(left[i], right[i])
+		case leftNumeric:
+			order = -1
+		case rightNumeric:
+			order = 1
+		default:
+			order = strings.Compare(left[i], right[i])
+		}
+		if order != 0 {
+			return order
+		}
+	}
+	switch {
+	case len(left) < len(right):
+		return -1
+	case len(left) > len(right):
+		return 1
+	}
+	return 0
+}
+
+func numeric(identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+	for _, character := range identifier {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // compareNumericBase compares two `X.Y.Z` lines component by component.
@@ -208,9 +259,9 @@ func compareNumericBase(a, b string) int {
 }
 
 func compareNumbers(a, b string) int {
-	// The components come from the pattern: they carry digits only, and comparing their
-	// length first is enough to order them numerically without conversion — hence with
-	// no possible overflow on an absurd number.
+	// The components come from the pattern: digits only, with no leading zero. Comparing
+	// their length first is enough to order them numerically without conversion, hence
+	// with no possible overflow on an absurd number.
 	switch {
 	case len(a) != len(b):
 		if len(a) > len(b) {
@@ -221,9 +272,9 @@ func compareNumbers(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-// NextPrerelease proposes `<base>-rc<N+1>`.
+// NextPrerelease proposes `<base>-rc.<N+1>`.
 //
-// The `rc` convention is the project's and not SemVer's, which imposes nothing on
+// The `rc.N` convention is the project's and not SemVer's, which imposes nothing on
 // the pre-release component. It lives here rather than in the interface because the
 // scheme is what knows where that component goes; the day a project wants another,
 // it will be one more scheme, not a form to fix.
@@ -238,28 +289,26 @@ func (s SemVer) NextPrerelease(base string, existing []string) (string, error) {
 		if err != nil || parsed.Base != base {
 			continue
 		}
-		if number, ok := rcNumber(parsed.Prerelease); ok && number > highest {
+		if number, ok := RCNumber(parsed.Prerelease); ok && number > highest {
 			highest = number
 		}
 	}
-	return fmt.Sprintf("%s-rc%d", base, highest+1), nil
+	return fmt.Sprintf("%s-rc.%d", base, highest+1), nil
 }
 
-// rcNumber reads the rank of an `rcN` pre-release.
+// RCNumber reads the rank of an `rc.N` pre-release, N from 1.
 //
-// Other forms are ignored rather than refused: a project may carry `1.8.0-beta1` in
+// Other forms are ignored rather than refused: a project may carry `1.8.0-beta.1` in
 // its history, and taking offence would fail a suggestion for a release that
 // legitimately exists.
-func rcNumber(prerelease string) (int, bool) {
-	digits, found := strings.CutPrefix(prerelease, "rc")
-	if !found || digits == "" {
+func RCNumber(prerelease string) (int, bool) {
+	digits, found := strings.CutPrefix(prerelease, "rc.")
+	// Nine digits at most: enough for any real rank, and the sum cannot overflow.
+	if !found || !numeric(digits) || digits[0] == '0' || len(digits) > 9 {
 		return 0, false
 	}
 	number := 0
 	for _, character := range digits {
-		if character < '0' || character > '9' {
-			return 0, false
-		}
 		number = number*10 + int(character-'0')
 	}
 	return number, true
@@ -291,7 +340,7 @@ func (Opaque) Parse(tag string) (Version, error) {
 }
 
 // NextPrerelease refuses: with no grammar, "the next one" does not exist. Proposing
-// `-rc1` would teach a convention the project did not choose.
+// `-rc.1` would teach a convention the project did not choose.
 func (Opaque) NextPrerelease(string, []string) (string, error) {
 	return "", fmt.Errorf("%w: proposing the next version", ErrUnsupported)
 }

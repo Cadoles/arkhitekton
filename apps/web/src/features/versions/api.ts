@@ -215,6 +215,27 @@ export function useForgeRefs(enabled: boolean) {
 }
 
 /*
+ * Les tags proposés à la création, ceux du dépôt comptés.
+ *
+ * Un dépôt porte des candidates que le dashboard n'a pas créées : proposer
+ * `3.4.0-rc.1` là où la forge a déjà `3.4.0-rc.2` nommerait un tag pris. Lu à
+ * l'ouverture du formulaire, à côté de ses branches : l'écran de la version
+ * n'attend pas la forge.
+ */
+export function useSuggestedTags(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['versions', String(id), 'suggested-tags'],
+    queryFn: () =>
+      request<{ suggested_tags: Record<string, string>; forge_read: boolean }>(
+        projectPath(`/versions/${id}/suggested-tags`),
+      ),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/*
  * Déclare une version à la main.
  *
  * La seule voie d'entrée d'un projet **sans suivi** : ses versions ne viennent

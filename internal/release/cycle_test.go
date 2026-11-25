@@ -168,6 +168,34 @@ func TestShapeCheckingStaysSilentWhenTheSchemeCannotTell(t *testing.T) {
 	}
 }
 
+// `rc-required` accepts a release candidate written `rc.N`, and only that.
+func TestAReleaseCandidateKindAcceptsOnlyRcDotN(t *testing.T) {
+	spec := KindSpec{ID: "pre", Tag: TagReleaseCandidate}
+
+	for _, tag := range []string{"1.8.0-rc.1", "1.8.0-rc.12"} {
+		parsed, _ := version.SemVer{}.Parse(tag)
+		if err := CheckTag(spec, parsed); err != nil {
+			t.Errorf("%s refused: %v", tag, err)
+		}
+	}
+	for _, tag := range []string{"1.8.0", "1.8.0-rc1", "1.8.0-rc.0", "1.8.0-beta.1", "1.8.0-rc.1.1"} {
+		parsed, err := version.SemVer{}.Parse(tag)
+		if err != nil {
+			t.Fatalf("%s: %v", tag, err)
+		}
+		if err := CheckTag(spec, parsed); err == nil {
+			t.Errorf("%s accepted", tag)
+		} else if !strings.Contains(err.Error(), "1.8.0-rc.N") {
+			t.Errorf("%s: the message %q does not say how it is written", tag, err)
+		}
+	}
+
+	// Like the other shape rules, it needs a scheme that tells a pre-release apart.
+	if err := (Cycle{spec}).Validate(version.Opaque{}); err == nil {
+		t.Error("rc-required accepted on an opaque scheme")
+	}
+}
+
 // An empty kind is not a misspelled kind: it is a caller that chose nothing, and the
 // message must say so rather than quote empty quotes.
 //

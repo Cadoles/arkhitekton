@@ -51,7 +51,7 @@ func startsWithDigit(value string) bool {
 
 // SameVersion says whether a tag and a tracker version name mean the same version.
 //
-// The comparison is on the base version: a pre-release `3.2.0-rc1` attaches to
+// The comparison is on the base version: a pre-release `3.2.0-rc.1` attaches to
 // version `3.2.0`, which is what links a release candidate to its functional scope.
 func SameVersion(version versionpkg.Version, trackedName string) bool {
 	return NormalizeVersionName(version.Base) == NormalizeVersionName(trackedName)

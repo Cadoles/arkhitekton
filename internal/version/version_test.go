@@ -12,11 +12,11 @@ import (
 func TestSemVerDecomposesAndRefuses(t *testing.T) {
 	scheme := SemVer{}
 
-	version, err := scheme.Parse("1.8.0-rc1")
+	version, err := scheme.Parse("1.8.0-rc.1")
 	if err != nil {
 		t.Fatalf("valid tag refused: %v", err)
 	}
-	if version.Base != "1.8.0" || version.Prerelease != "rc1" {
+	if version.Base != "1.8.0" || version.Prerelease != "rc.1" {
 		t.Errorf("decomposition: %+v", version)
 	}
 	prerelease, known := version.Prereleased()
@@ -24,7 +24,10 @@ func TestSemVerDecomposesAndRefuses(t *testing.T) {
 		t.Errorf("pre-release: %v/%v", prerelease, known)
 	}
 
-	for _, tag := range []string{"", "v1.8.0", "1.8", "1.8.0+build", "build-4711"} {
+	// A numeric identifier with a leading zero is not SemVer, in the line as in the
+	// pre-release; an empty identifier neither.
+	for _, tag := range []string{"", "v1.8.0", "1.8", "1.8.0+build", "build-4711",
+		"03.1.1", "1.08.0", "1.8.00", "1.8.0-rc.01", "1.8.0-rc..1", "1.8.0-"} {
 		if _, err := scheme.Parse(tag); err == nil {
 			t.Errorf("tag %q accepted", tag)
 		}
@@ -43,7 +46,7 @@ func TestASemVerFinalVersionAssertsItIsNotAPrerelease(t *testing.T) {
 	}
 }
 
-// SemVer order, and the two traps a lexical sort misses.
+// SemVer order, and the traps a lexical sort misses.
 func TestSemVerOrderIsNotLexical(t *testing.T) {
 	scheme := SemVer{}
 
@@ -53,16 +56,48 @@ func TestSemVerOrderIsNotLexical(t *testing.T) {
 	}
 
 	// A pre-release precedes its final version: yet `-` sorts after the empty string.
-	if order, err := scheme.Compare("1.8.0-rc1", "1.8.0"); err != nil || order >= 0 {
-		t.Errorf("1.8.0-rc1 vs 1.8.0 = %d (%v) — a candidate precedes its final version", order, err)
+	if order, err := scheme.Compare("1.8.0-rc.1", "1.8.0"); err != nil || order >= 0 {
+		t.Errorf("1.8.0-rc.1 vs 1.8.0 = %d (%v): a candidate precedes its final version", order, err)
 	}
 
 	if order, err := scheme.Compare("1.8.0", "1.8.0"); err != nil || order != 0 {
 		t.Errorf("equality = %d (%v)", order, err)
 	}
-	if order, err := scheme.Compare("1.8.0-rc1", "1.8.0-rc2"); err != nil || order >= 0 {
-		t.Errorf("rc1 vs rc2 = %d (%v)", order, err)
+}
+
+// Pre-releases are ordered as SemVer 2.0.0 §11 says, identifier by identifier. The
+// first case is the one that matters: compared as strings, `rc.10` precedes `rc.2`.
+func TestPrereleasesFollowSemVerPrecedence(t *testing.T) {
+	ordered := []string{
+		"1.8.0-alpha", "1.8.0-alpha.1", "1.8.0-alpha.beta", "1.8.0-beta", "1.8.0-beta.2",
+		"1.8.0-beta.11", "1.8.0-rc.1", "1.8.0-rc.2", "1.8.0-rc.10", "1.8.0",
 	}
+	for i := range ordered {
+		for j := range ordered {
+			order, err := SemVer{}.Compare(ordered[i], ordered[j])
+			if err != nil {
+				t.Fatalf("%s vs %s: %v", ordered[i], ordered[j], err)
+			}
+			if want := sign(i - j); sign(order) != want {
+				t.Errorf("%s vs %s = %d, want %d", ordered[i], ordered[j], order, want)
+			}
+		}
+	}
+
+	// A numeric identifier precedes an alphanumeric one.
+	if order, _ := (SemVer{}).Compare("1.8.0-1", "1.8.0-a"); order >= 0 {
+		t.Errorf("1.8.0-1 vs 1.8.0-a = %d", order)
+	}
+}
+
+func sign(n int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n > 0:
+		return 1
+	}
+	return 0
 }
 
 /*
@@ -157,31 +192,44 @@ func TestTheNextPrereleaseIsDeducedFromExistingOnes(t *testing.T) {
 
 	// None: the first.
 	got, err := scheme.NextPrerelease("1.8.0", nil)
-	if err != nil || got != "1.8.0-rc1" {
+	if err != nil || got != "1.8.0-rc.1" {
 		t.Errorf("first = %q (%v)", got, err)
 	}
 
 	// The next one is deduced from the highest rank, not from how many releases exist:
-	// proposing `-rc3` because there are three would fail if `rc5` exists.
-	existing := []string{"1.8.0-rc1", "1.8.0-rc5", "1.8.0-rc2"}
-	if got, err := scheme.NextPrerelease("1.8.0", existing); err != nil || got != "1.8.0-rc6" {
+	// proposing `-rc.3` because there are three would fail if `rc.5` exists. And the
+	// rank is a number: `rc.10` is above `rc.9`.
+	existing := []string{"1.8.0-rc.1", "1.8.0-rc.10", "1.8.0-rc.9"}
+	if got, err := scheme.NextPrerelease("1.8.0", existing); err != nil || got != "1.8.0-rc.11" {
 		t.Errorf("next = %q (%v)", got, err)
 	}
 
-	// Other lines do not count: `1.9.0-rc4` says nothing about `1.8.0`.
-	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.9.0-rc4"}); got != "1.8.0-rc1" {
+	// Other lines do not count: `1.9.0-rc.4` says nothing about `1.8.0`.
+	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.9.0-rc.4"}); got != "1.8.0-rc.1" {
 		t.Errorf("neighbouring line taken into account: %q", got)
 	}
 
 	// A pre-release of another shape is ignored rather than refused: a history may
-	// legitimately carry `1.8.0-beta1`.
-	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.8.0-beta1"}); got != "1.8.0-rc1" {
+	// legitimately carry `1.8.0-beta.1`, or `1.8.0-rc4` written without the dot.
+	if got, _ := scheme.NextPrerelease("1.8.0", []string{"1.8.0-beta.1", "1.8.0-rc4"}); got != "1.8.0-rc.1" {
 		t.Errorf("foreign shape: %q", got)
 	}
 }
 
+// The rank of an `rc.N` pre-release, N from 1, and nothing else.
+func TestTheRankOfAReleaseCandidate(t *testing.T) {
+	if number, ok := RCNumber("rc.12"); !ok || number != 12 {
+		t.Errorf("rc.12 = %d/%v", number, ok)
+	}
+	for _, prerelease := range []string{"", "rc", "rc.", "rc.0", "rc.01", "rc12", "rc.1.1", "beta.1", "rc.1234567890"} {
+		if _, ok := RCNumber(prerelease); ok {
+			t.Errorf("%q read as a rank", prerelease)
+		}
+	}
+}
+
 // The opaque scheme refuses: with no grammar, "the next one" does not exist, and
-// proposing `-rc1` would teach a convention the project did not choose.
+// proposing `-rc.1` would teach a convention the project did not choose.
 func TestTheOpaqueSchemeProposesNoNextVersion(t *testing.T) {
 	if _, err := (Opaque{}).NextPrerelease("build-4711", nil); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("next: %v, expected ErrUnsupported", err)

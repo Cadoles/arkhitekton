@@ -38,10 +38,19 @@ type VersionsHandler struct {
 	// trackers serves the outgoing links and the synchronisation's state. Nil, or a project with
 	// no tracker, and the links are omitted rather than rendered broken.
 	trackers Trackers
+	// forges reads the repository's tags for the creation form's suggestion. Nil, and it counts
+	// the dashboard's releases only.
+	forges Forges
 }
 
 func NewVersionsHandler(versions VersionStore, trackers Trackers) *VersionsHandler {
 	return &VersionsHandler{store: versions, trackers: trackers}
+}
+
+// WithForges wires the reading of the repository's tags.
+func (h *VersionsHandler) WithForges(forges Forges) *VersionsHandler {
+	h.forges = forges
+	return h
 }
 
 // completionVw carries the two completion measures.
@@ -258,7 +267,7 @@ func (h *VersionsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		// The interface used to compose it itself: it stripped prefixes — since made
 		// configurable — and appended a candidate suffix, one deployment's convention. Two rules
 		// the server owns, copied into a form, with no reason left to be right there.
-		"suggested_tags": h.suggestedTags(r.Context(), summary, releases),
+		"suggested_tags": h.suggestedTags(r.Context(), summary, releases, nil),
 	})
 }
 
@@ -294,7 +303,7 @@ func syncStateView(state store.SyncState) syncStateVw {
 // Empty when the scheme cannot answer — an opaque project has no "next one" — and the
 // interface then offers free-text input rather than an invented number.
 func (h *VersionsHandler) suggestedTags(
-	ctx context.Context, summary store.VersionSummary, releases []store.VersionRelease,
+	ctx context.Context, summary store.VersionSummary, releases []store.VersionRelease, tags []string,
 ) map[string]string {
 	project, err := h.store.GetProject(ctx, summary.ProjectID)
 	if err != nil {
@@ -308,15 +317,16 @@ func (h *VersionsHandler) suggestedTags(
 	// The version line, normalised: `v3.1.0` and `3.1.0` name the same one.
 	base := release.NormalizeVersionName(summary.Name)
 
-	existing := make([]string, 0, len(releases))
+	existing := make([]string, 0, len(releases)+len(tags))
 	for _, item := range releases {
 		existing = append(existing, item.Tag)
 	}
+	existing = append(existing, tags...)
 
 	suggestions := map[string]string{}
 	for _, spec := range project.ReleaseKinds {
 		switch spec.Tag {
-		case release.TagPrereleaseRequired:
+		case release.TagPrereleaseRequired, release.TagReleaseCandidate:
 			if next, err := scheme.NextPrerelease(base, existing); err == nil {
 				suggestions[spec.ID] = next
 			}
@@ -329,6 +339,54 @@ func (h *VersionsHandler) suggestedTags(
 		}
 	}
 	return suggestions
+}
+
+// SuggestedTags offers the creation form one tag per kind, counting the repository's tags as well
+// as the dashboard's releases.
+//
+// A repository carries candidates the dashboard did not create: those set by hand before it, or
+// by another tool. Proposing `3.4.0-rc.1` where the forge already has `3.4.0-rc.2` would name a
+// tag already taken. Read only when the form opens, beside its branches: the version's screen
+// does not wait on the forge, whose tags take seconds to page through.
+func (h *VersionsHandler) SuggestedTags(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Invalid version identifier", "")
+		return
+	}
+	summary, err := h.store.GetVersionSummary(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrVersionNotFoundByID) {
+			writeProblem(w, http.StatusNotFound, "Version not found", "")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the version", "")
+		return
+	}
+	releases, err := h.store.ListVersionReleases(r.Context(), id)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
+		return
+	}
+
+	// Without the forge, the suggestion counts the releases and says so: it may name a tag the
+	// repository already has, which the launch then refuses.
+	var tags []string
+	read := false
+	if h.forges != nil {
+		if forge, err := h.forges.Forge(r.Context(), summary.ProjectID); err == nil {
+			if refs, _, err := forge.ListTags(r.Context()); err == nil {
+				read = true
+				for _, ref := range refs {
+					tags = append(tags, ref.Name)
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"suggested_tags": h.suggestedTags(r.Context(), summary, releases, tags),
+		"forge_read":     read,
+	})
 }
 
 // Create declares a version by hand.

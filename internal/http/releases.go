@@ -863,6 +863,16 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			record.GitCommit = commit
 			warnings = append(warnings, resolveWarnings...)
 		}
+		// A tag the forge already carries on other code is not this release's to take: building
+		// it would push an image under a version that names something else, and leave the git
+		// tag where it was.
+		if taken := h.tagElsewhere(r.Context(), project.ID, record.Tag, record.GitCommit); taken != "" {
+			writeProblem(w, http.StatusConflict, "Tag already set",
+				fmt.Sprintf("tag %q already names commit %s on the forge, not %s: give the release "+
+					"another tag, the next candidate for instance", record.Tag,
+					shortSHA(taken), shortSHA(record.GitCommit)))
+			return
+		}
 	} else {
 		to = release.StateReady
 		if record.SourceReleaseID == nil {
@@ -1707,6 +1717,31 @@ func (h *ReleasesHandler) commitReleaseFiles(ctx context.Context, project store.
 		}
 	}
 	return commit, warnings
+}
+
+// tagElsewhere returns the commit the forge's tag names, when it is not the release's own. Empty
+// when the tag is not on the forge yet, names this commit, or cannot be read: setting the tag
+// then reports what it finds.
+func (h *ReleasesHandler) tagElsewhere(ctx context.Context, projectID int64, tag, commit string) string {
+	if h.forges == nil || commit == "" {
+		return ""
+	}
+	forge, err := h.forges.Forge(ctx, projectID)
+	if err != nil {
+		return ""
+	}
+	named, err := forge.ResolveCommit(ctx, tag)
+	if err != nil || named == "" || named == commit {
+		return ""
+	}
+	return named
+}
+
+func shortSHA(commit string) string {
+	if len(commit) > 8 {
+		return commit[:8]
+	}
+	return commit
 }
 
 // tagRelease sets the release's git tag on its commit.
