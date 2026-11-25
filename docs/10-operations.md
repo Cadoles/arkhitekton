@@ -110,7 +110,7 @@ re-running anything, and pins load baselines again on the measures it rebuilds. 
 plugin version read is refused, since reading it with the installed version changes its history;
 `--accept-drift` replays it anyway. Results from before the plugins read their runs carry a
 `-legacy` version and are always replayed. `--release` resolves the tag in the single project
-that has build targets, and refuses when several do.
+whose release plan has a build stage, and refuses when several do.
 
 **Checking tracker access.**
 
@@ -205,12 +205,19 @@ metadata: {name: portal}
 spec:
   repository: team/portal
   plugins:
+    docker: {config: {dockerfile: ./misc/Dockerfile}}  # the build's Dockerfile and context
     mstore: {config: {deployer: flux}}       # promotions through Flux
     redmine: {config: {project: portal}}  # the project in the tracker
   pipelines: {mstore/e2e-tests: false}
   releaseAutomation:
     statuses: true              # each pipeline reported on the release's commit
-    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
+    stages:
+      - role: build             # one step per image the release publishes
+        gestes:
+          - {kind: pipeline, ref: docker/build, label: portal,
+             params: {image-name: portal, target: web, dockerfile: '{docker.dockerfile}'}}
+          - {kind: pipeline, ref: docker/build, label: portal-dev, promote: false,
+             params: {image-name: portal-dev, target: dev, dockerfile: '{docker.dockerfile}'}}
   schedules:
     - name: Integration
       cron: "0 8,12,16 * * 1-5"
@@ -236,8 +243,10 @@ its results showing on the pull request's page:
 Every image built that way stays in the registry under its `pr-<number>-<commit>` tag: the
 registry's retention is the operator's.
 
-Plans keep the shape the automation editor writes. Switches (`enabled`, a target's `promote`)
-default to on. Unknown keys are refused, with the path of the mistake.
+Plans keep the shape the automation editor writes. Switches (`enabled`, a build step's `promote`)
+default to on. Unknown keys are refused, with the path of the mistake, and a key that moved says
+where it went: a project's `dockerfile`, `buildContext`, `imageRegistry` and `registrySecret` are
+the `docker` plugin's settings, and its images are its plan's build steps.
 
 **Access.** A user is found among the accounts that signed in, by subject or by name; one that
 never did is skipped with a warning, and granted by a later apply once they have, or through a

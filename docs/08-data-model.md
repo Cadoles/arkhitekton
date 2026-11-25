@@ -33,8 +33,6 @@ for brevity.
 | Group | Columns |
 |---|---|
 | Identity | `uid`, `slug`, `label`, `repository`, `forge_url` |
-| Build | `dockerfile`, `build_context`, `multi_stage`, `targets` |
-| Images | `image_registry`, `registry_secret` |
 | Deploy key | `deploy_key_public`, `deploy_key_secret`, `deploy_key_created_at`, `deploy_key_rotate_requested_at`, `deploy_key_active`, `deploy_key_error` |
 | Releases | `version_scheme`, `release_kinds` |
 | Health | `checked_at`, `check_ok`, `check_note`, `key_note` (what the last check found of the key), `keys_url` (the forge's page of the repository's deploy keys) |
@@ -42,7 +40,7 @@ for brevity.
 | Table | Purpose |
 |---|---|
 | `project_pipelines` | Which catalogue kinds this project enables |
-| `project_plugins` | Per-project plugin state and settings. **Absence means inheritance** |
+| `project_plugins` | Per-project plugin state and settings. **Absence means inheritance**. A project's Docker settings (`dockerfile`, `buildContext`, `registry`, `registrySecret`) are the `docker` plugin's |
 | `sync_state` | Cursor and last outcome of each source's synchronisation, per project |
 | `issue_status_mapping` | How tracker statuses map to buckets: per project, or instance-wide when `project_id` is null |
 | `project_secrets_to_delete` | The Secrets of deleted projects, put down in the same transaction, which the worker deletes from the cluster |
@@ -141,7 +139,7 @@ that group.
 | `release_automations` | The plan a project runs for a release, per project, and its `enabled` switch |
 | `plan_runs` | `trigger`, `event_key`, `plan`, `context`, `state` |
 | `plan_steps` | `stage`, `position`, `kind`, `ref`, `state`, `job_id`, `detail` |
-| `plan_artifacts` | What a step produced: `name`, `kind`, `reference` |
+| `plan_artifacts` | What a step produced: `name`, `kind`, `reference`, and `promote`, false for what a step declared `promote: false` |
 | `pull_requests` | A project's pull requests as last read from its forge: `number`, `title`, `author`, `source_branch`, `target_branch`, `head_sha`, `state` (`open`, `closed`, `merged`), `url`, `draft`, `body`, dates; unique per project and number |
 
 `events.depth` bounds cascades — a reaction that triggers an event that triggers a

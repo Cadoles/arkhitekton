@@ -136,7 +136,7 @@ their `registry-push` need: `PIPELINE_REGISTRY_SECRET` (§4.5) unless a binding 
 | `REGISTRY_URL` | — | Needed with `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`: with one of the three empty, the registry is not read |
 | `REGISTRY_USERNAME` | — | |
 | `REGISTRY_PASSWORD` | — | |
-| `REGISTRY_PROJECT` | — | Repository prefix, host included (`registry.example.com/team`) |
+| `REGISTRY_PROJECT` | — | Repository prefix, host included (`registry.example.com/team`): where images go when the `docker` plugin's `registry` setting names none, at the instance and at the project ([§6](06-plugins.md)) |
 | `PIPELINE_INSECURE_REGISTRY` | `false` | `true` when `REGISTRY_PROJECT` is served over plain HTTP, a local registry: the build and re-tag pipelines then push without TLS (`registry.insecure`) |
 
 ## 4.9 Probes and webhooks
@@ -185,7 +185,7 @@ A whole configuration (projects, plugins, automations) can also be applied from 
 which supersedes these seeds for a new instance: see [§10.9](10-operations.md#109-the-configuration-as-files).
 
 `PROJECT_DOCKERFILE` (default `Dockerfile`) and `PROJECT_BUILD_CONTEXT` (default `.`) seed
-the first project's build settings, which the project then owns. Its repository is derived
+the first project's `docker` plugin settings, which the project then owns. Its repository is derived
 from `FORGE_URL` and `FORGE_REPO`, or given whole by `FORGE_REPO_URL`; with neither, no
 project is seeded. `FORGE_TEKTON_REPO_URL`, when set, also seeds a project for the pipelines'
 repository, with no image.

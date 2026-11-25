@@ -99,8 +99,10 @@ All scoped to a project; the permission is checked **in that project**.
 
 Creating a release creates a draft (`201`, state `draft`): its note is detected, and nothing
 else leaves. `launch` resolves its reference, sets its git tag and opens its plan, or queues
-the re-tag of a final; a second launch answers `409`, and so does a launch whose tag the forge
-already carries on another commit (the draft stays a draft, to be given another tag). `draft` changes the git reference of a
+the re-tag of a final, one job per image its candidate published and promotes; a second launch
+answers `409`, and so does a launch whose tag the forge already carries on another commit (the
+draft stays a draft, to be given another tag), and a final whose candidate published no promoted
+image. `draft` changes the git reference of a
 draft that builds (`{"git_ref": "…"}`), `DELETE` removes a draft, and `notes/detect` detects
 its note again; each answers `409` once the release is launched. Launching or deleting also
 requires the permission the release's kind declares, as creating it does (a final:
@@ -201,8 +203,10 @@ project; `413` above 4 MiB; `422` with the plugin's reason when it cannot read a
 delivery. A delivery launches nothing itself: the reactions of the project do.
 
 **A release's automation** reads as `{plan, declared, enabled, updated_by}`. `declared` is false
-while no automation was ever recorded: the worker's catch-up will compose one from the project's
-targets. Switched off (`enabled: false`), it keeps its plan and a declared release launches no
+while no automation was ever recorded: the worker's catch-up will compose a default one, an image
+named after the project when its `docker` settings name a Dockerfile, then its verifications. A
+build step may carry `promote: false` (refused outside a `build` stage): a final does not re-tag what
+it publishes. Switched off (`enabled: false`), it keeps its plan and a declared release launches no
 pipeline. `PUT /automation` replaces the plan and leaves the switch where it is.
 
 **Switching an automation** takes `{"enabled": true|false}` on the `…/enabled` routes; a body

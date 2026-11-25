@@ -106,7 +106,21 @@ A deliverable such as a delivery note belongs to the plugin of the deployment th
 the Mstore plugin produces the Mstore one, from the release's dossier (below).
 
 **The `docker` plugin.** `docker/build` builds one image and pushes it, `docker/retag` sets an extra
-tag on a published one, and the dashboard names both: its releases are images. `docker/scan` runs
+tag on a published one, and the dashboard names both: its releases are images. It cannot be switched
+off, and a project sets it in its Plugins tab:
+
+| Setting | Scope | Meaning |
+|---|---|---|
+| `registry` | instance, project | Where images are published, `host/project`, with no image name. Empty: the project's falls back to the instance's, and the instance's to `REGISTRY_PROJECT` |
+| `registrySecret` | project | The Kubernetes Secret allowing pushes to that registry, created beside the pipelines. Empty: `PIPELINE_REGISTRY_SECRET` |
+| `dockerfile` | project | From the repository root. Empty: `Dockerfile` |
+| `buildContext` | project | The directory sent to the build. Empty: the root |
+
+The images a project publishes are its release plan's build steps, one `docker/build` each, with
+`image-name` and, for a Dockerfile with stages, `target`. A step whose image no environment takes,
+a development image, carries `promote: false`: a final release re-tags only what its candidate
+published and promotes, and a promotion takes only that. A project with no automation receives one
+step building an image named after it, when its settings name a Dockerfile. `docker/scan` runs
 `trivy image` on a published image and reads its report as findings of the `security` group, in
 Trivy's severities, a critical or high one failing the result. The run itself stays green, the
 image being already published, and a run that stopped concludes nothing. It is declared in a plan,
@@ -513,7 +527,7 @@ unknown. Besides the fact's payload and `{artifacts.<step>.<name>}`, a run reads
 | `release.notes` | the release's issues, one Markdown line each, linked to the tracker |
 | `release.images` | the images its automation published, one Markdown line each |
 | `release.prerelease` | `true` for a pre-release tag |
-| `project.dockerfile`, `project.build_context` | the project's Dockerfile and build context, for a build step that builds as the project declares |
+| `<plugin>.<field>` | a built-in plugin's setting resolved for the project, sensitive ones excepted: `{docker.dockerfile}` and `{docker.buildContext}`, with their defaults, for a build step that builds as the project declares |
 
 The `release.*` variables need a run bearing on a release: a release's plan, or a reaction to a
 fact whose `release_id` names a release of its project (`mstore.release.promoted`, for instance).
