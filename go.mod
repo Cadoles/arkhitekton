@@ -3,13 +3,14 @@ module forge.cadoles.com/vcarroy/arkhitekton
 go 1.26.4
 
 require (
-	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.12.0
+	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.13.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/google/go-containerregistry v0.21.3
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.2.1
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pressly/goose/v3 v3.27.3
@@ -29,16 +30,19 @@ require (
 require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.23 // indirect
-	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/oklog/run v1.1.0 // indirect
+	github.com/segmentio/asm v1.2.1 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 )
 
 require (
 	cel.dev/expr v0.25.2 // indirect
-	forge.cadoles.com/vcarroy/arkhitekton/rpc v0.7.0
+	forge.cadoles.com/vcarroy/arkhitekton/rpc v0.8.0
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
