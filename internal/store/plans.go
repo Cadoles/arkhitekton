@@ -588,10 +588,76 @@ func (db *DB) ReleaseImages(ctx context.Context, release Release) ([]ReleaseImag
 	if artifacts, err = db.ReleaseArtifacts(ctx, *release.SourceReleaseID); err != nil {
 		return nil, err
 	}
-	promoted := PromotedImages(artifacts)
+	return retagged(PromotedImages(artifacts), release.Tag), nil
+}
+
+// PullRequestImages returns the images a pull request's latest run published.
+func (db *DB) PullRequestImages(ctx context.Context, pullRequestID int64) ([]ReleaseImage, error) {
+	rows, err := db.pool.Query(ctx,
+		`select run_id, stage, position, name, kind, reference, promote
+		 from plan_artifacts where pull_request_id = $1 and name = 'image'`, pullRequestID)
+	if err != nil {
+		return nil, fmt.Errorf("images of pull request %d: %w", pullRequestID, err)
+	}
+	artifacts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (PlanArtifact, error) {
+		var entry PlanArtifact
+		err := row.Scan(&entry.RunID, &entry.Stage, &entry.Position, &entry.Name, &entry.Kind,
+			&entry.Reference, &entry.Promoted)
+		return entry, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("images of pull request %d: %w", pullRequestID, err)
+	}
+	return PromotedImages(artifacts), nil
+}
+
+// ReleasesImages returns the images each of these releases promotes, in one query: a final
+// release's are its source's, under its own tag.
+func (db *DB) ReleasesImages(ctx context.Context, releases []Release) (map[int64][]ReleaseImage, error) {
+	ids := make([]int64, 0, 2*len(releases))
+	for _, release := range releases {
+		ids = append(ids, release.ID)
+		if release.SourceReleaseID != nil {
+			ids = append(ids, *release.SourceReleaseID)
+		}
+	}
+	rows, err := db.pool.Query(ctx,
+		`select release_id, run_id, stage, position, name, kind, reference, promote
+		 from plan_artifacts where release_id = any($1) and name = 'image'`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("images of %d release(s): %w", len(releases), err)
+	}
+	byRelease := map[int64][]PlanArtifact{}
+	for rows.Next() {
+		var releaseID int64
+		var entry PlanArtifact
+		if err := rows.Scan(&releaseID, &entry.RunID, &entry.Stage, &entry.Position, &entry.Name,
+			&entry.Kind, &entry.Reference, &entry.Promoted); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("images of %d release(s): %w", len(releases), err)
+		}
+		byRelease[releaseID] = append(byRelease[releaseID], entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("images of %d release(s): %w", len(releases), err)
+	}
+
+	result := make(map[int64][]ReleaseImage, len(releases))
+	for _, release := range releases {
+		promoted := PromotedImages(byRelease[release.ID])
+		if len(promoted) == 0 && release.SourceReleaseID != nil {
+			promoted = retagged(PromotedImages(byRelease[*release.SourceReleaseID]), release.Tag)
+		}
+		result[release.ID] = promoted
+	}
+	return result, nil
+}
+
+// retagged names images under another tag: a final release's are its source's.
+func retagged(promoted []ReleaseImage, tag string) []ReleaseImage {
 	for index, image := range promoted {
 		parsed := images.Parse(image.Reference)
-		promoted[index].Reference = images.Reference(parsed.Registry, parsed.Name, release.Tag)
+		promoted[index].Reference = images.Reference(parsed.Registry, parsed.Name, tag)
 	}
-	return promoted, nil
+	return promoted
 }

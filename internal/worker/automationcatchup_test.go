@@ -48,9 +48,12 @@ func (r *catchUpStore) SaveReleaseAutomation(
 	return nil
 }
 
-// buildable says every project builds but the unbuilt ones.
-func (r *catchUpStore) buildable(_ context.Context, project store.Project) bool {
-	return !r.unbuilt[project.ID]
+// builds proposes an image named after every project but the unbuilt ones.
+func (r *catchUpStore) builds(_ context.Context, project store.Project) []plan.Geste {
+	if r.unbuilt[project.ID] {
+		return nil
+	}
+	return buildOf(project.Slug)
 }
 
 func (r *catchUpStore) PipelineEnabled(_ context.Context, _ int64, kind string) (bool, error) {
@@ -59,7 +62,7 @@ func (r *catchUpStore) PipelineEnabled(_ context.Context, _ int64, kind string) 
 
 func catchUp(t *testing.T, db *catchUpStore) {
 	t.Helper()
-	if err := NewAutomationCatchUp(db, testCatalogue(t), quietLogger()).WithBuildable(db.buildable).
+	if err := NewAutomationCatchUp(db, testCatalogue(t), quietLogger()).WithDefaultBuild(db.builds).
 		Run(context.Background()); err != nil {
 		t.Fatalf("catch-up: %v", err)
 	}
@@ -74,7 +77,7 @@ func TestTheCatchUpWritesTheDefaultAutomation(t *testing.T) {
 	if !present {
 		t.Fatal("the project was not caught up")
 	}
-	expected := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
+	expected := DefaultAutomation(testCatalogue(t), buildOf("portal"), nil)
 	if len(caught.Stages) != len(expected.Stages) {
 		t.Fatalf("%d stage(s), expected %d", len(caught.Stages), len(expected.Stages))
 	}
@@ -202,7 +205,7 @@ func TestACatchUpChainsOnlyTheLegacyLanguagesTests(t *testing.T) {
 	php, other := portalProject(), portalProject()
 	other.ID, other.Slug = 2, "api"
 	db := newCatchUpStore(php, other)
-	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithBuildable(db.buildable).WithStacks("php", "go").
+	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithDefaultBuild(db.builds).WithStacks("php", "go").
 		Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

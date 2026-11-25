@@ -6,6 +6,12 @@
     "produces": [
       "image"
     ],
+    "promote": {
+      "kind": "docker/retag",
+      "params": {
+        "image-name": "{artifact.name}"
+      }
+    },
     "params": {
       "context": {
         "source": "input",
@@ -118,7 +124,7 @@
       "old-tag": {
         "source": "input",
         "required": true,
-        "suggest": "release-tag"
+        "suggest": "source-tag"
       },
       "reg-project": {
         "source": "config",

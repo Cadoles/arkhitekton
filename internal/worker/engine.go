@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"maps"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -420,6 +422,11 @@ func (e *Engine) withArtifacts(
 	enriched := make(map[string]string, len(run.Context)+len(produced))
 	maps.Copy(enriched, run.Context)
 	for _, artifact := range produced {
+		// An image is also found by its short name, for a pipeline that analyses `portal` without a
+		// step naming the build that published it.
+		if artifact.Name == "image" && artifact.Kind == string(catalog.ProductImage) {
+			enriched[contextImages+images.Parse(artifact.Reference).Name] = artifact.Reference
+		}
 		label := stepLabelAt(frozen, artifact.Stage, artifact.Position)
 		if label == "" {
 			continue

@@ -40,7 +40,7 @@ const CUSTOM_REF = '__custom__'
  */
 const MODE_HINTS: Record<string, string> = {
   build: 'construite depuis une référence Git, puis testée',
-  retag: 're-tag bit à bit de l’image d’une release existante',
+  'from-source': 'produite depuis une release existante : ses images re-taguées bit à bit, le reste reconstruit',
 }
 
 /*
@@ -201,10 +201,10 @@ export function CreateReleaseButton({
               <legend className="mb-1 text-sm text-zinc-500">Nature</legend>
               {cycle.map((option) => {
                 // Le verrou est indicatif : le serveur décide, et la nature y
-                // porte sa propre permission. Ici, seul le mode `retag` est
+                // porte sa propre permission. Ici, seul le mode `from-source` est
                 // supposé livrable — une approximation assumée, qui évite un
                 // clic voué à un 403 sans jamais autoriser quoi que ce soit.
-                const locked = option.mode === 'retag' && !canFinal
+                const locked = option.mode === 'from-source' && !canFinal
                 return (
                   <label
                     key={option.id}
@@ -334,7 +334,7 @@ export function CreateReleaseButton({
                 {sources.length === 0 && (
                   <p className="flex items-start gap-2 text-sm text-warn-700">
                     <Icon name="alert" className="mt-0.5 size-4 shrink-0" />
-                    Aucune pré-release pour cette version : une finale se produit par re-tag d'une RC
+                    Aucune pré-release pour cette version : une finale se produit depuis une RC
                     validée, jamais depuis rien (B17).
                   </p>
                 )}
@@ -412,7 +412,7 @@ export function CreateReleaseButton({
           title={`Créer le brouillon ${tag.trim()}`}
           confirmLabel="Créer"
           // Un brouillon ne sort rien du dashboard : la ressaisie du tag est
-          // demandée au lancement, qui met en file la construction ou le re-tag.
+          // demandée au lancement, qui ouvre son plan.
           onConfirm={submit}
           onCancel={() => setConfirming(false)}
           pending={create.isPending}
@@ -422,14 +422,12 @@ export function CreateReleaseButton({
             <span className="font-mono">{version.name}</span>
             {buildMode && refValue.trim() && (
               <>
-                {' '}
-                — construite depuis <span className="font-mono">{refValue.trim()}</span>
+                , construite depuis <span className="font-mono">{refValue.trim()}</span>
               </>
             )}
             {!buildMode && sourceTag && (
               <>
-                {' '}
-                — re-tag de <span className="font-mono">{sourceTag}</span>
+                , produite depuis <span className="font-mono">{sourceTag}</span>
               </>
             )}
             .

@@ -21,6 +21,7 @@ function filledBySubject(subject: ResultSubject, suggest: string | undefined): b
     (subject.kind === 'pull' && suggest === 'pull-request') ||
     suggest === 'git-ref' ||
     suggest === 'release-tag' ||
+    suggest === 'source-tag' ||
     suggest === 'image' ||
     Boolean(suggest?.startsWith('image:'))
   )

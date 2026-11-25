@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -48,6 +47,11 @@ func (f *pullFixture) PullRequestByNumber(_ context.Context, projectID, number i
 		return store.PullRequest{}, store.ErrPullRequestNotFound
 	}
 	return openPull, nil
+}
+
+// PullRequestImages are what the request's build published.
+func (f *pullFixture) PullRequestImages(context.Context, int64) ([]store.ReleaseImage, error) {
+	return []store.ReleaseImage{{Name: "portal", Reference: "reg.example/team/portal:pr-12-abcdef0"}}, nil
 }
 
 func (f *pullFixture) ListPullRequestJobs(context.Context, int64) ([]store.ReleaseJob, error) {
@@ -110,7 +114,7 @@ func pullCatalogue() *catalog.Catalog {
 
 func pullRouter(fixture *pullFixture) http.Handler {
 	mux := http.NewServeMux()
-	handler := NewPullsHandler(fixture, pullCatalogue(), imagenames.Fixed("reg.example/team"), quietLogger())
+	handler := NewPullsHandler(fixture, pullCatalogue(), quietLogger())
 	mux.HandleFunc("GET /projects/{project}/pulls", handler.List)
 	mux.HandleFunc("GET /projects/{project}/pulls/{number}", handler.Get)
 	mux.HandleFunc("POST /projects/{project}/pulls/{number}/launch", handler.Launch)

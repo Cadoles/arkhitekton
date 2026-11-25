@@ -145,19 +145,10 @@ func projectFrom(project *pluginv1.Project) Project {
 	if project == nil {
 		return Project{}
 	}
-	targets := make([]Target, 0, len(project.GetTargets()))
-	for _, target := range project.GetTargets() {
-		targets = append(targets, Target{
-			Stage: target.GetStage(), Image: target.GetImage(), Dockerfile: target.GetDockerfile(),
-			Promote: target.Promote,
-		})
-	}
 	return Project{
 		ID: project.GetId(), Slug: project.GetSlug(), Repository: project.GetRepository(),
-		Label: project.GetLabel(), ForgeURL: project.GetForgeUrl(), Dockerfile: project.GetDockerfile(),
-		BuildContext: project.GetBuildContext(), ImageRegistry: project.GetImageRegistry(),
-		Stack: project.GetStack(), VersionScheme: project.GetVersionScheme(), Targets: targets,
-		MultiStage: project.GetMultiStage(),
+		Label: project.GetLabel(), ForgeURL: project.GetForgeUrl(),
+		Stack: project.GetStack(), VersionScheme: project.GetVersionScheme(),
 	}
 }
 

@@ -44,7 +44,7 @@ func TestLiveAPullRequestPlanBuildsItsHead(t *testing.T) {
 
 	engine := NewEngine(db, NewReleaseRunner(testCatalogue(t), db, quietLogger()), quietLogger())
 	fact := event.PullRequestAt(event.PullRequestSynchronized, updated, projectID, pull.Number, pull.HeadSHA,
-		PullRequestPayload(pull, "reg.example/team"))
+		PullRequestPayload(pull))
 	fact.ProjectID = &projectID
 	NewDispatcher(db, engine, quietLogger()).Dispatch(ctx, fact)
 

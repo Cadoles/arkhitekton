@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"errors"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -40,19 +39,17 @@ type PullRequestStore interface {
 }
 
 type pullRequestProbe struct {
-	plugin   string
-	forge    capability.ForgeCapability
-	store    PullRequestStore
-	timeout  time.Duration
-	registry images.RegistryOf
-	logger   *slog.Logger
-	now      func() time.Time
+	plugin  string
+	forge   capability.ForgeCapability
+	store   PullRequestStore
+	timeout time.Duration
+	logger  *slog.Logger
+	now     func() time.Time
 }
 
-// PullRequestProbes returns a probe for every plugin bringing a forge. `registryOf` gives the
-// registry a pull request's images are named in, its project's, as a release's are.
+// PullRequestProbes returns a probe for every plugin bringing a forge.
 func PullRequestProbes(
-	registry *capabilities.Registry, db PullRequestStore, timeout time.Duration, registryOf images.RegistryOf, logger *slog.Logger,
+	registry *capabilities.Registry, db PullRequestStore, timeout time.Duration, logger *slog.Logger,
 ) []Probe {
 	if logger == nil {
 		logger = slog.Default()
@@ -64,7 +61,7 @@ func PullRequestProbes(
 		}
 		probes = append(probes, pullRequestProbe{
 			plugin: plugin.ID, forge: plugin.Forge, store: db, timeout: timeout,
-			registry: registryOf, logger: logger, now: time.Now,
+			logger: logger, now: time.Now,
 		})
 	}
 	return probes
@@ -118,7 +115,7 @@ func (p pullRequestProbe) Poll(
 			next = pull.UpdatedAt
 		}
 		if !priming {
-			facts = append(facts, p.transitions(project, p.registry.Resolve(ctx, project.ID), previous, recorded)...)
+			facts = append(facts, p.transitions(project, previous, recorded)...)
 		}
 	}
 
@@ -153,14 +150,14 @@ func recordOf(projectID int64, pull provider.PullRequest) store.PullRequest {
 
 // transitions returns the facts of what changed between two readings of a request.
 func (p pullRequestProbe) transitions(
-	project store.Project, registry string, previous *store.PullRequest, current store.PullRequest,
+	project store.Project, previous *store.PullRequest, current store.PullRequest,
 ) []event.Event {
 	at := p.now().UTC()
 	if current.UpdatedAt != nil {
 		at = *current.UpdatedAt
 	}
 	fact := func(kind event.Type, occurrence string) event.Event {
-		return event.PullRequestAt(kind, at, project.ID, current.Number, occurrence, PullRequestPayload(current, registry))
+		return event.PullRequestAt(kind, at, project.ID, current.Number, occurrence, PullRequestPayload(current))
 	}
 	instant := strconv.FormatInt(at.Unix(), 10)
 
@@ -191,17 +188,17 @@ func (p pullRequestProbe) transitions(
 	return nil
 }
 
-// PullRequestPayload is what a request's facts carry. `revision`, `tag` and `registry` are the keys
-// a plan's steps read a release's commit, tag and registry from: a plan opened by such a fact builds
-// and tests the request's head the way a release's plan builds the release.
+// PullRequestPayload is what a request's facts carry. `revision` and `tag` are the keys a plan's
+// steps read a release's commit and tag from: a plan opened by such a fact builds and tests the
+// request's head the way a release's plan builds the release.
 //
 // `draft` says whether the request is still a draft, and each `Key: value` line of its body becomes
 // `trailer.<key>`: a reaction matches `draft: "false"`, a step reads `{trailer.mstore-deploy}`.
-func PullRequestPayload(pull store.PullRequest, registry string) map[string]string {
+func PullRequestPayload(pull store.PullRequest) map[string]string {
 	payload := map[string]string{
 		"number": strconv.FormatInt(pull.Number, 10), "title": pull.Title, "author": pull.Author,
 		"source_branch": pull.SourceBranch, "target_branch": pull.TargetBranch, "url": pull.URL,
-		contextRevision: pull.HeadSHA, contextTag: pull.Tag(), contextRegistry: registry,
+		contextRevision: pull.HeadSHA, contextTag: pull.Tag(),
 		ContextPullRequest: strconv.FormatInt(pull.ID, 10),
 		"draft":            strconv.FormatBool(pull.Draft),
 	}

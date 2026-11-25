@@ -128,8 +128,13 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 		t.Errorf("artifacts promoted = %v, expected the development image held", promoted)
 	}
 
-	if err := Rollback(ctx, cfg, discardLogger()); err != nil {
-		t.Fatalf("rollback: %v", err)
+	for _, name := range names {
+		if name < "0086" {
+			continue
+		}
+		if err := Rollback(ctx, cfg, discardLogger()); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
 	}
 	var dockerfile, buildContext, secret, targets string
 	var multi bool
@@ -141,5 +146,70 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 	if dockerfile != "./misc/Dockerfile" || buildContext != "." || secret != "regcred-mstore" || !multi ||
 		!strings.Contains(targets, `"image": "portal-dev"`) || !strings.Contains(targets, `"promote": false`) {
 		t.Errorf("restored: %q %q %q %v %s", dockerfile, buildContext, secret, multi, targets)
+	}
+}
+
+// Migration 0087 renames the `retag` mode `from-source`, in each project's cycle and in the default,
+// and back when rolled back.
+func TestTheRetagModeBecomesFromSource(t *testing.T) {
+	cfg := testDB(t)
+	resetSchema(t, cfg)
+	ctx := context.Background()
+
+	if err := Migrate(ctx, cfg, discardLogger()); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	if err := Rollback(ctx, cfg, discardLogger()); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	db, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connection: %v", err)
+	}
+	defer db.Close()
+
+	var id int64
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, created_by, release_kinds)
+		 values ('mstore', 'team/mstore', 'Mstore', 'https://forge.example', 'test',
+		         '[{"id": "rc", "mode": "build"}, {"id": "ga", "mode": "retag", "source": "rc"}]')
+		 returning id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, cfg, discardLogger()); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+
+	modes := func() string {
+		t.Helper()
+		var modes string
+		if err := db.Pool().QueryRow(ctx,
+			`select string_agg(kind ->> 'mode', ',' order by position)
+			 from projects, jsonb_array_elements(release_kinds) with ordinality as entry (kind, position)
+			 where id = $1`, id).Scan(&modes); err != nil {
+			t.Fatal(err)
+		}
+		return modes
+	}
+	if got := modes(); got != "build,from-source" {
+		t.Errorf("modes = %s", got)
+	}
+	var fresh string
+	if err := db.Pool().QueryRow(ctx,
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('new', 'team/new', 'New', 'https://forge.example', 'test')
+		 returning release_kinds::text`).Scan(&fresh); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fresh, `"from-source"`) || strings.Contains(fresh, `"retag"`) {
+		t.Errorf("default cycle = %s", fresh)
+	}
+
+	if err := Rollback(ctx, cfg, discardLogger()); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if got := modes(); got != "build,retag" {
+		t.Errorf("modes after rollback = %s", got)
 	}
 }

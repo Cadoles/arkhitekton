@@ -13,7 +13,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -38,6 +37,8 @@ type QueueStore interface {
 // with it.
 type Releases interface {
 	ListReleases(ctx context.Context, projectID int64, limit int) ([]store.Release, error)
+	// ReleasesImages are the images each release promotes: what a pipeline analysing one is offered.
+	ReleasesImages(ctx context.Context, releases []store.Release) (map[int64][]store.ReleaseImage, error)
 	// The two ways of naming a project: by the request's path, or failing that by the one
 	// being built. See internal/http/project.go.
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
@@ -51,9 +52,6 @@ type QueueHandler struct {
 	// releases populates the tag lists. Nil-safe: without it the fields concerned stay
 	// free-text, which is the previous behaviour.
 	releases Releases
-	// registry prefixes the images offered, the project's. Empty, no image is suggested: a
-	// truncated name would look like a pullable reference without being one.
-	registry imagenames.RegistryOf
 	logger   *slog.Logger
 	// environments returns the environments offered. Nil: none, the field stays free-text.
 	// Supplied by the extensions.
@@ -66,10 +64,9 @@ func NewQueueHandler(queue QueueStore, pipelines catalog.Source) *QueueHandler {
 
 // WithSuggestions wires the lists the launch form offers.
 func (h *QueueHandler) WithSuggestions(
-	releases Releases, registry imagenames.RegistryOf, logger *slog.Logger,
+	releases Releases, logger *slog.Logger,
 ) *QueueHandler {
 	h.releases = releases
-	h.registry = registry
 	h.logger = logger
 	return h
 }
@@ -239,8 +236,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 // suggestions builds the lists the launch form offers.
 //
 // Composed here and not by the client: the tags come from the database, the
-// environments from the extensions, and the images from the project's registry, which the
-// browser does not know. Having the client assemble them would mean sending it that
+// environments from the extensions, and the images from what each release published. Having the client assemble them would mean sending it that
 // prefix, hence publishing it, for no gain.
 //
 // Git references are deliberately absent: they are read live from the forge, the call
@@ -313,15 +309,24 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 		tags = append(tags, option{Value: release.Tag})
 	}
 	proposed[catalog.SuggestReleaseTag] = tags
+	proposed[catalog.SuggestSourceTag] = tags
 
 	// One list per image declared by the catalogue, and not per image known to the code:
 	// two parameters that both want a reference do not expect the same one, and publishing
 	// one more image must not require a recompile.
-	registry := h.registry.Resolve(ctx, currentID)
+	published, err := h.releases.ReleasesImages(ctx, releases)
+	if err != nil && h.logger != nil {
+		h.logger.Error("image suggestions", "error", err)
+	}
 	for _, name := range catalog.Of(h.catalog).SuggestedImages() {
 		references := make([]option, 0, len(releases))
 		for _, release := range releases {
-			reference := imagenames.Reference(registry, name, release.Tag)
+			reference := ""
+			for _, image := range published[release.ID] {
+				if image.Name == name {
+					reference = image.Reference
+				}
+			}
 			if reference == "" {
 				continue
 			}

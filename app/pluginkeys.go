@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/docker"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -124,14 +123,6 @@ func dockerVariables(db resolvedPlugins, deploymentRegistry string) func(context
 	}
 }
 
-// registryOf gives the registry a project's images are published to.
-func registryOf(db resolvedPlugins, deploymentRegistry string) images.RegistryOf {
-	return func(ctx context.Context, projectID int64) (string, error) {
-		settings, err := dockerSettings(ctx, db, projectID, deploymentRegistry)
-		return settings.Registry, err
-	}
-}
-
 func dockerSettings(ctx context.Context, db resolvedPlugins, projectID int64, deploymentRegistry string) (docker.Settings, error) {
 	resolved, err := db.ResolvedPlugin(ctx, projectID, docker.ID)
 	switch {
@@ -143,17 +134,30 @@ func dockerSettings(ctx context.Context, db resolvedPlugins, projectID int64, de
 	return docker.Resolve(resolved.Config, deploymentRegistry), nil
 }
 
-// namesADockerfile says whether a project's own Docker settings name a Dockerfile: the projects a
-// default automation builds an image for.
-func namesADockerfile(db interface {
-	ProjectPluginSettings(ctx context.Context, projectID int64) (map[string]store.PluginSettings, error)
-}, logger *slog.Logger) func(context.Context, store.Project) bool {
-	return func(ctx context.Context, project store.Project) bool {
-		own, err := db.ProjectPluginSettings(ctx, project.ID)
-		if err != nil {
-			logger.Error("the project's Docker settings", "project", project.Slug, "error", err)
-			return false
+// defaultBuilds gives the build steps the plugins switched on for a project propose for it.
+func defaultBuilds(db resolvedPlugins, plugins []capability.Plugin, logger *slog.Logger) func(context.Context, store.Project) []plan.Geste {
+	return func(ctx context.Context, project store.Project) []plan.Geste {
+		var gestes []plan.Geste
+		for _, plugin := range plugins {
+			if plugin.DefaultBuild == nil {
+				continue
+			}
+			resolved, err := db.ResolvedPlugin(ctx, project.ID, plugin.ID)
+			if errors.Is(err, store.ErrPluginDisabled) {
+				continue
+			}
+			if err != nil {
+				logger.Error("a plugin's settings for a default build", "project", project.Slug,
+					"plugin", plugin.ID, "error", err)
+				continue
+			}
+			for _, step := range plugin.DefaultBuild(project.Slug, resolved.Config) {
+				gestes = append(gestes, plan.Geste{
+					Kind: plan.GestePipeline, Ref: plugin.ID + "/" + step.Pipeline, Label: step.Label,
+					Params: step.Params,
+				})
+			}
 		}
-		return strings.TrimSpace(own[docker.ID].Config[docker.FieldDockerfile]) != ""
+		return gestes
 	}
 }

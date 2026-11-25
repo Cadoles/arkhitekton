@@ -24,12 +24,6 @@ import (
  * picked it up would make what had just been erased reappear at the next start-up.
  */
 
-// buildKind is the catalogue kind that builds.
-//
-// Used by the catch-up alone: a release's plan no longer knows any particular kind now that
-// it is declared. It is what remains of the composition in Go, and nothing else remains.
-const buildKind = catalog.KindBuild
-
 // ProjectPipelines says what a project declares it verifies.
 //
 // What the catch-up picks up. The `project_pipelines` table is no longer read when a plan
@@ -57,9 +51,9 @@ type AutomationCatchUp struct {
 	store   AutomationStore
 	catalog *catalog.Catalog
 	stacks  map[string]bool
-	// buildable says whether a project builds an image. Nil: none does.
-	buildable func(ctx context.Context, project store.Project) bool
-	logger    *slog.Logger
+	// defaultBuild gives the build steps the plugins propose for a project. Nil: none.
+	defaultBuild func(ctx context.Context, project store.Project) []plan.Geste
+	logger       *slog.Logger
 }
 
 func NewAutomationCatchUp(
@@ -71,11 +65,10 @@ func NewAutomationCatchUp(
 	return &AutomationCatchUp{store: db, catalog: registry, logger: logger}
 }
 
-// WithBuildable says which projects build an image: those whose Docker settings name a
-// Dockerfile. One that names none is driven without being built, a repository of
-// kustomizations, and a build step would fail at the first `docker build`.
-func (r *AutomationCatchUp) WithBuildable(buildable func(ctx context.Context, project store.Project) bool) *AutomationCatchUp {
-	r.buildable = buildable
+// WithDefaultBuild gives the build steps the plugins propose for a project: an image named after
+// it when its Docker settings name a Dockerfile, for instance.
+func (r *AutomationCatchUp) WithDefaultBuild(build func(ctx context.Context, project store.Project) []plan.Geste) *AutomationCatchUp {
+	r.defaultBuild = build
 	return r
 }
 
@@ -112,7 +105,7 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 
 	caught := 0
 	for _, project := range projects {
-		plan := DefaultAutomation(r.catalog, project, r.builds(ctx, project), r.enabled(ctx, project))
+		plan := DefaultAutomation(r.catalog, r.builds(ctx, project), r.enabled(ctx, project))
 
 		if err := r.store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
 			ProjectID: project.ID, Plan: plan, Enabled: true,
@@ -134,8 +127,11 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 	return nil
 }
 
-func (r *AutomationCatchUp) builds(ctx context.Context, project store.Project) bool {
-	return r.buildable != nil && r.buildable(ctx, project)
+func (r *AutomationCatchUp) builds(ctx context.Context, project store.Project) []plan.Geste {
+	if r.defaultBuild == nil {
+		return nil
+	}
+	return r.defaultBuild(ctx, project)
 }
 
 // enabled returns the filter of a project's enabled kinds: those it ticked, less those of another
@@ -169,23 +165,20 @@ func stepsOf(p plan.Plan) int {
  * The composition, as it was — and as it stays, for once.
  */
 
-// DefaultAutomation composes the automation of a project that has none: its image, when it builds
-// one, then the verifications it ticked.
+// DefaultAutomation composes the automation of a project that has none: the build steps its plugins
+// propose, then the verifications it ticked.
 //
 // Exported because it is the **catch-up's contract**, which a test holds. Returns an empty plan
 // when nothing applies.
 func DefaultAutomation(
-	registry *catalog.Catalog, project store.Project, builds bool, enabled func(kind string) bool,
+	registry *catalog.Catalog, builds []plan.Geste, enabled func(kind string) bool,
 ) plan.Plan {
 	if registry == nil {
 		return plan.Plan{}
 	}
 
 	var stages []plan.Stage
-	build := plan.Stage{}
-	if builds {
-		build = buildStage(registry, project)
-	}
+	build := buildStage(registry, builds)
 	if len(build.Gestes) > 0 {
 		stages = append(stages, build)
 	}
@@ -198,23 +191,16 @@ func DefaultAutomation(
 	return plan.Plan{Stages: stages}
 }
 
-// buildStage composes the build stage: one image, named after the project, from the Dockerfile
-// its Docker settings name. A project publishing several images declares one step each in its plan.
-func buildStage(registry *catalog.Catalog, project store.Project) plan.Stage {
-	pipeline, found := registry.Find(buildKind)
-	if !found {
-		return plan.Stage{}
+// buildStage keeps the proposed build steps the catalogue can run: a pipeline its operator did not
+// bind would leave a plan that never starts.
+func buildStage(registry *catalog.Catalog, builds []plan.Geste) plan.Stage {
+	var gestes []plan.Geste
+	for _, geste := range builds {
+		if pipeline, found := registry.Find(geste.Ref); found && pipeline.Builds() {
+			gestes = append(gestes, geste)
+		}
 	}
-	return plan.Stage{Role: plan.RoleBuild, Label: "Construire", Gestes: []plan.Geste{{
-		Kind: plan.GestePipeline, Ref: pipeline.Kind,
-		// The label is the image's name: `{artifacts.<image>.image}` names this step.
-		Label: project.Slug,
-		Params: map[string]string{
-			"image-name": project.Slug,
-			"dockerfile": "{docker.dockerfile}",
-			"context":    "{docker.buildContext}",
-		},
-	}}}
+	return plan.Stage{Role: plan.RoleBuild, Label: "Construire", Gestes: gestes}
 }
 
 // testStage composes the verification stage.

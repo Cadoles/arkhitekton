@@ -589,10 +589,15 @@ pipelines:
 	if input.Origin() != OriginFallback {
 		t.Errorf("origin = %q, expected %q", input.Origin(), OriginFallback)
 	}
-	// And the fallback stays computable: a step that declares nothing receives what
-	// the registry and the tag compose.
-	if got := input.FromContext("abc123", "1.8.0", "vcarroy", ""); got == "" {
-		t.Error("the fallback returns nothing — a step with no declaration would have no image")
+	// A step that declares nothing receives the image of that name the run's builds published,
+	// and nothing when none did: a reference composed for an image nobody built names nothing.
+	values := RunValues{Revision: "abc123", Tag: "1.8.0",
+		Images: map[string]string{"portal": "reg/team/portal:1.8.0"}}
+	if got := input.FromContext(values); got != "reg/team/portal:1.8.0" {
+		t.Errorf("fallback = %q", got)
+	}
+	if got := input.FromContext(RunValues{Revision: "abc123", Tag: "1.8.0"}); got != "" {
+		t.Errorf("fallback with no image published = %q", got)
 	}
 }
 
@@ -603,11 +608,26 @@ func TestAPullRequestsNumberComesFromTheRun(t *testing.T) {
 	if input.Origin() != OriginContext {
 		t.Errorf("origin = %q, expected %q", input.Origin(), OriginContext)
 	}
-	if got := input.FromContext("abc123", "pr-12-abc123", "reg", "12"); got != "12" {
+	if got := input.FromContext(RunValues{Revision: "abc123", Tag: "pr-12-abc123", Pull: "12"}); got != "12" {
 		t.Errorf("number = %q", got)
 	}
-	if got := input.FromContext("abc123", "1.8.0", "reg", ""); got != "" {
+	if got := input.FromContext(RunValues{Revision: "abc123", Tag: "1.8.0"}); got != "" {
 		t.Errorf("a release gave the number %q", got)
+	}
+}
+
+// A re-tag's old tag is the one its release's artifacts were produced under: its source's for a
+// final, its own otherwise.
+func TestASourceTagFallsBackToTheTag(t *testing.T) {
+	input := Input{Name: "old-tag", Required: true, Suggest: SuggestSourceTag}
+	if input.Origin() != OriginContext {
+		t.Errorf("origin = %q", input.Origin())
+	}
+	if got := input.FromContext(RunValues{Tag: "1.8.0", SourceTag: "1.8.0-rc.3"}); got != "1.8.0-rc.3" {
+		t.Errorf("source tag = %q", got)
+	}
+	if got := input.FromContext(RunValues{Tag: "1.8.0"}); got != "1.8.0" {
+		t.Errorf("source tag of a built release = %q", got)
 	}
 }
 

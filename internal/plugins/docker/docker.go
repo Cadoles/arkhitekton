@@ -1,7 +1,7 @@
-// Package docker brings the pipelines of an image: building one and re-tagging one.
+// Package docker brings the pipelines of an image: building one, re-tagging one, scanning one.
 //
-// The dashboard needs them to work: its releases are images, and a final release re-tags its
-// pre-release. The plugin therefore cannot be switched off.
+// A project that publishes no image switches it off: it builds with another plugin, or releases
+// tags.
 package docker
 
 import (
@@ -38,7 +38,6 @@ func Plugin() capability.Plugin {
 		APIVersion: sdk.APIVersion,
 		Label:      "Docker",
 		Summary:    "Construction, re-tag et scan de vulnérabilités (Trivy) des images de chaque projet.",
-		Mandatory:  true,
 		PerProject: true,
 		Global: []capability.Field{
 			{
@@ -73,6 +72,7 @@ func Plugin() capability.Plugin {
 				Placeholder: DefaultBuildContext,
 			},
 		},
+		DefaultBuild: defaultBuild,
 		Pipelines: []capability.Pipeline{
 			build(pick(all, "build-image", "generate-image-tag", "buildx-build-image", "push-image")),
 			retag(pick(all, "retag-image", "tag-image")),
@@ -124,6 +124,23 @@ func Resolve(config map[string]string, deploymentRegistry string) Settings {
 	}
 }
 
+// defaultBuild is one image named after the project, from the Dockerfile its settings name. A
+// project naming none is driven without being built, a repository of kustomizations: a build step
+// would fail at the first `docker build`.
+func defaultBuild(slug string, settings map[string]string) []capability.DefaultStep {
+	if strings.TrimSpace(settings[FieldDockerfile]) == "" {
+		return nil
+	}
+	return []capability.DefaultStep{{
+		Pipeline: "build", Label: slug,
+		Params: map[string]string{
+			"image-name": slug,
+			"dockerfile": "{" + ID + "." + FieldDockerfile + "}",
+			"context":    "{" + ID + "." + FieldBuildContext + "}",
+		},
+	}}
+}
+
 func pick(all []capability.Manifest, names ...string) []capability.Manifest {
 	var picked []capability.Manifest
 	for _, manifest := range all {
@@ -145,6 +162,11 @@ func build(manifests []capability.Manifest) capability.Pipeline {
 			Manifests:     manifests,
 			ExternalTasks: []string{"git-clone"},
 			Produces:      []capability.Product{capability.ProductImage},
+			// A final release re-tags its candidate's images rather than building them again.
+			Promote: &capability.Promotion{
+				Pipeline: "retag",
+				Params:   map[string]string{"image-name": "{artifact.name}"},
+			},
 			Params: map[string]capability.Param{
 				"repo-url":          {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
 				"reg-project":       {Source: capability.ParamBinding, DefaultKey: "registry.project"},
@@ -204,7 +226,7 @@ func retag(manifests []capability.Manifest) capability.Pipeline {
 				"reg-project":       {Source: capability.ParamBinding, DefaultKey: "registry.project"},
 				"insecure-registry": {Source: capability.ParamBinding, DefaultKey: "registry.insecure"},
 				"image-name":        {Source: capability.ParamInput, Required: true, Suggest: "image-name"},
-				"old-tag":           {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
+				"old-tag":           {Source: capability.ParamInput, Required: true, Suggest: "source-tag"},
 				"new-tag":           {Source: capability.ParamInput, Required: true, Suggest: "release-tag"},
 			},
 			Workspaces: []capability.Workspace{

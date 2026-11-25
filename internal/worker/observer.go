@@ -118,12 +118,6 @@ func (s *runSink) WithCatalog(pipelines catalog.Source) *runSink {
 	return s
 }
 
-// buildJobKind is the kind of job that builds the images.
-//
-// Must match the `kind` of the catalogue entry: it is on that value that a run's conclusion
-// decides to advance a release.
-const buildJobKind = catalog.KindBuild
-
 // NewRunSink returns the adapter the Tekton observer consumes.
 func NewRunSink(db *store.DB) *runSink {
 	return &runSink{
@@ -330,7 +324,7 @@ func (s *runSink) advanceReleaseForJob(ctx context.Context, jobID int64, jobStat
 	// deploys it somewhere, and the tests that follow conclude nothing until someone has read
 	// them. It does however constitute a **fact**, and that is the whole difference between
 	// advancing a state and observing that something happened.
-	if linked.Kind != buildJobKind && !s.isVerificationKind(linked.Kind) {
+	if !s.isVerificationKind(linked.Kind) {
 		s.emitReleasePromoted(ctx, linked, jobState)
 	}
 	return nil

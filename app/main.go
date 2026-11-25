@@ -321,7 +321,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// The launch form's lists: release tags and published images. The registry's prefix comes
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
-		WithSuggestions(db, registryOf(db, cfg.Registry.Project), logger).
+		WithSuggestions(db, logger).
 		WithEnvironmentSuggestions(answers.suggestions())
 	// The name of the promoted repository comes from the registry's configuration: it is the same
 	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
@@ -340,7 +340,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	releasesHandler := dashhttp.NewReleasesHandler(
-		db, inForce.Catalogs(), authorizer, images, registryOf(db, cfg.Registry.Project)).
+		db, inForce.Catalogs(), authorizer, images).
 		// The same weighting as the test manager: the list's badge and a release's screen display the
 		// same figure.
 		WithScoreCatalog(inForce.Catalogs()).
@@ -372,7 +372,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	mounts := []dashhttp.Mount{
 		// A project's pull requests, followed from its forge by the worker: launching on their head and
 		// reading what ran there.
-		dashhttp.NewPullsHandler(db, inForce.Catalogs(), registryOf(db, cfg.Registry.Project), logger).WithResults(testsHandler).Routes,
+		dashhttp.NewPullsHandler(db, inForce.Catalogs(), logger).WithResults(testsHandler).Routes,
 		// The bindings an administrator records for what the catalogue file does not bind.
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
 			sources.checkBinding, reloader.Reload, logger).WithWeights(db).Routes,
@@ -537,7 +537,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// several replicas, and three concurrent catch-ups would write the same thing three times.
 	// The `api` reads the declaration, it does not compose it.
 	if err := worker.NewAutomationCatchUp(db, pipelines, logger).
-		WithBuildable(namesADockerfile(db, logger)).
+		WithDefaultBuild(defaultBuilds(db, carriedPlugins(), logger)).
 		WithStacks(carriedStacks()...).Run(ctx); err != nil {
 		return err
 	}
@@ -704,7 +704,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			// A release's plan, opened with the engine that carries out pipelines and actions alike.
 			scheduler.Handle(worker.NewReleasePlanTask(
-				worker.NewReleasePlanner(engine, pipelines, db, registryOf(db, cfg.Registry.Project), logger), db, logger))
+				worker.NewReleasePlanner(engine, pipelines, db, logger).WithSources(db), db, logger))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
@@ -788,7 +788,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 						worker.TrackerProbes(registry, db, cfg.Tracker.Timeout, logger)...)
 					// And the pull requests, followed through each forge plugin.
 					return append(probes, worker.PullRequestProbes(
-						registry, db, cfg.Forge.Timeout, registryOf(db, cfg.Registry.Project), logger)...)
+						registry, db, cfg.Forge.Timeout, logger)...)
 				}).
 				WithDispatcher(dispatcher)
 			reloader.OnReplace(func(live.Snapshot) { probes.Wake() })

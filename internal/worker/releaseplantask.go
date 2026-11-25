@@ -42,7 +42,8 @@ func NewReleasePlanTask(planner *ReleasePlanner, releases ReleasePlanStore, logg
 func (t *ReleasePlanTask) Kind() string { return KindReleasePlan }
 
 // Run opens the plan. When nothing starts, the release, announced as building when the job was
-// queued, fails: left building, it would wait for a pipeline that never comes.
+// queued, fails, saying why: left building, it would wait for a pipeline that never comes. A
+// project that declares nothing to run releases tags, ready at once.
 func (t *ReleasePlanTask) Run(ctx context.Context, job store.Job) error {
 	if job.ReleaseID == nil {
 		return errors.New("release plan: no release identifier")
@@ -56,14 +57,24 @@ func (t *ReleasePlanTask) Run(ctx context.Context, job store.Job) error {
 		return fmt.Errorf("release plan: %w", err)
 	}
 
-	if started := t.planner.OpenReleasePlan(ctx, project, record, job.Params["revision"]); started > 0 {
+	started, nothing, reason := t.planner.open(ctx, project, record, job.Params["revision"])
+	if started > 0 {
+		return nil
+	}
+	if nothing {
+		// A project that declares nothing to build or verify releases tags: the release is ready
+		// once launched.
+		if _, err := t.store.AdvanceReleaseState(ctx, record.ID,
+			string(release.StateBuilding), string(release.StateReady)); err != nil {
+			return fmt.Errorf("release plan of %s: %w", record.Tag, err)
+		}
 		return nil
 	}
 	if _, err := t.store.AdvanceReleaseState(ctx, record.ID,
 		string(release.StateBuilding), string(release.StateFailed)); err != nil {
 		t.logger.Error("failing a release nothing started", "release", record.Tag, "error", err)
 	}
-	return fmt.Errorf("release plan of %s: no step could start", record.Tag)
+	return fmt.Errorf("release plan of %s: %w", record.Tag, reason)
 }
 
 // QueuedReleasePlans opens a release's plan by queuing the job the worker carries out. It is what

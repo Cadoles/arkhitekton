@@ -107,6 +107,20 @@ type Plugin struct {
 	Webhook *Webhook
 	// Executor carries out the declared Actions. Required when there are any.
 	Executor ActionExecutor
+	// DefaultBuild proposes the build steps of a project that declares no automation yet, from its
+	// slug and the plugin's settings resolved for it. Nil, or nothing returned: the plugin builds
+	// nothing by default, and the project declares its steps in its plan.
+	DefaultBuild func(slug string, settings map[string]string) []DefaultStep
+}
+
+// DefaultStep is a build step a plugin proposes.
+type DefaultStep struct {
+	// Pipeline names one of the plugin's pipelines, `build`.
+	Pipeline string
+	// Label names the step, and what it publishes in the following stages:
+	// `{artifacts.<label>.image}`.
+	Label  string
+	Params map[string]string
 }
 
 // Pipeline is a pipeline capability.
@@ -166,6 +180,19 @@ type PipelineSpec struct {
 	// Group is where the pipeline's results are shown before any is read: a step announced in a
 	// plan has a place on screen from the start. The interpreter decides the group of what it reads.
 	Group string
+	// Promote says how a release produced from another carries what this pipeline built, without
+	// building it again: a re-tag for an image. Nil: such a release builds it again, on the same
+	// commit, under its own tag.
+	Promote *Promotion
+}
+
+// Promotion is a pipeline of the same plugin, run once per image a build step published.
+type Promotion struct {
+	// Pipeline names it, `retag`.
+	Pipeline string
+	// Params are what the promotion step declares. `{artifact.name}` is the image's short name;
+	// the tags are the run's, through the parameters' suggestions.
+	Params map[string]string
 }
 
 // Manifest is a Tekton definition shipped with the plugin.

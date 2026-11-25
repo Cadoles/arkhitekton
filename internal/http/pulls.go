@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -28,6 +27,9 @@ type PullStore interface {
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	ListPullRequests(ctx context.Context, projectID int64, state string, limit int) ([]store.PullRequest, error)
 	PullRequestByNumber(ctx context.Context, projectID, number int64) (store.PullRequest, error)
+	// PullRequestImages are the images the request's latest run published: what a pipeline
+	// launched on it analyses.
+	PullRequestImages(ctx context.Context, pullRequestID int64) ([]store.ReleaseImage, error)
 	ListPullRequestJobs(ctx context.Context, pullRequestID int64) ([]store.ReleaseJob, error)
 	ListPullRequestPlanRuns(ctx context.Context, pullRequestID int64, limit int) ([]store.PlanRunSummary, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
@@ -38,18 +40,16 @@ type PullStore interface {
 type PullsHandler struct {
 	store   PullStore
 	catalog catalog.Source
-	// registry gives the registry a request's images are named in, its project's, as a release's are.
-	registry imagenames.RegistryOf
 	// results serves the requests' results. Nil: only the requests and their jobs are served.
 	results *TestsHandler
 	logger  *slog.Logger
 }
 
-func NewPullsHandler(pulls PullStore, pipelines catalog.Source, registry imagenames.RegistryOf, logger *slog.Logger) *PullsHandler {
+func NewPullsHandler(pulls PullStore, pipelines catalog.Source, logger *slog.Logger) *PullsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PullsHandler{store: pulls, catalog: pipelines, registry: registry, logger: logger}
+	return &PullsHandler{store: pulls, catalog: pipelines, logger: logger}
 }
 
 type pullPayload struct {
@@ -189,9 +189,18 @@ func (h *PullsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		}
 		params[name] = value
 	}
-	registry := h.registry.Resolve(r.Context(), project.ID)
+	values := catalog.RunValues{
+		Revision: pull.HeadSHA, Tag: tag, Pull: strconv.FormatInt(pull.Number, 10), Images: map[string]string{},
+	}
+	published, err := h.store.PullRequestImages(r.Context(), pull.ID)
+	if err != nil {
+		h.logger.Warn("images of a pull request", "number", pull.Number, "error", err)
+	}
+	for _, image := range published {
+		values.Images[image.Name] = image.Reference
+	}
 	for _, input := range pipeline.Inputs() {
-		if value := input.FromContext(pull.HeadSHA, tag, registry, strconv.FormatInt(pull.Number, 10)); value != "" {
+		if value := input.FromContext(values); value != "" {
 			params[input.Name] = value
 		}
 	}
@@ -257,7 +266,7 @@ func jobRoleIn(pipelines *catalog.Catalog, kind string) (label, role string) {
 		label, kind = pipeline.Label, pipeline.Kind
 	}
 	switch {
-	case kind == catalog.KindBuild:
+	case pipelines.IsBuild(kind):
 		role = "build"
 	case pipelines.IsVerification(kind):
 		role = "verification"

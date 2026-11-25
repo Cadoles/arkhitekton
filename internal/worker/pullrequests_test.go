@@ -9,7 +9,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -96,7 +95,7 @@ func newPullScenario(t *testing.T) *pullScenario {
 	scenario := &pullScenario{t: t, forge: forge, clock: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)}
 	scenario.probe = pullRequestProbe{
 		plugin: "gitea", forge: forge, store: &pullStore{pulls: map[int64]store.PullRequest{}},
-		registry: images.Fixed("reg.example/team"), logger: quietLogger(), now: func() time.Time { return scenario.clock },
+		logger: quietLogger(), now: func() time.Time { return scenario.clock },
 	}
 	return scenario
 }
@@ -149,7 +148,7 @@ func TestThePullRequestsTransitionsBecomeFacts(t *testing.T) {
 		t.Fatalf("opened: %s", types(facts))
 	}
 	payload := facts[0].Payload
-	if payload["revision"] != "cccccccccc" || payload["tag"] != "pr-3-ccccccc" || payload["registry"] != "reg.example/team" ||
+	if payload["revision"] != "cccccccccc" || payload["tag"] != "pr-3-ccccccc" ||
 		payload[ContextPullRequest] == "" || facts[0].Subject != "#3" {
 		t.Errorf("payload = %v, subject %q", payload, facts[0].Subject)
 	}

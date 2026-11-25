@@ -89,6 +89,19 @@ func testPipeline(t *testing.T, kind string) catalog.Pipeline {
 	return pipeline
 }
 
+// buildKind is the test catalogue's image build.
+const buildKind = "docker/build"
+
+// buildOf is the build step the docker plugin proposes for a project: an image named after it.
+func buildOf(slug string) []plan.Geste {
+	return []plan.Geste{{
+		Kind: plan.GestePipeline, Ref: buildKind, Label: slug,
+		Params: map[string]string{
+			"image-name": slug, "dockerfile": "{docker.dockerfile}", "context": "{docker.buildContext}",
+		},
+	}}
+}
+
 // portalProject builds one image named after it, `portal`.
 func portalProject() store.Project {
 	return store.Project{ID: 1, Slug: "portal", Repository: "team/portal"}
@@ -97,7 +110,7 @@ func portalProject() store.Project {
 // twoImagePlan is a project's plan building two images, one step each, as a plan declares them.
 func twoImagePlan(t *testing.T) plan.Plan {
 	t.Helper()
-	subject := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
+	subject := DefaultAutomation(testCatalogue(t), buildOf("portal"), nil)
 	web := subject.Stages[0].Gestes[0]
 	web.Params["target"] = "web"
 	cli := plan.Geste{Kind: web.Kind, Ref: web.Ref, Label: "portal-cli", Params: map[string]string{
@@ -110,7 +123,7 @@ func twoImagePlan(t *testing.T) plan.Plan {
 
 // The door: both halves of the chain enter a single plan.
 func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
+	subject := DefaultAutomation(testCatalogue(t), buildOf("portal"), nil)
 
 	if err := subject.Validate(); err != nil {
 		t.Fatalf("the composed plan must be valid: %v", err)
@@ -170,8 +183,7 @@ func TestTheStepFixesTheImageAndTheContextBindsTheRevision(t *testing.T) {
 		t.Errorf("parameters of the step = %v", geste.Params)
 	}
 
-	runContext := releaseContext(
-		store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd", "reg.example.fr/mstore")
+	runContext := releaseContext(store.Release{ID: 42, Tag: "3.2.0-rc8"}, "c1f8f8cd")
 	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
 		t.Fatalf("%v", err)
@@ -201,7 +213,7 @@ func TestAStepCannotRedefineTheRevision(t *testing.T) {
 			"revision": "another-commit",
 		},
 	}
-	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "the-right-commit", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "the-right-commit")
 
 	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
@@ -217,7 +229,7 @@ func TestAStepCannotRedefineTheRevision(t *testing.T) {
 // A project with no E2E campaign saw the pipeline follow on, fail for want of a scenario, and
 // leave its release waiting for a verdict that would never come.
 func TestAKindNotEnabledIsNotChained(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), portalProject(), true,
+	subject := DefaultAutomation(testCatalogue(t), buildOf("portal"),
 		func(kind string) bool { return kind != "e2e-tests" })
 
 	if len(subject.Stages) != 2 {
@@ -240,9 +252,7 @@ func TestAKindNotEnabledIsNotChained(t *testing.T) {
 // It is a legitimate configuration, distinct from an invalid plan: the caller concludes at once
 // rather than waiting for a verdict nobody will give.
 func TestAProjectWithNothingReturnsAnEmptyPlan(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t),
-		store.Project{ID: 2, Slug: "empty"}, false,
-		func(string) bool { return false })
+	subject := DefaultAutomation(testCatalogue(t), nil, func(string) bool { return false })
 
 	if !subject.Empty() {
 		t.Errorf("plan = %+v, expected empty", subject)
@@ -269,7 +279,31 @@ func (a *testAdvances) AdvanceReleaseState(
 
 func releaseRun() store.PlanRun {
 	id := int64(7)
-	return store.PlanRun{ID: 1, ReleaseID: &id}
+	return store.PlanRun{ID: 1, ReleaseID: &id, Plan: plan.Plan{Stages: []plan.Stage{
+		{Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: buildKind}}},
+		{Role: plan.RoleTest, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "unit-tests"}}},
+	}}}
+}
+
+// A plan with no verification, a release produced from its source, is ready once built; a plan
+// with no build verifies from the start.
+func TestAPlanWithoutAStageSkipsItsState(t *testing.T) {
+	ctx := context.Background()
+	built := releaseRun()
+	built.Plan.Stages = built.Plan.Stages[:1]
+	tracked := &testAdvances{state: string(release.StateBuilding)}
+	NewReleaseLifecycle(tracked, quietLogger()).StageSettled(ctx, built, plan.RoleBuild, plan.Succeeded)
+	if tracked.state != string(release.StateReady) {
+		t.Errorf("built only: state = %q", tracked.state)
+	}
+
+	verified := releaseRun()
+	verified.Plan.Stages = verified.Plan.Stages[1:]
+	tracked = &testAdvances{state: string(release.StateBuilding)}
+	NewReleaseLifecycle(tracked, quietLogger()).StageSettled(ctx, verified, plan.RoleTest, plan.Failed)
+	if tracked.state != string(release.StateFailed) {
+		t.Errorf("verified only: state = %q", tracked.state)
+	}
 }
 
 // The settling of a stage advances the release, and replaces the build count.
@@ -403,7 +437,7 @@ func TestAStepTargetsAnEarlierStagesArtifact(t *testing.T) {
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
-	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc")
 	runContext["artifacts.portal.image"] = "reg.example.fr/portal:1.0.0"
 
 	params, err := stepParams(testPipeline(t, "security-audit"), geste, runContext)
@@ -427,7 +461,7 @@ func TestAMissingArtifactFailsTheStepNamingIt(t *testing.T) {
 		Kind: plan.GestePipeline, Ref: "security-audit",
 		Params: map[string]string{"portal-image": "{artifacts.portal.image}"},
 	}
-	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc")
 
 	_, err := stepParams(testPipeline(t, "security-audit"), geste, runContext)
 	if err == nil {
@@ -451,7 +485,7 @@ func TestAnOrdinaryUnresolvedVariableDoesNotFail(t *testing.T) {
 			"image-name": "portal", "target": "web",
 		},
 	}
-	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")
+	runContext := releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc")
 
 	params, err := stepParams(testPipeline(t, buildKind), geste, runContext)
 	if err != nil {
@@ -479,7 +513,7 @@ func TestAPullRequestsFactGivesItsNumber(t *testing.T) {
 
 	// A release's run bears on no pull request: the step is refused rather than run on none.
 	if _, err := stepParams(pipeline, plan.Geste{Kind: plan.GestePipeline, Ref: pipeline.Kind},
-		releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc", "reg")); err == nil {
+		releaseContext(store.Release{ID: 1, Tag: "1.0.0"}, "abc")); err == nil {
 		t.Error("a release's run reviewed a pull request")
 	}
 }

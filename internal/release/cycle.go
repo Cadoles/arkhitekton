@@ -40,9 +40,12 @@ type Mode string
 const (
 	// ModeBuild builds an image from a git reference.
 	ModeBuild Mode = "build"
-	// ModeRetag reuses an existing release's image, bit for bit. Promoting or shipping
-	// never rebuilds, on pain of shipping an image nobody tested.
-	ModeRetag Mode = "retag"
+	// ModeFromSource produces a release from an earlier one: its images re-tagged bit for bit,
+	// never rebuilt, on pain of shipping an image nobody tested; what cannot be re-tagged, binaries
+	// for instance, built again from the same commit under the release's tag.
+	ModeFromSource Mode = "from-source"
+	// modeRetag is the name ModeFromSource had, refused with its new one.
+	modeRetag Mode = "retag"
 )
 
 // TagRule says what the kind requires of the tag's shape.
@@ -91,7 +94,7 @@ func DefaultCycle() Cycle {
 			Tag: TagPrereleaseRequired, Permission: "release:create",
 		},
 		{
-			ID: "final", Label: "Finale", Mode: ModeRetag, Source: "pre",
+			ID: "final", Label: "Finale", Mode: ModeFromSource, Source: "pre",
 			Tag: TagPrereleaseForbidden, Permission: "release:create:final",
 		},
 		{
@@ -163,11 +166,15 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 		seen[spec.ID] = true
 
 		switch spec.Mode {
-		case ModeBuild, ModeRetag:
+		case ModeBuild, ModeFromSource:
+		case modeRetag:
+			problems = append(problems, fmt.Errorf(
+				"kind %q: mode %q is now %q: a release produced from its source re-tags its images "+
+					"and builds again what cannot be re-tagged", spec.ID, modeRetag, ModeFromSource))
 		default:
 			problems = append(problems, fmt.Errorf(
 				"kind %q: unknown mode %q (expected %s or %s)",
-				spec.ID, spec.Mode, ModeBuild, ModeRetag))
+				spec.ID, spec.Mode, ModeBuild, ModeFromSource))
 		}
 
 		switch spec.Tag {
@@ -192,7 +199,7 @@ func (c Cycle) Validate(scheme version.Scheme) error {
 	// Sources are checked second: they reference other kinds, and checking them inside
 	// the loop would reject a source declared further down the list.
 	for _, spec := range c {
-		if spec.Mode != ModeRetag || spec.Source == "" {
+		if spec.Mode != ModeFromSource || spec.Source == "" {
 			continue
 		}
 		if !seen[spec.Source] {

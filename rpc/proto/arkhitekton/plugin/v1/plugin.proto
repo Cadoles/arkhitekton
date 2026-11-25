@@ -157,32 +157,19 @@ message ReleaseByTag {
   string tag = 2;
 }
 
-// Always empty since the dashboard reads a project's images from its release plan: see
-// Release.images.
-message Target {
-  string stage = 1;
-  string image = 2;
-  string dockerfile = 3;
-  // Promote is unset for an entry written before the field existed: promoted.
-  optional bool promote = 4;
-}
-
 message Project {
   int64 id = 1;
   string slug = 2;
   string repository = 3;
   string label = 4;
   string forge_url = 5;
-  // Always empty: the Docker settings belong to the docker plugin. Kept for the plugins built before.
-  string dockerfile = 6;
-  string build_context = 7;
-  string image_registry = 8;
   // Always empty: a project no longer declares a stack. Kept for the plugins built before.
   string stack = 9;
   string version_scheme = 10;
-  // Always empty, like multi_stage: a release says what it published, in Release.images.
-  repeated Target targets = 11;
-  bool multi_stage = 12;
+  // The Docker settings belong to the docker plugin, and a release says what it published in
+  // Release.images.
+  reserved 6, 7, 8, 11, 12;
+  reserved "dockerfile", "build_context", "image_registry", "targets", "multi_stage";
 }
 
 // ReleaseImage is an image a release published and promotes.

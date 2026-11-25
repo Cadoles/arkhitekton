@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -29,6 +28,10 @@ func (s *releasePlanStore) AdvanceReleaseState(_ context.Context, _ int64, from,
 }
 
 func releasePlanTask(declared plan.Plan, ran *[]string) (*ReleasePlanTask, *releasePlanStore) {
+	return releasePlanTaskWith(testAutomation{plan: declared}, ran)
+}
+
+func releasePlanTaskWith(automation testAutomation, ran *[]string) (*ReleasePlanTask, *releasePlanStore) {
 	runner := stepRunnerFunc(func(_ context.Context, _ store.PlanRun, geste plan.Geste) (*int64, error) {
 		*ran = append(*ran, geste.Ref)
 		if geste.Kind == plan.GesteAction {
@@ -39,7 +42,7 @@ func releasePlanTask(declared plan.Plan, ran *[]string) (*ReleasePlanTask, *rele
 	})
 	releases := &releasePlanStore{release: store.Release{ID: 7, ProjectID: 3, Tag: "1.0.0-rc1"}}
 	planner := NewReleasePlanner(NewEngine(newFakePlanStore(), runner, quietLogger()), nil,
-		testAutomation{plan: declared}, images.Fixed("reg.example/team"), quietLogger())
+		automation, quietLogger())
 	return NewReleasePlanTask(planner, releases, quietLogger()), releases
 }
 
@@ -71,12 +74,28 @@ func TestAReleasePlanStartingWithAnActionReachesItsBuild(t *testing.T) {
 // A release from which nothing starts fails, and the job says why.
 func TestAReleaseFromWhichNothingStartsFails(t *testing.T) {
 	var ran []string
-	task, releases := releasePlanTask(plan.Plan{}, &ran)
+	task, releases := releasePlanTaskWith(testAutomation{plan: plan.Plan{Stages: []plan.Stage{
+		{Role: plan.RoleBuild, Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "docker/build"}}},
+	}}, off: true}, &ran)
 
-	if err := task.Run(context.Background(), planJob()); err == nil {
-		t.Error("the job succeeded although nothing started")
+	err := task.Run(context.Background(), planJob())
+	if err == nil || !strings.Contains(err.Error(), "switched off") {
+		t.Errorf("error = %v: the job says why nothing started", err)
 	}
 	if strings.Join(releases.moves, ",") != "building→failed" {
 		t.Errorf("moves %v", releases.moves)
+	}
+}
+
+// A project that declares nothing to build or verify releases a tag: ready once launched.
+func TestAProjectDeclaringNothingReleasesATag(t *testing.T) {
+	var ran []string
+	task, releases := releasePlanTask(plan.Plan{}, &ran)
+
+	if err := task.Run(context.Background(), planJob()); err != nil {
+		t.Errorf("error = %v", err)
+	}
+	if strings.Join(releases.moves, ",") != "building→ready" || len(ran) != 0 {
+		t.Errorf("moves %v, ran %v", releases.moves, ran)
 	}
 }

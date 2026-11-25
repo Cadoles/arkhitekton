@@ -67,7 +67,9 @@ func fixtureProject() store.Project {
 
 // fixturePlan builds three images, one of them not promoted, then verifies.
 func fixturePlan(pipelines *catalog.Catalog) plan.Plan {
-	declared := worker.DefaultAutomation(pipelines, store.Project{Slug: "portal"}, true, nil)
+	declared := worker.DefaultAutomation(pipelines, []plan.Geste{{
+		Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal", Params: map[string]string{"image-name": "portal"},
+	}}, nil)
 	if len(declared.Stages) == 0 || declared.Stages[0].Role != plan.RoleBuild {
 		return declared
 	}
@@ -117,6 +119,49 @@ func (f *fakeReleaseStore) ReleaseArtifacts(
 	context.Context, int64,
 ) ([]store.PlanArtifact, error) {
 	return f.produits, nil
+}
+
+// PlanArtifacts are what a run produced, among those the store carries.
+func (f *fakeReleaseStore) PlanArtifacts(_ context.Context, runID int64) ([]store.PlanArtifact, error) {
+	var produced []store.PlanArtifact
+	for _, artifact := range f.produits {
+		if artifact.RunID == runID {
+			produced = append(produced, artifact)
+		}
+	}
+	return produced, nil
+}
+
+// PlanRunByEvent finds the run opened for a fact.
+func (f *fakeReleaseStore) PlanRunByEvent(_ context.Context, trigger, eventKey string) (store.PlanRun, error) {
+	for _, run := range f.planRuns {
+		if run.Trigger == trigger && run.EventKey == eventKey {
+			return run, nil
+		}
+	}
+	return store.PlanRun{}, store.ErrPlanRunNotFound
+}
+
+// candidateBuilt records what a candidate's plan ran and published: its build steps, and an image
+// per Docker build.
+func candidateBuilt(t *testing.T, f *fakeReleaseStore, candidate store.Release, gestes []plan.Geste) {
+	t.Helper()
+	run, _, err := f.CreatePlanRun(context.Background(), store.PlanRun{
+		Trigger: plan.ReleaseTrigger, EventKey: event.ReleaseCreatedKey(candidate.ID), ReleaseID: &candidate.ID,
+		Plan: plan.Plan{Stages: []plan.Stage{{Role: plan.RoleBuild, Gestes: gestes}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for position, geste := range gestes {
+		if geste.Ref != "docker/build" {
+			continue
+		}
+		f.produits = append(f.produits, store.PlanArtifact{
+			RunID: run.ID, Position: position, Name: "image", Kind: "image", Promoted: geste.Promoted(),
+			Reference: "reg/team/" + geste.Params["image-name"] + ":" + candidate.Tag,
+		})
+	}
 }
 
 // ReleaseAutomation returns what the catch-up would have composed for this project.
@@ -359,10 +404,26 @@ func (f *fakeForge) CreateTag(_ context.Context, tag, commit, _ string) error {
 func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler {
 	t.Helper()
 	pipelines := &catalog.Catalog{Pipelines: []catalog.Pipeline{
-		{Kind: "docker/retag", PipelineRef: "retag-image"},
+		{
+			Kind: "docker/retag", PipelineRef: "retag-image", Produces: []catalog.Product{catalog.ProductImage},
+			Params: map[string]catalog.Param{
+				"image-name": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestImageName},
+				"old-tag":    {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestSourceTag},
+				"new-tag":    {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
+			},
+		},
+		{
+			Kind: "go/build", PipelineRef: "go-build", Produces: []catalog.Product{catalog.ProductBinary},
+			Params: map[string]catalog.Param{
+				"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
+				"version":  {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestReleaseTag},
+				"packages": {Source: catalog.SourceInput, Required: true},
+			},
+		},
 		{
 			Kind: "docker/build", PipelineRef: "build-image",
 			Produces: []catalog.Product{catalog.ProductImage},
+			Promote:  &catalog.Promote{Kind: "docker/retag", Params: map[string]string{"image-name": "{artifact.name}"}},
 			// The kind's real parameters. A release's plan no longer sets the revision and the tag
 			// in the clear: it reads what the catalogue declares it wants. A silent test catalogue
 			// would send builds off with no revision, which is exactly what these tests check.
@@ -393,7 +454,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{testProjectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})
-	return NewReleasesHandler(store, pipelines, authorizer, store.registry, imagenames.Fixed("reg.cadoles.com/vcarroy")).
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry).
 		// The real planner, on the same fake store. A substitute here would make these tests
 		// pass while saying nothing about what creation actually queues.
 		WithArtifactReader(store).
@@ -404,7 +465,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
 				quietLogger()),
-			pipelines, store, imagenames.Fixed("reg.cadoles.com/vcarroy"), quietLogger()))
+			pipelines, store, quietLogger()).WithSources(store))
 }
 
 // launched creates a draft from the body, then launches it, and returns the launch's response.
@@ -479,25 +540,30 @@ func TestCreateRefusesAMismatchedRedmineVersion(t *testing.T) {
 	}
 }
 
-// The final release inherits its candidate's image, and its own tag must exist in the
-// registry for an image policy to select it.
-func TestCreateFinalRetagsFromItsSource(t *testing.T) {
-	fake := newFakeStore()
-	fake.releases["1.8.0-rc3"] = store.Release{
-		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
-	}
-	handler := newReleasesHandler(t, fake)
-
+// finalOf declares the final of a candidate as a draft.
+func finalOf(t *testing.T, handler *ReleasesHandler) {
+	t.Helper()
 	body := `{"tag":"1.8.0","kind":"final","source_tag":"1.8.0-rc3","tests_green":true}`
-	request := httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body))
 	recorder := httptest.NewRecorder()
-
-	handler.Create(recorder, asRole(request, auth.RoleReleaser))
-
+	handler.Create(recorder, asRole(httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body)), auth.RoleReleaser))
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
 	}
+}
 
+// The final release inherits its candidate's images, and its own tag must exist in the registry
+// for an image policy to select it: it re-tags what the candidate published and promotes, the
+// development image excepted, and builds nothing.
+func TestAFinalReTagsWhatItsCandidatePublished(t *testing.T) {
+	fake := newFakeStore()
+	candidate := store.Release{
+		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3", GitCommit: "c4nd1d4t3",
+	}
+	fake.releases[candidate.Tag] = candidate
+	handler := newReleasesHandler(t, fake)
+	candidateBuilt(t, fake, candidate, fixturePlan(fake.pipelines).Stages[0].Gestes)
+
+	finalOf(t, handler)
 	created := fake.releases["1.8.0"]
 	if created.ImageVersion != "1.8.0-rc3" {
 		t.Errorf("image version = %q, expected the RC's", created.ImageVersion)
@@ -509,15 +575,17 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusOK {
 		t.Fatalf("launch: code = %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if launched := fake.releases["1.8.0"]; launched.State != "ready" {
-		t.Errorf("state = %q: the image already exists, the release is promotable", launched.State)
+	if launched := fake.releases["1.8.0"]; launched.State != "building" {
+		t.Errorf("state = %q: the release is ready once its re-tags succeed", launched.State)
 	}
 
 	retags := fake.jobsOfKind("docker/retag")
-	if len(retags) != 2 {
-		t.Fatalf("%d re-tag job(s), expected one per promoted image", len(retags))
+	if len(retags) != 2 || len(fake.jobsOfKind("docker/build")) != 0 {
+		t.Fatalf("%d re-tag(s), %d build(s): one re-tag per promoted image, no build",
+			len(retags), len(fake.jobsOfKind("docker/build")))
 	}
-	if retags[0].Params["image-name"] != "portal" || retags[1].Params["image-name"] != "portal-cli" ||
+	names := retags[0].Params["image-name"] + "," + retags[1].Params["image-name"]
+	if (names != "portal,portal-cli" && names != "portal-cli,portal") ||
 		retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
 		t.Errorf("re-tags = %+v, %+v", retags[0].Params, retags[1].Params)
 	}
@@ -528,29 +596,54 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	}
 }
 
-// A candidate that published no image leaves its final nothing to re-tag: the launch is refused
-// before anything is recorded, rather than giving a tag that names no image.
-func TestAFinalOfACandidateWithNoImageIsRefused(t *testing.T) {
+// What cannot be re-tagged is built again, from the candidate's commit and under the final's tag:
+// binaries carry their version.
+func TestAFinalBuildsAgainWhatItCannotReTag(t *testing.T) {
+	fake := newFakeStore()
+	candidate := store.Release{
+		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3", GitCommit: "c4nd1d4t3",
+	}
+	fake.releases[candidate.Tag] = candidate
+	handler := newReleasesHandler(t, fake)
+	candidateBuilt(t, fake, candidate, []plan.Geste{
+		{Kind: plan.GestePipeline, Ref: "docker/build", Label: "portal", Params: map[string]string{"image-name": "portal", "target": "web"}},
+		{Kind: plan.GestePipeline, Ref: "go/build", Label: "cli", Params: map[string]string{"packages": "./cmd/cli"}},
+	})
+
+	finalOf(t, handler)
+	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	retags, builds := fake.jobsOfKind("docker/retag"), fake.jobsOfKind("go/build")
+	if len(retags) != 1 || len(builds) != 1 {
+		t.Fatalf("%d re-tag(s), %d Go build(s), expected one each", len(retags), len(builds))
+	}
+	if retags[0].Params["image-name"] != "portal" {
+		t.Errorf("re-tag = %+v", retags[0].Params)
+	}
+	if params := builds[0].Params; params["revision"] != "c4nd1d4t3" || params["version"] != "1.8.0" ||
+		params["packages"] != "./cmd/cli" {
+		t.Errorf("Go build = %+v: the candidate's commit, under the final's tag", params)
+	}
+}
+
+// A candidate that built nothing a release carries leaves its final nothing to produce: the final
+// fails, and the reason is the plan's.
+func TestAFinalOfACandidateThatBuiltNothingFails(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["1.8.0-rc3"] = store.Release{
 		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
 	}
-	fake.images = map[string][]store.ReleaseImage{"1.8.0-rc3": nil}
 	handler := newReleasesHandler(t, fake)
 
-	body := `{"tag":"1.8.0","kind":"final","source_tag":"1.8.0-rc3","tests_green":true}`
-	recorder := httptest.NewRecorder()
-	handler.Create(recorder, asRole(httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body)), auth.RoleReleaser))
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
+	finalOf(t, handler)
+	if recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser); recorder.Code != http.StatusOK {
+		t.Fatalf("launch: code = %d: %s", recorder.Code, recorder.Body.String())
 	}
-
-	launched := launchDraft(handler, "1.8.0", auth.RoleReleaser)
-	if launched.Code != http.StatusConflict || !strings.Contains(launched.Body.String(), "published no promoted image") {
-		t.Errorf("launch: code = %d: %s", launched.Code, launched.Body.String())
-	}
-	if fake.releases["1.8.0"].State != "draft" || len(fake.jobsOfKind("docker/retag")) != 0 {
-		t.Errorf("state = %q, re-tags = %d", fake.releases["1.8.0"].State, len(fake.jobsOfKind("docker/retag")))
+	final := fake.releases["1.8.0"]
+	if fake.states[final.ID] != "failed" || len(fake.jobsOfKind("docker/retag")) != 0 {
+		t.Errorf("state = %q, re-tags = %d", fake.states[final.ID], len(fake.jobsOfKind("docker/retag")))
 	}
 }
 
@@ -1145,14 +1238,19 @@ func TestRerunningAFailedBuildReusesTheSameReference(t *testing.T) {
 	}
 }
 
-// A final release has nothing to rebuild: its image is its source candidate's, and a
-// pipeline would produce a second image under the same tag.
-func TestAFinalReleaseIsNotRebuilt(t *testing.T) {
+// A final that failed, a re-tag refused by the registry, is produced again from its candidate.
+func TestAFailedFinalIsProducedAgain(t *testing.T) {
 	fake := newFakeStore()
+	candidate := store.Release{
+		ID: 4, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1", GitCommit: "c4nd1d4t3",
+	}
+	fake.releases[candidate.Tag] = candidate
+	source := candidate.ID
 	fake.releases["3.2.0"] = store.Release{
-		ID: 9, Tag: "3.2.0", Kind: "final", State: "failed", ImageVersion: "3.2.0-rc1",
+		ID: 9, Tag: "3.2.0", Kind: "final", State: "failed", ImageVersion: "3.2.0-rc1", SourceReleaseID: &source,
 	}
 	handler := newReleasesHandler(t, fake)
+	candidateBuilt(t, fake, candidate, fixturePlan(fake.pipelines).Stages[0].Gestes)
 
 	request := asRole(httptest.NewRequest(http.MethodPost, "/releases/3.2.0/build", nil),
 		auth.RoleOperator)
@@ -1160,11 +1258,11 @@ func TestAFinalReleaseIsNotRebuilt(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.Rebuild(recorder, request)
 
-	if recorder.Code != http.StatusConflict {
-		t.Errorf("code %d, expected 409", recorder.Code)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != 0 {
-		t.Errorf("no job should have started: %+v", fake.jobs)
+	if len(fake.jobsOfKind("docker/retag")) != 2 || len(fake.jobsOfKind("docker/build")) != 0 {
+		t.Errorf("jobs = %+v: the final re-tags again, it builds nothing", fake.jobs)
 	}
 }
 
@@ -1324,7 +1422,7 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
  * Returning empty values makes the badge not display, which is exactly the expected behaviour for
  * a release with no results.
  */
-func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context, string) (map[string]store.ReleaseBadges, error) {
+func (f *fakeReleaseStore) ReleaseBadgesByTag(context.Context, int64, []string) (map[string]store.ReleaseBadges, error) {
 	return map[string]store.ReleaseBadges{}, nil
 }
 

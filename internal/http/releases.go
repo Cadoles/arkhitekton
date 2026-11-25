@@ -17,7 +17,6 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -50,7 +49,7 @@ type ReleaseStore interface {
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
-	ReleaseBadgesByTag(ctx context.Context, buildKind string) (map[string]store.ReleaseBadges, error)
+	ReleaseBadgesByTag(ctx context.Context, projectID int64, buildKinds []string) (map[string]store.ReleaseBadges, error)
 	ListNoteEntries(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
 	VersionName(ctx context.Context, versionID int64) (string, error)
 	ListReleaseVersionIssues(ctx context.Context, releaseID int64) ([]store.NoteEntry, error)
@@ -98,10 +97,6 @@ type ReleasesHandler struct {
 	// trackers serves the links to a note's issues. Nil, or a project with no tracker, and the
 	// links are omitted rather than rendered dead.
 	trackers Trackers
-	// registry gives the registry a project's images are published to. It serves to name, to
-	// the audit, the ones it must analyse on a re-run: it analyses an image already published,
-	// never a rebuild.
-	registry imagenames.RegistryOf
 	// forges resolves a project's forge, to anchor a release on a commit and tag it. Nil when
 	// no forge is wired.
 	forges Forges
@@ -248,11 +243,11 @@ func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines catalog.Source,
-	authorizer *auth.Authorizer, images Images, registry imagenames.RegistryOf,
+	authorizer *auth.Authorizer, images Images,
 ) *ReleasesHandler {
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
-		images: images, registry: registry,
+		images: images,
 		logger: slog.Default(),
 	}
 }
@@ -342,7 +337,7 @@ func (h *ReleasesHandler) jobRole(kind string) (label, role string) {
 		label, kind = pipeline.Label, pipeline.Kind
 	}
 	switch {
-	case kind == catalog.KindBuild:
+	case catalog.Of(h.catalog).IsBuild(kind):
 		role = "build"
 	case catalog.Of(h.catalog).IsVerification(kind):
 		role = "verification"
@@ -395,7 +390,7 @@ func (h *ReleasesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	badges, err := h.store.ReleaseBadgesByTag(r.Context(), catalog.KindBuild)
+	badges, err := h.store.ReleaseBadgesByTag(r.Context(), currentID, catalog.Of(h.catalog).BuildKinds())
 	if err != nil {
 		writeProblem(w, http.StatusInternalServerError, "Cannot read the releases", "")
 		return
@@ -532,7 +527,7 @@ func (h *ReleasesHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// The same badges as in the list, and by the same path: two derivations of "did the
 	// build fail" would have ended up contradicting each other from one screen to the
 	// next.
-	if badges, err := h.store.ReleaseBadgesByTag(r.Context(), catalog.KindBuild); err == nil {
+	if badges, err := h.store.ReleaseBadgesByTag(r.Context(), currentID, catalog.Of(h.catalog).BuildKinds()); err == nil {
 		payload.BuildFailed = badges[item.Tag].BuildFailed
 	}
 	payload.DeployedOn = h.deployedOn(r.Context(), currentID)[item.Tag]
@@ -838,7 +833,6 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	var warnings []string
 	to := release.StateBuilding
 	sourceTag := ""
-	var sourceImages []store.ReleaseImage
 	if spec.Mode == release.ModeBuild {
 		// Nothing builds without a reference: the plan would refuse it, and the release would
 		// fail for a reason the draft could still fix.
@@ -873,9 +867,8 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		to = release.StateReady
 		if record.SourceReleaseID == nil {
-			writeProblem(w, http.StatusConflict, "Cannot re-tag", release.ErrSourceRequired.Error())
+			writeProblem(w, http.StatusConflict, "Cannot launch", release.ErrSourceRequired.Error())
 			return
 		}
 		source, err := h.store.GetReleaseByID(r.Context(), *record.SourceReleaseID)
@@ -889,24 +882,10 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			Tag: source.Tag, ImageVersion: source.ImageVersion,
 			State: release.State(source.State), TestsGreen: true,
 		}); err != nil {
-			writeProblem(w, http.StatusConflict, "Cannot re-tag", err.Error())
+			writeProblem(w, http.StatusConflict, "Cannot launch", err.Error())
 			return
 		}
 		sourceTag = source.Tag
-		// What the candidate's build published is what the final re-tags. Read before the launch
-		// is recorded: a final with nothing to re-tag would carry a tag that names no image.
-		if record.ImageVersion != record.Tag {
-			if sourceImages, err = h.store.ReleaseImages(r.Context(), source); err != nil {
-				writeProblem(w, http.StatusInternalServerError, "Cannot read the source's images", "")
-				return
-			}
-			if len(sourceImages) == 0 {
-				writeProblem(w, http.StatusConflict, "Cannot re-tag", fmt.Sprintf(
-					"release %s published no promoted image: there is nothing to re-tag under %s",
-					source.Tag, record.Tag))
-				return
-			}
-		}
 	}
 
 	switch err := h.store.LaunchRelease(r.Context(), record.ID, string(to), record.GitCommit, identity.Subject); {
@@ -937,39 +916,24 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	h.emit(r, event.ReleaseCreatedAt(
 		now, project.ID, record.ID, record.Tag, record.Kind, record.GitRef, versionLine(parsed)))
 
+	// A release built from its commit, or produced from its source: its source's images re-tagged
+	// under its own tag, so that an image policy can select it, and what cannot be re-tagged built
+	// again. Never from a branch when the commit is known: rebuilding the same release six months
+	// later must produce the same thing.
 	response := map[string]any{}
-	if spec.Mode == release.ModeBuild {
-		// Never from a branch when the commit is known: rebuilding the same release six
-		// months later must produce the same image.
-		started := 0
-		if h.plans != nil {
-			started = h.plans.OpenReleasePlan(r.Context(), project, record, buildReference(record, record.GitRef))
-		}
-		if started == 0 {
-			// Nothing left: the release says so by failing, and "Rebuild" relaunches it. Left
-			// `building`, it would wait for a pipeline that never comes.
-			warnings = append(warnings, "the release is launched but its plan could not be opened")
-			if err := h.store.SetReleaseState(r.Context(), record.ID, string(release.StateFailed)); err == nil {
-				record.State = string(release.StateFailed)
-			}
-		} else {
-			response["build_jobs"] = started
-		}
+	started := 0
+	if h.plans != nil {
+		started = h.plans.OpenReleasePlan(r.Context(), project, record, buildReference(record, record.GitRef))
 	}
-
-	// A final release must exist under its own tag in the registry, not only under its
-	// candidate's. Without that re-tag, the final tag names nothing: no image policy can
-	// select it, and the release is promotable nowhere although its image is ready.
-	if record.ImageVersion != record.Tag {
-		jobIDs, err := h.enqueueRetag(r.Context(), record, sourceImages, identity.Subject)
-		if err != nil {
-			// The release is launched: say so, rather than suggest a failure. The re-tag can be
-			// run again.
-			warnings = append(warnings,
-				"the release is launched but the re-tag to its own tag could not be queued")
-		} else {
-			response["retag_job_ids"] = jobIDs
+	if started == 0 {
+		// Nothing left: the release says so by failing, and "Rebuild" relaunches it. Left
+		// `building`, it would wait for a pipeline that never comes.
+		warnings = append(warnings, "the release is launched but its plan could not be opened")
+		if err := h.store.SetReleaseState(r.Context(), record.ID, string(release.StateFailed)); err == nil {
+			record.State = string(release.StateFailed)
 		}
+	} else {
+		response["build_jobs"] = started
 	}
 
 	response["release"] = toReleasePayload(record, sourceTag, h.actorsFor(r.Context()))
@@ -1178,21 +1142,6 @@ func (h *ReleasesHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A release in re-tag mode has nothing to build: its image is its source's. The rule
-	// is on the mode and not on a kind's name — that is how it holds for any kind
-	// declaring `retag`, whatever the project's vocabulary.
-	project, err := requestProjectRecord(w, r, h.store)
-	if err != nil {
-		return
-	}
-	if spec, err := project.ReleaseKinds.Find(record.Kind); err == nil &&
-		spec.Mode == release.ModeRetag {
-		writeProblem(w, http.StatusConflict, "Cannot rebuild",
-			fmt.Sprintf("a %q release takes its source's image: rebuilding it "+
-				"would produce an image nobody has tested", spec.ID))
-		return
-	}
-
 	if record.State == string(release.StateDraft) {
 		writeProblem(w, http.StatusConflict, "Cannot rebuild",
 			fmt.Sprintf("release %q is a draft: launching it builds it", tag))
@@ -1329,7 +1278,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registry.Resolve(r.Context(), record.ProjectID))
+	params, missing := pipeline.VerificationInputs(h.runValues(r.Context(), record, revision))
 	if missing != "" {
 		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			fmt.Sprintf("parameter %q cannot be set for this release", missing))
@@ -1421,9 +1370,9 @@ func (h *ReleasesHandler) Run(w http.ResponseWriter, r *http.Request) {
 		}
 		params[name] = value
 	}
-	registry := h.registry.Resolve(r.Context(), record.ProjectID)
+	values := h.runValues(r.Context(), record, revision)
 	for _, input := range pipeline.Inputs() {
-		if value := input.FromContext(revision, record.Tag, registry, ""); value != "" {
+		if value := input.FromContext(values); value != "" {
 			params[input.Name] = value
 		}
 	}
@@ -1808,45 +1757,21 @@ func buildReference(record store.Release, requested string) string {
 	return requested
 }
 
-// enqueueRetag queues the re-tag of a release towards its own tag.
-//
-// One run per image its source published and promotes: the development image is not one, no
-// environment of the promotion flow deploys it.
-func (h *ReleasesHandler) enqueueRetag(
-	ctx context.Context, record store.Release, images []store.ReleaseImage, subject string,
-) ([]int64, error) {
-	pipeline, found := catalog.Of(h.catalog).Find(retagJobKind)
-	if !found {
-		return nil, errors.New("catalogue with no re-tag pipeline")
+// runValues are what a run on this release gives the parameters it imposes: the images are those it
+// published, never a rebuild, and a re-run analyses them.
+func (h *ReleasesHandler) runValues(ctx context.Context, record store.Release, revision string) catalog.RunValues {
+	values := catalog.RunValues{
+		Revision: revision, Tag: record.Tag, SourceTag: record.ImageVersion, Images: map[string]string{},
 	}
-
-	releaseID := record.ID
-	jobs := make([]int64, 0, len(images))
-	for _, image := range images {
-		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
-			Kind: pipeline.Kind,
-			Params: map[string]string{
-				"image-name": image.Name,
-				"old-tag":    record.ImageVersion,
-				"new-tag":    record.Tag,
-			},
-			RequestedBy: subject,
-			ReleaseID:   &releaseID,
-		})
-		if err != nil {
-			return jobs, fmt.Errorf("re-tag of %s: %w", image.Name, err)
-		}
-		jobs = append(jobs, jobID)
+	published, err := h.store.ReleaseImages(ctx, record)
+	if err != nil {
+		h.logger.Warn("images of a release", "release", record.Tag, "error", err)
 	}
-	return jobs, nil
+	for _, image := range published {
+		values.Images[image.Name] = image.Reference
+	}
+	return values
 }
-
-// retagJobKind is the job kind that sets an additional tag.
-//
-// It used to be called `promote`, which described the intent rather than the act: the
-// pipeline promotes nothing, it re-tags, and the dashboard also uses it outside
-// promotion — to give a final release its own tag from its source candidate's.
-const retagJobKind = catalog.KindRetag
 
 type manualActionsRequest struct {
 	Markdown string `json:"markdown"`

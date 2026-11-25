@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
@@ -122,16 +121,37 @@ func openPlan(
 
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
-			NewReleaseRunner(pipelines, queue, quietLogger()), quietLogger()),
+			NewReleaseRunner(pipelines, queue, quietLogger()), quietLogger()).
+			WithArtifacts(publishedImages{
+				"reg.cadoles.com/vcarroy/portal:" + tag, "reg.cadoles.com/vcarroy/portal-cli:" + tag,
+			}, nil),
 		pipelines,
 		// The automation the catch-up would have composed for this project. The plan is now **read**
 		// and not composed when opened: passing nil would return an empty plan, and these tests would
 		// observe zero steps started with nothing saying it is the read that is missing.
-		testAutomation{plan: DefaultAutomation(pipelines, projectRow, true, nil)},
-		images.Fixed("reg.cadoles.com/vcarroy"), quietLogger())
+		testAutomation{plan: DefaultAutomation(pipelines, buildOf(projectRow.Slug), nil)},
+		quietLogger())
 
 	return planner.OpenReleasePlan(context.Background(), projectRow,
 		store.Release{ID: 7, Tag: tag}, revision)
+}
+
+// publishedImages are the images a build of the release already published: what its
+// verifications analyse.
+type publishedImages []string
+
+func (publishedImages) RunResults(context.Context, int64) (map[string]string, error) { return nil, nil }
+
+func (publishedImages) RecordPlanArtifacts(context.Context, int64, *int64, []store.PlanArtifact) error {
+	return nil
+}
+
+func (p publishedImages) PlanArtifacts(context.Context, int64) ([]store.PlanArtifact, error) {
+	artifacts := make([]store.PlanArtifact, 0, len(p))
+	for _, reference := range p {
+		artifacts = append(artifacts, store.PlanArtifact{Name: "image", Kind: "image", Reference: reference, Promoted: true})
+	}
+	return artifacts, nil
 }
 
 // testAutomation returns an already declared plan.
@@ -155,8 +175,8 @@ func TestASwitchedOffAutomationOpensNothing(t *testing.T) {
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(), NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
 		pipelines,
-		testAutomation{plan: DefaultAutomation(pipelines, projectRow, true, nil), off: true},
-		images.Fixed("reg.cadoles.com/vcarroy"), quietLogger())
+		testAutomation{plan: DefaultAutomation(pipelines, buildOf(projectRow.Slug), nil), off: true},
+		quietLogger())
 
 	launched := planner.OpenReleasePlan(context.Background(), projectRow,
 		store.Release{ID: 7, Tag: "3.2.0"}, "abc123def456")
@@ -334,10 +354,13 @@ func TestABuildLaunchesItsVerificationsOnlyOnce(t *testing.T) {
 	// (trigger, fact), like the `plan_runs` table.
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
-			NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
+			NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()).
+			WithArtifacts(publishedImages{
+				"reg.cadoles.com/vcarroy/portal:3.2.0-rc1", "reg.cadoles.com/vcarroy/portal-cli:3.2.0-rc1",
+			}, nil),
 		pipelines,
-		testAutomation{plan: DefaultAutomation(pipelines, projectRow, true, nil)},
-		images.Fixed("reg.cadoles.com/vcarroy"), quietLogger())
+		testAutomation{plan: DefaultAutomation(pipelines, buildOf(projectRow.Slug), nil)},
+		quietLogger())
 
 	open := func() int {
 		return planner.OpenReleasePlan(context.Background(), projectRow,

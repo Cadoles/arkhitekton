@@ -3,8 +3,6 @@ package app
 import (
 	"strings"
 	"testing"
-
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 )
 
 // The tests of the catalogue actually shipped. They live with the assembly: the catalogue binds
@@ -33,7 +31,7 @@ func TestEverythingChainedReturnsAReadableResult(t *testing.T) {
 
 	// The point the validation cannot settle on its own: what builds or re-tags must not be chained.
 	// A build that chained itself would loop endlessly, publishing an image at each round.
-	for _, kind := range []string{catalog.KindBuild, catalog.KindRetag} {
+	for _, kind := range pipelines.BuildKinds() {
 		if pipelines.IsVerification(kind) {
 			t.Errorf("%s is declared a verification: a build would chain itself", kind)
 		}

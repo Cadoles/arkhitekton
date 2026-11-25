@@ -31,7 +31,7 @@ const version: Version = {
 
 const cycle = [
   { id: 'pre', label: 'Pré-release', mode: 'build' as const },
-  { id: 'final', label: 'Finale', mode: 'retag' as const, source: 'pre' },
+  { id: 'final', label: 'Finale', mode: 'from-source' as const, source: 'pre' },
 ]
 
 function releasesRoute(kinds = cycle) {
@@ -167,7 +167,7 @@ describe('CreateReleaseButton', () => {
       sessionRoute('releaser'),
       releasesRoute([
         { id: 'alpha', label: 'Alpha', mode: 'build' as const },
-        { id: 'ga', label: 'Livraison', mode: 'retag' as const, source: 'alpha' },
+        { id: 'ga', label: 'Livraison', mode: 'from-source' as const, source: 'alpha' },
       ]),
       { path: '/forge/refs', body: { configured: false, branches: [], tags: [] } },
     ])

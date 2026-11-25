@@ -69,7 +69,7 @@ type CoreEvent struct {
 // what a plan's steps take as a release's: a plan opened by such a fact builds and tests the head.
 var pullRequestFields = []string{
 	"number", "title", "author", "source_branch", "target_branch", "url",
-	"revision", "tag", "registry", "pull_request_id", "draft",
+	"revision", "tag", "pull_request_id", "draft",
 }
 
 // CoreEvents lists the facts the core produces, whatever plugins are enabled.

@@ -78,7 +78,7 @@ func TestEveryAnnouncedFieldExistsInThePayload(t *testing.T) {
 		string(event.ReleaseReleased): event.ReleaseReleasedAt(
 			instant, 7, 42, "1.8.0", "vcarroy").Payload,
 	}
-	pull := worker.PullRequestPayload(store.PullRequest{ID: 3, Number: 12, HeadSHA: "abcdef0123"}, "reg/team")
+	pull := worker.PullRequestPayload(store.PullRequest{ID: 3, Number: 12, HeadSHA: "abcdef0123"})
 	for _, kind := range []event.Type{event.PullRequestOpened, event.PullRequestSynchronized,
 		event.PullRequestClosed, event.PullRequestMerged, event.PullRequestReopened, event.PullRequestReady} {
 		charges[string(kind)] = pull

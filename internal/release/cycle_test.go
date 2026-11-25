@@ -24,7 +24,7 @@ func TestTheDefaultCycleReproducesTheThreeKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("final kind: %v", err)
 	}
-	if final.Mode != ModeRetag || final.Source != "pre" {
+	if final.Mode != ModeFromSource || final.Source != "pre" {
 		t.Errorf("final: %+v — the rule holds through the mode, not the name", final)
 	}
 
@@ -60,7 +60,7 @@ func TestAnAlphaBetaGaCycleIsDeclarable(t *testing.T) {
 	cycle := Cycle{
 		{ID: "alpha", Label: "Alpha", Mode: ModeBuild, Tag: TagPrereleaseRequired},
 		{ID: "beta", Label: "Beta", Mode: ModeBuild, Tag: TagPrereleaseRequired},
-		{ID: "ga", Label: "Livraison", Mode: ModeRetag, Source: "beta",
+		{ID: "ga", Label: "Livraison", Mode: ModeFromSource, Source: "beta",
 			Tag: TagPrereleaseForbidden, Permission: "release:create:final"},
 	}
 
@@ -107,7 +107,7 @@ func TestATagRuleAssumesASchemeThatCanAnswer(t *testing.T) {
 func TestANonExistentSourceIsRefused(t *testing.T) {
 	cycle := Cycle{
 		{ID: "rc", Mode: ModeBuild},
-		{ID: "ga", Mode: ModeRetag, Source: "beta"},
+		{ID: "ga", Mode: ModeFromSource, Source: "beta"},
 	}
 
 	err := cycle.Validate(version.SemVer{})
@@ -120,7 +120,7 @@ func TestANonExistentSourceIsRefused(t *testing.T) {
 // is the display order, not a dependency.
 func TestASourceDeclaredLowerDownStaysValid(t *testing.T) {
 	cycle := Cycle{
-		{ID: "ga", Mode: ModeRetag, Source: "rc"},
+		{ID: "ga", Mode: ModeFromSource, Source: "rc"},
 		{ID: "rc", Mode: ModeBuild},
 	}
 
@@ -136,7 +136,7 @@ func TestAnInconsistentCycleIsRefused(t *testing.T) {
 		"without an id":   {{Mode: ModeBuild}},
 		"unknown mode":    {{ID: "rc", Mode: "deploy"}},
 		"unknown rule":    {{ID: "rc", Mode: ModeBuild, Tag: "prerelease-maybe"}},
-		"duplicated kind": {{ID: "rc", Mode: ModeBuild}, {ID: "rc", Mode: ModeRetag}},
+		"duplicated kind": {{ID: "rc", Mode: ModeBuild}, {ID: "rc", Mode: ModeFromSource}},
 	}
 
 	for name, cycle := range cases {
@@ -213,5 +213,13 @@ func TestAnEmptyKindIsToldApartFromAnUnknownOne(t *testing.T) {
 	// And it still names what exists: that is what allows fixing it.
 	if !strings.Contains(err.Error(), "pre") {
 		t.Errorf("message %q — it must name the declared kinds", err)
+	}
+}
+
+// The mode's former name is refused with its new one: a file written before says what to change.
+func TestTheRetagModeSaysItsNewName(t *testing.T) {
+	err := Cycle{{ID: "pre", Mode: ModeBuild}, {ID: "final", Mode: "retag", Source: "pre"}}.Validate(version.SemVer{})
+	if err == nil || !strings.Contains(err.Error(), string(ModeFromSource)) {
+		t.Errorf("error = %v", err)
 	}
 }

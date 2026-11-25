@@ -10,7 +10,6 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -70,6 +69,15 @@ func (f *fakeQueueStore) ListReleases(context.Context, int64, int) ([]store.Rele
 	return f.releases, nil
 }
 
+// ReleasesImages gives each release the image its build published under its tag.
+func (f *fakeQueueStore) ReleasesImages(_ context.Context, releases []store.Release) (map[int64][]store.ReleaseImage, error) {
+	published := map[int64][]store.ReleaseImage{}
+	for _, release := range releases {
+		published[release.ID] = []store.ReleaseImage{{Name: "portal", Reference: "reg.example.fr/mstore/portal:" + release.Tag}}
+	}
+	return published, nil
+}
+
 func queueHandler(fake *fakeQueueStore) *QueueHandler {
 	return NewQueueHandler(fake, &catalog.Catalog{
 		MaxConcurrentRuns: 10,
@@ -96,7 +104,7 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 				},
 			},
 		},
-	}).WithSuggestions(fake, imagenames.Fixed("reg.example.fr/mstore"), nil)
+	}).WithSuggestions(fake, nil)
 }
 
 type queueListing struct {
@@ -286,7 +294,7 @@ func TestReturningToTheDefaultClearsTheSetting(t *testing.T) {
 // branch name and copy it, and the typo only surfaces when the clone fails.
 func TestTheLaunchFormIsPopulated(t *testing.T) {
 	fake := newFakeQueueStore()
-	fake.releases = []store.Release{{Tag: "3.2.0-rc3"}, {Tag: "3.1.0"}}
+	fake.releases = []store.Release{{ID: 2, Tag: "3.2.0-rc3"}, {ID: 1, Tag: "3.1.0"}}
 
 	listing := listQueues(t, queueHandler(fake))
 
@@ -307,9 +315,7 @@ func TestTheLaunchFormIsPopulated(t *testing.T) {
 		t.Errorf("second parameter = %+v — an optional one with no kind stays free", unit[1])
 	}
 
-	// Release tags, and images composed with the registry's prefix. The browser does not know
-	// that prefix: sending it so the browser can assemble them would amount to publishing it
-	// for no gain.
+	// Release tags, and the images each release published.
 	tags := listing.Suggestions[catalog.SuggestReleaseTag]
 	if len(tags) != 2 || tags[0].Value != "3.2.0-rc3" {
 		t.Errorf("tags offered = %+v", tags)
@@ -428,7 +434,7 @@ func TestTheLaunchFormOffersTheOpenPullRequests(t *testing.T) {
 	fake := newFakeQueueStore()
 	followed := pullFollowingStore{fake}
 	handler := NewQueueHandler(fake, &catalog.Catalog{MaxConcurrentRuns: 1}).
-		WithSuggestions(followed, imagenames.Fixed("reg"), nil)
+		WithSuggestions(followed, nil)
 
 	listing := listQueues(t, handler)
 	offered := listing.Suggestions[catalog.SuggestPullRequest]

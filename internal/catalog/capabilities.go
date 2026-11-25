@@ -149,12 +149,6 @@ func ParseBinding(raw []byte) (Binding, error) {
 	return binding, binding.ValidateRecorded()
 }
 
-// The capabilities the dashboard itself names: it builds and re-tags, whatever else a deployment runs.
-const (
-	KindBuild = "docker/build"
-	KindRetag = "docker/retag"
-)
-
 // errPluginAbsent says a binding names a plugin that is not installed.
 var errPluginAbsent = errors.New("its plugin is not installed")
 
@@ -225,6 +219,13 @@ func resolveBinding(registry *capabilities.Registry, binding Binding) (Pipeline,
 	}
 	for _, product := range spec.Produces {
 		pipeline.Produces = append(pipeline.Produces, Product(product))
+	}
+	if spec.Promote != nil {
+		promotion := capability.Ref{Plugin: ref.Plugin, Name: spec.Promote.Pipeline}
+		if _, _, found := registry.Pipeline(promotion); !found {
+			return Pipeline{}, fmt.Errorf("its promotion %q is not a pipeline of its plugin", promotion)
+		}
+		pipeline.Promote = &Promote{Kind: promotion.String(), Params: spec.Promote.Params}
 	}
 
 	var problems []error

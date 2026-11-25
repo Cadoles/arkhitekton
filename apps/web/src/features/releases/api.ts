@@ -7,8 +7,9 @@ import type { ResultSubject } from './tests'
 /**
  * États d'une release, dans l'ordre du chemin construit (doc 04 §4.2).
  *
- * Une release **dérivée** — finale par re-tag — saute `building` et `verifying` :
- * rien n'est construit, donc rien ne s'exécute (B17).
+ * Une release **dérivée** d'une autre, une finale, passe par `building` le temps de
+ * re-taguer les images de sa source et de reconstruire ce qui ne se re-tague pas, puis
+ * devient `ready` sans `verifying` : rien n'est vérifié à nouveau (B17).
  *
  * `ready` n'est pas promouvable : c'est `released` qui l'autorise, après décision
  * humaine. Les confondre ferait proposer une promotion avant validation.
@@ -34,9 +35,10 @@ export type ReleaseKind = string
 export type ReleaseKindSpec = {
   id: string
   label: string
-  /** `build` construit depuis une référence Git, `retag` reprend l'image d'une
-   *  release existante. C'est le mode et non le nom qui porte B17. */
-  mode: 'build' | 'retag'
+  /** `build` construit depuis une référence Git, `from-source` se produit depuis
+   *  une release existante : ses images re-taguées, le reste reconstruit. C'est le
+   *  mode et non le nom qui porte B17. */
+  mode: 'build' | 'from-source'
   /** Nature dont celle-ci reprend l'image. Vide : n'importe quelle release
    *  antérieure convient. */
   source?: string
@@ -239,7 +241,7 @@ export function useCreateRelease() {
       request<CreatedRelease>(projectPath('/releases'), { method: 'POST', body: JSON.stringify(payload) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['releases'] })
-      // La version gagne une release, et une finale met un re-tag en file.
+      // La version gagne une release.
       void queryClient.invalidateQueries({ queryKey: ['versions'] })
       void queryClient.invalidateQueries({ queryKey: ['queue'] })
     },
@@ -250,9 +252,8 @@ export function useCreateRelease() {
 export type LaunchedRelease = {
   release: Release
   warnings?: string[]
+  /** Les étapes du plan parties au lancement : construction, re-tag ou vérification. */
   build_jobs?: number
-  /** Une exécution par image promue : le pipeline de re-tag n'en traite qu'une. */
-  retag_job_ids?: number[]
 }
 
 /**

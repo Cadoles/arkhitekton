@@ -65,7 +65,12 @@ const (
 	contextRevision  = "revision"
 	contextTag       = "tag"
 	contextReleaseID = "release_id"
-	contextRegistry  = "registry"
+	// contextSourceTag is the tag the release's artifacts were produced under: its candidate's for a
+	// final release, its own otherwise.
+	contextSourceTag = "source_tag"
+	// contextImages prefixes the images the run's builds published, by short name:
+	// `images.portal`.
+	contextImages = "images."
 	// The two keys of a pull request's fact that name it: its row, and its number on the forge.
 	contextPullRequest = "pull_request_id"
 	contextNumber      = "number"
@@ -91,13 +96,35 @@ const verificationRequester = "system:plan"
 //
 // The revision is the **commit**, never the branch it comes from: rebuilding the same release
 // six months later must produce the same image.
-func releaseContext(release store.Release, revision, registryProject string) map[string]string {
+func releaseContext(release store.Release, revision string) map[string]string {
+	source := release.ImageVersion
+	if source == "" {
+		source = release.Tag
+	}
 	return map[string]string{
 		contextRevision:  revision,
 		contextTag:       release.Tag,
+		contextSourceTag: source,
 		contextReleaseID: strconv.FormatInt(release.ID, 10),
-		contextRegistry:  registryProject,
 	}
+}
+
+// runValues reads from a run's context what it gives the parameters it imposes or falls back on.
+func runValues(context map[string]string) catalog.RunValues {
+	values := catalog.RunValues{
+		Revision: context[contextRevision], Tag: context[contextTag], SourceTag: context[contextSourceTag],
+		Images: map[string]string{},
+	}
+	// The pull request a run bears on, when it does: a release's fact carries no number.
+	if context[contextPullRequest] != "" {
+		values.Pull = context[contextNumber]
+	}
+	for key, reference := range context {
+		if name, found := strings.CutPrefix(key, contextImages); found {
+			values.Images[name] = reference
+		}
+	}
+	return values
 }
 
 // stepParams composes the parameters of a step of a release's plan.
@@ -139,14 +166,9 @@ func stepParams(
 			"stage", missing)
 	}
 
-	// The pull request a run bears on, when it does: a release's fact carries no number.
-	pull := ""
-	if context[contextPullRequest] != "" {
-		pull = context[contextNumber]
-	}
+	values := runValues(context)
 	for _, input := range pipeline.Inputs() {
-		provided := input.FromContext(
-			context[contextRevision], context[contextTag], context[contextRegistry], pull)
+		provided := input.FromContext(values)
 
 		switch input.Origin() {
 		case catalog.OriginContext:
@@ -298,16 +320,27 @@ func (l *ReleaseLifecycle) StageSettled(
 	// A stage skipped entirely attempted nothing, and therefore says nothing about the release. It
 	// happens when the build failed: the tests are skipped, and the release is already `failed`
 	// from the stage before.
+	//
+	// A plan with no verification is ready once built, a release produced from its source for
+	// instance; a plan with no build verifies from the start.
+	verifies := run.Plan.LastWithRole(plan.RoleTest) >= 0
+	builds := run.Plan.LastWithRole(plan.RoleBuild) >= 0
+	testedFrom := string(release.StateVerifying)
+	if !builds {
+		testedFrom = string(release.StateBuilding)
+	}
 	var from, to string
 	switch {
+	case role == plan.RoleBuild && outcome == plan.Succeeded && !verifies:
+		from, to = string(release.StateBuilding), string(release.StateReady)
 	case role == plan.RoleBuild && outcome == plan.Succeeded:
 		from, to = string(release.StateBuilding), string(release.StateVerifying)
 	case role == plan.RoleBuild && outcome == plan.Failed:
 		from, to = string(release.StateBuilding), string(release.StateFailed)
 	case role == plan.RoleTest && outcome == plan.Succeeded:
-		from, to = string(release.StateVerifying), string(release.StateReady)
+		from, to = testedFrom, string(release.StateReady)
 	case role == plan.RoleTest && outcome == plan.Failed:
-		from, to = string(release.StateVerifying), string(release.StateFailed)
+		from, to = testedFrom, string(release.StateFailed)
 	default:
 		return
 	}
@@ -344,7 +377,7 @@ type ReleasePlanner struct {
 	engine      *Engine
 	catalog     catalog.Source
 	automations Automations
-	registry    images.RegistryOf
+	sources     SourcePlans
 	logger      *slog.Logger
 }
 
@@ -357,16 +390,12 @@ type Automations interface {
 }
 
 func NewReleasePlanner(
-	engine *Engine, pipelines catalog.Source, automations Automations,
-	registry images.RegistryOf, logger *slog.Logger,
+	engine *Engine, pipelines catalog.Source, automations Automations, logger *slog.Logger,
 ) *ReleasePlanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ReleasePlanner{
-		engine: engine, catalog: pipelines, automations: automations,
-		registry: registry, logger: logger,
-	}
+	return &ReleasePlanner{engine: engine, catalog: pipelines, automations: automations, logger: logger}
 }
 
 // OpenReleasePlan composes a release's plan and starts it.
@@ -376,54 +405,162 @@ func NewReleasePlanner(
 func (p *ReleasePlanner) OpenReleasePlan(
 	ctx context.Context, project store.Project, record store.Release, revision string,
 ) int {
-	if p == nil || p.engine == nil {
-		return 0
+	started, _, err := p.open(ctx, project, record, revision)
+	if err != nil {
+		p.logger.Warn("no plan for this release", "release", record.Tag, "project", project.Slug, "reason", err)
 	}
-	if strings.TrimSpace(revision) == "" {
-		// Nothing starts without a reference. Building "what the branch names at this instant" is
-		// exactly what the version invariant forbids, and an empty revision would produce a clone on
-		// the pipeline's default — hence an image nobody could say where it came from.
-		p.logger.Warn("no build launched",
-			"release", record.Tag, "reason", "no Git reference to build")
-		return 0
+	return started
+}
+
+// errNothingDeclared says the project declares no automation: its releases are tags, with nothing
+// to build or verify.
+var errNothingDeclared = errors.New("the project declares no automation")
+
+// open composes a release's plan and starts it. Returns how many steps started, whether the project
+// declares nothing to run, and otherwise why nothing started.
+func (p *ReleasePlanner) open(
+	ctx context.Context, project store.Project, record store.Release, revision string,
+) (int, bool, error) {
+	if p == nil || p.engine == nil {
+		return 0, false, errors.New("no plan engine")
 	}
 
-	// The **declared** plan, no longer composed here.
-	//
-	// What that removes: the loop over `targets`, the filter on enabled kinds, the `verification`
-	// flag. A project producing a binary or an archive comes in through the same door, without
-	// this file knowing its shape.
 	declared, enabled, err := p.declaredPlan(ctx, project)
 	if err != nil {
 		// A failed read opens **nothing**. Composing a fallback would build something other than what
 		// the project declares, under a release's tag — and nobody would know it is not the right one.
-		p.logger.Error("reading the automation",
-			"release", record.Tag, "project", project.Slug, "error", err)
-		return 0
+		return 0, false, fmt.Errorf("reading the automation: %w", err)
 	}
 	if !enabled {
-		p.logger.Info("no plan for this release",
-			"release", record.Tag, "project", project.Slug,
-			"reason", "the project's automation is switched off")
-		return 0
+		return 0, false, errors.New("the project's automation is switched off")
 	}
-	if declared.Empty() {
-		p.logger.Info("no plan for this release",
-			"release", record.Tag, "project", project.Slug,
-			"reason", "the project declares no automation")
-		return 0
+
+	// A release produced from another runs what its source built, re-tagged or built again: not the
+	// declared plan, which would build anew and verify what was already verified.
+	kinds := project.ReleaseKinds
+	if len(kinds) == 0 {
+		kinds = release.DefaultCycle()
+	}
+	if spec, err := kinds.Find(record.Kind); err == nil &&
+		spec.Mode == release.ModeFromSource && record.SourceReleaseID != nil {
+		source, derived, err := p.derivedPlan(ctx, *record.SourceReleaseID)
+		if err != nil {
+			return 0, false, err
+		}
+		declared, revision = derived, source.GitCommit
+		if revision == "" {
+			revision = source.GitRef
+		}
+	} else if declared.Empty() {
+		return 0, true, errNothingDeclared
+	}
+
+	if strings.TrimSpace(revision) == "" {
+		// Nothing starts without a reference. Building "what the branch names at this instant" is
+		// exactly what the version invariant forbids, and an empty revision would produce a clone on
+		// the pipeline's default: hence an image nobody could say where it came from.
+		return 0, false, errors.New("no Git reference to build")
 	}
 
 	projectID := project.ID
 	releaseID := record.ID
-	return p.engine.Trigger(ctx, store.PlanRun{
+	started := p.engine.Trigger(ctx, store.PlanRun{
 		Trigger:   releaseTrigger,
 		EventKey:  event.ReleaseCreatedKey(record.ID),
 		ProjectID: &projectID,
 		ReleaseID: &releaseID,
 		Plan:      declared,
-		Context:   releaseContext(record, revision, p.registry.Resolve(ctx, project.ID)),
+		Context:   releaseContext(record, revision),
 	})
+	if started == 0 {
+		return 0, false, errors.New("no step could start")
+	}
+	return started, false, nil
+}
+
+// SourcePlans reads what a release's source ran and produced.
+type SourcePlans interface {
+	GetReleaseByID(ctx context.Context, id int64) (store.Release, error)
+	PlanRunByEvent(ctx context.Context, trigger, eventKey string) (store.PlanRun, error)
+	PlanArtifacts(ctx context.Context, runID int64) ([]store.PlanArtifact, error)
+}
+
+// WithSources has a release produced from another run what its source built.
+func (p *ReleasePlanner) WithSources(sources SourcePlans) *ReleasePlanner {
+	p.sources = sources
+	return p
+}
+
+// derivedPlan composes the plan of a release produced from its source: one stage, each build step
+// of the source's plan carried over.
+//
+// A step whose pipeline declares how it promotes, a Docker build, becomes one promotion per image it
+// published, the development image excepted: re-tagged bit for bit, never rebuilt. Any other step,
+// a Go build for instance, is built again from the source's commit, under the release's own tag.
+func (p *ReleasePlanner) derivedPlan(ctx context.Context, sourceID int64) (store.Release, plan.Plan, error) {
+	if p.sources == nil || p.catalog == nil || p.catalog.Current() == nil {
+		return store.Release{}, plan.Plan{}, errors.New("nothing reads a source's plan")
+	}
+	source, err := p.sources.GetReleaseByID(ctx, sourceID)
+	if err != nil {
+		return store.Release{}, plan.Plan{}, fmt.Errorf("reading the source: %w", err)
+	}
+	run, err := p.sources.PlanRunByEvent(ctx, releaseTrigger, event.ReleaseCreatedKey(source.ID))
+	if err != nil {
+		return source, plan.Plan{}, fmt.Errorf("the plan release %s ran: %w", source.Tag, err)
+	}
+	artifacts, err := p.sources.PlanArtifacts(ctx, run.ID)
+	if err != nil {
+		return source, plan.Plan{}, fmt.Errorf("what release %s produced: %w", source.Tag, err)
+	}
+	published := map[store.GesteRef][]store.PlanArtifact{}
+	for _, artifact := range artifacts {
+		if artifact.Name == "image" && artifact.Kind == string(catalog.ProductImage) {
+			ref := store.GesteRef{Stage: artifact.Stage, Position: artifact.Position}
+			published[ref] = append(published[ref], artifact)
+		}
+	}
+
+	pipelines := p.catalog.Current()
+	var gestes []plan.Geste
+	for stageIndex, stage := range run.Plan.Stages {
+		if stage.Role != plan.RoleBuild {
+			continue
+		}
+		for position, geste := range stage.Gestes {
+			if geste.Kind != plan.GestePipeline || !geste.Promoted() {
+				continue
+			}
+			pipeline, found := pipelines.Find(geste.Ref)
+			if !found {
+				return source, plan.Plan{}, fmt.Errorf("%s, which built release %s, is no longer in the catalogue",
+					geste.Ref, source.Tag)
+			}
+			if pipeline.Promote == nil {
+				gestes = append(gestes, geste)
+				continue
+			}
+			for _, artifact := range published[store.GesteRef{Stage: stageIndex, Position: position}] {
+				if !artifact.Promoted {
+					continue
+				}
+				name := images.Parse(artifact.Reference).Name
+				params := make(map[string]string, len(pipeline.Promote.Params))
+				for key, value := range pipeline.Promote.Params {
+					params[key] = action.Expand(value, map[string]string{"artifact.name": name})
+				}
+				gestes = append(gestes, plan.Geste{
+					Kind: plan.GestePipeline, Ref: pipeline.Promote.Kind, Label: name, Params: params,
+				})
+			}
+		}
+	}
+	if len(gestes) == 0 {
+		return source, plan.Plan{}, fmt.Errorf("release %s built nothing a release carries", source.Tag)
+	}
+	return source, plan.Plan{Stages: []plan.Stage{{
+		Role: plan.RoleBuild, Label: "Produire depuis " + source.Tag, Gestes: gestes,
+	}}}, nil
 }
 
 // declaredPlan returns the plan the project declared, and whether its automation is switched on.

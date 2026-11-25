@@ -22,8 +22,6 @@ import (
 	"strings"
 
 	"sigs.k8s.io/yaml"
-
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 )
 
 // DefaultKindConcurrency is the ceiling for a kind that declares none.
@@ -202,6 +200,9 @@ type Pipeline struct {
 	// A list rather than a value: a pipeline that builds an image and then runs its
 	// tests yields both, and need not be split in two to fit the model.
 	Produces []Product `json:"produces,omitempty"`
+	// Promote says how a release produced from another carries what this pipeline built. Nil: it
+	// builds it again.
+	Promote *Promote `json:"promote,omitempty"`
 	// MaxConcurrent bounds this kind's queue. Zero means DefaultKindConcurrency: a
 	// new kind starts parallelisable, which is the common case, and excludes itself
 	// by declaring it rather than by forgetting.
@@ -222,6 +223,41 @@ type Pipeline struct {
 	Uploads            map[string]Upload `json:"uploads,omitempty"`
 	Workspaces         []Workspace       `json:"workspaces,omitempty"`
 	PodTemplate        *PodTemplate      `json:"podTemplate,omitempty"`
+}
+
+// Promote is the pipeline that carries a build's image to a release produced from another.
+type Promote struct {
+	// Kind is the promotion's catalogue kind, `docker/retag`.
+	Kind string `json:"kind"`
+	// Params are what each promotion step declares; `{artifact.name}` is the image's short name.
+	Params map[string]string `json:"params,omitempty"`
+}
+
+// Builds says the pipeline produces what a release ships: an image or binaries.
+func (p Pipeline) Builds() bool {
+	for _, product := range p.Produces {
+		if product == ProductImage || product == ProductBinary {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBuild says the kind builds what a release ships.
+func (c *Catalog) IsBuild(kind string) bool {
+	pipeline, found := c.Find(kind)
+	return found && pipeline.Builds()
+}
+
+// BuildKinds are the kinds that build what a release ships.
+func (c *Catalog) BuildKinds() []string {
+	var kinds []string
+	for _, pipeline := range c.Pipelines {
+		if pipeline.Builds() {
+			kinds = append(kinds, pipeline.Kind)
+		}
+	}
+	return kinds
 }
 
 // Param describes where a parameter's value comes from.
@@ -285,8 +321,11 @@ const (
 // one without the source that populates it would give an empty dropdown, worse
 // than a free-text field.
 const (
-	SuggestGitRef      = "git-ref"
-	SuggestReleaseTag  = "release-tag"
+	SuggestGitRef     = "git-ref"
+	SuggestReleaseTag = "release-tag"
+	// SuggestSourceTag is the tag a release's artifacts were produced under: its own, or for a
+	// release produced from another, its source's. A re-tag reads its old tag from it.
+	SuggestSourceTag   = "source-tag"
 	SuggestEnvironment = "environment"
 	// SuggestImage expects a full image reference, registry and tag included. Which
 	// one is said by Param.Image, so a single nature covers what used to need one per
@@ -303,7 +342,7 @@ const (
 )
 
 var suggestions = map[string]bool{
-	SuggestGitRef: true, SuggestReleaseTag: true, SuggestEnvironment: true,
+	SuggestGitRef: true, SuggestReleaseTag: true, SuggestSourceTag: true, SuggestEnvironment: true,
 	SuggestImage: true, SuggestImageName: true, SuggestBuildTarget: true, SuggestPullRequest: true,
 }
 
@@ -335,10 +374,9 @@ const (
 	OriginContext Origin = "context"
 	// OriginFallback: the run fills it only in the absence of a declaration.
 	//
-	// The reference of a published image. With no declaration it is recomposed from
-	// the registry and the tag; a declaration may instead point at the artifact a
-	// build step actually produced, which is truer and fails when nothing produced
-	// it.
+	// The reference of a published image. With no declaration it is the image of that
+	// name the run's builds published; a declaration may instead point at the artifact
+	// of a given step.
 	OriginFallback Origin = "fallback"
 	// OriginDeclared: only a declaration fills it. The repository to publish, the
 	// Dockerfile target, the environment aimed at.
@@ -348,7 +386,7 @@ const (
 // Origin classifies this parameter.
 func (i Input) Origin() Origin {
 	switch i.Suggest {
-	case SuggestGitRef, SuggestReleaseTag, SuggestPullRequest:
+	case SuggestGitRef, SuggestReleaseTag, SuggestSourceTag, SuggestPullRequest:
 		return OriginContext
 	case SuggestImage:
 		return OriginFallback
@@ -828,6 +866,21 @@ func (p Pipeline) RequiredInputs() []string {
 	return required
 }
 
+// RunValues are what a run gives the parameters it imposes or falls back on.
+type RunValues struct {
+	// Revision is the commit built.
+	Revision string
+	// Tag is the release's tag, or a pull request's.
+	Tag string
+	// SourceTag is the tag its artifacts were produced under: Tag, or for a release produced
+	// from another, its source's.
+	SourceTag string
+	// Pull is the pull request's number, empty for a release.
+	Pull string
+	// Images are the images published, by short name: `portal` to its full reference.
+	Images map[string]string
+}
+
 // VerificationInputs fills the mandatory inputs of a chained run.
 //
 // The values come from what the catalogue declares it wants, not from a table of
@@ -838,7 +891,7 @@ func (p Pipeline) RequiredInputs() []string {
 // It returns the name of the parameter left empty rather than an incomplete
 // table: a run created without its required inputs fails at scheduling, with a
 // message that does not name the cause.
-func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string]string, string) {
+func (p Pipeline) VerificationInputs(values RunValues) (map[string]string, string) {
 	params := map[string]string{}
 
 	for _, input := range p.Inputs() {
@@ -846,8 +899,7 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 			continue
 		}
 
-		// A release bears on no pull request.
-		value := input.FromContext(revision, tag, registry, "")
+		value := input.FromContext(values)
 		if value == "" {
 			return nil, input.Name
 		}
@@ -856,23 +908,28 @@ func (p Pipeline) VerificationInputs(revision, tag, registry string) (map[string
 	return params, ""
 }
 
-// FromContext returns the value a release's run gives this parameter.
+// FromContext returns the value a run gives this parameter.
 //
 // Empty when it gives none: it is then for the declaration to fill it, and
 // [Input.Origin] says which of the two has the last word.
-func (i Input) FromContext(revision, tag, registry, pull string) string {
+func (i Input) FromContext(values RunValues) string {
 	switch i.Suggest {
 	case SuggestPullRequest:
-		return pull
+		return values.Pull
 	case SuggestGitRef:
-		return revision
+		return values.Revision
 	case SuggestReleaseTag:
-		return tag
+		return values.Tag
+	case SuggestSourceTag:
+		if values.SourceTag != "" {
+			return values.SourceTag
+		}
+		return values.Tag
 	case SuggestImage:
 		// Verification analyses the images the build published, never a rebuild: a
 		// rebuild would produce a different artifact from the one that will be deployed,
 		// and the verdict would miss its target.
-		return images.Reference(registry, i.Image, tag)
+		return values.Images[i.Image]
 	default:
 		return ""
 	}
