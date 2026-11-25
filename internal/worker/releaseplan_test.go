@@ -89,21 +89,28 @@ func testPipeline(t *testing.T, kind string) catalog.Pipeline {
 	return pipeline
 }
 
-func twoImageProject() store.Project {
-	return store.Project{
-		ID: 1, Slug: "mstore", Repository: "team/mstore",
-		Dockerfile: "Dockerfile", BuildContext: ".",
-		MultiStage: true,
-		Targets: []store.Target{
-			{Stage: "web", Image: "portal"},
-			{Stage: "cli", Image: "portal-cli"},
-		},
-	}
+// portalProject builds one image named after it, `portal`.
+func portalProject() store.Project {
+	return store.Project{ID: 1, Slug: "portal", Repository: "team/portal"}
+}
+
+// twoImagePlan is a project's plan building two images, one step each, as a plan declares them.
+func twoImagePlan(t *testing.T) plan.Plan {
+	t.Helper()
+	subject := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
+	web := subject.Stages[0].Gestes[0]
+	web.Params["target"] = "web"
+	cli := plan.Geste{Kind: web.Kind, Ref: web.Ref, Label: "portal-cli", Params: map[string]string{
+		"image-name": "portal-cli", "target": "cli", "dockerfile": web.Params["dockerfile"],
+		"context": web.Params["context"],
+	}}
+	subject.Stages[0].Gestes = append(subject.Stages[0].Gestes, cli)
+	return subject
 }
 
 // The door: both halves of the chain enter a single plan.
 func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	subject := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
 
 	if err := subject.Validate(); err != nil {
 		t.Fatalf("the composed plan must be valid: %v", err)
@@ -125,15 +132,15 @@ func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
 			subject.LastWithRole(plan.RoleBuild), subject.LastWithRole(plan.RoleTest))
 	}
 
-	// One step per image: Mstore's three images stop being a loop in the API and become steps that are
-	// readable and re-runnable.
-	if len(subject.Stages[0].Gestes) != 2 {
-		t.Fatalf("%d build step(s), expected one per target",
-			len(subject.Stages[0].Gestes))
+	// One image, named after the project, built from the Dockerfile its Docker settings name: a
+	// project publishing several declares one step each in its plan.
+	if len(subject.Stages[0].Gestes) != 1 {
+		t.Fatalf("%d build step(s), expected one", len(subject.Stages[0].Gestes))
 	}
-	labels := []string{subject.Stages[0].Gestes[0].Label, subject.Stages[0].Gestes[1].Label}
-	if labels[0] != "portal" || labels[1] != "portal-cli" {
-		t.Errorf("labels = %v — they tell apart two steps of the same reference", labels)
+	build := subject.Stages[0].Gestes[0]
+	if build.Label != "portal" || build.Params["image-name"] != "portal" ||
+		build.Params["dockerfile"] != "{docker.dockerfile}" || build.Params["context"] != "{docker.buildContext}" {
+		t.Errorf("build step = %+v", build)
 	}
 
 	// The verification starts **if the build succeeded**. It is that condition which replaces the
@@ -151,8 +158,7 @@ func TestBuildAndVerifyFitIntoASinglePlan(t *testing.T) {
 // It is the separation that makes a plan reusable from one release to the next: a plan that
 // froze the revision would serve only once.
 func TestTheStepFixesTheImageAndTheContextBindsTheRevision(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	geste := subject.Stages[0].Gestes[0]
+	geste := twoImagePlan(t).Stages[0].Gestes[0]
 
 	// Nothing that depends on the release is in the step.
 	for _, interdit := range []string{"revision", "version", "tag-name"} {
@@ -211,7 +217,7 @@ func TestAStepCannotRedefineTheRevision(t *testing.T) {
 // A project with no E2E campaign saw the pipeline follow on, fail for want of a scenario, and
 // leave its release waiting for a verdict that would never come.
 func TestAKindNotEnabledIsNotChained(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), twoImageProject(),
+	subject := DefaultAutomation(testCatalogue(t), portalProject(), true,
 		func(kind string) bool { return kind != "e2e-tests" })
 
 	if len(subject.Stages) != 2 {
@@ -235,7 +241,7 @@ func TestAKindNotEnabledIsNotChained(t *testing.T) {
 // rather than waiting for a verdict nobody will give.
 func TestAProjectWithNothingReturnsAnEmptyPlan(t *testing.T) {
 	subject := DefaultAutomation(testCatalogue(t),
-		store.Project{ID: 2, Slug: "empty"},
+		store.Project{ID: 2, Slug: "empty"}, false,
 		func(string) bool { return false })
 
 	if !subject.Empty() {
@@ -345,8 +351,7 @@ func TestAPlanWithNoReleaseAdvancesNothing(t *testing.T) {
 // The stage holds it with no query: it is **settled** only when all its steps are, and
 // [plan.Progress.StageOutcome] returns nothing before that.
 func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	progress := plan.Start(subject)
+	progress := plan.Start(twoImagePlan(t))
 
 	// The first image concluded, the second is still running.
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Succeeded)
@@ -369,8 +374,7 @@ func TestAPartialBuildDoesNotAdvanceTheRelease(t *testing.T) {
 // Waiting would keep running builds whose result is already known to be useless, and would
 // delay by as much the moment the screen says what is wrong.
 func TestAFailedImageFailsTheStageAsSoonAsItSettles(t *testing.T) {
-	subject := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
-	progress := plan.Start(subject)
+	progress := plan.Start(twoImagePlan(t))
 
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 0}, plan.Failed)
 	progress, _ = progress.Mark(plan.Position{Stage: 0, Geste: 1}, plan.Succeeded)

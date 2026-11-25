@@ -49,11 +49,7 @@ export function ProjectsScreen() {
           {adding && (
             <div className="mb-4">
               <ProjectForm
-                draft={{
-                  ...EMPTY,
-                  forge_url: data.forge_url,
-                  image_registry: data.image_registry,
-                }}
+                draft={{ ...EMPTY, forge_url: data.forge_url }}
                 onDone={() => setAdding(false)}
                 // Le projet déclaré se met en service depuis sa page : y aller tout de suite
                 // plutôt que de le laisser dans la liste à attendre un test.
@@ -109,18 +105,6 @@ function ProjectRow({ project }: { project: Project }) {
           </a>
         ) : (
           <span className="font-mono text-xs text-zinc-600">{project.repository}</span>
-        )}
-
-        {project.dockerfile ? (
-          <span className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500">
-            {project.multi_stage ? `${project.targets.length} étape(s)` : 'image unique'}
-          </span>
-        ) : (
-          // Un dépôt cloné sans être construit : c'est le cas de `mstore-deploy` et
-          // de `mstore-pipelines`, que l'audit lit sans jamais en tirer d'image.
-          <span className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-500">
-            sans construction
-          </span>
         )}
 
         <AccessBadge project={project} />

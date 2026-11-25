@@ -3,13 +3,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Icon } from '../../components/Icon'
 import { copyText } from '../../lib/clipboard'
 import { formatDateTime } from '../../lib/format'
-import {
-  useRotateDeployKey,
-  useSaveProject,
-  type Project,
-  type ProjectDraft,
-  type ProjectTarget,
-} from './api'
+import { useRotateDeployKey, useSaveProject, type Project, type ProjectDraft } from './api'
 
 /*
  * Le formulaire d'un dépôt piloté, et ce qui l'accompagne.
@@ -24,12 +18,6 @@ export const EMPTY: ProjectDraft = {
   repository: '',
   label: '',
   forge_url: '',
-  dockerfile: '',
-  build_context: '.',
-  image_registry: '',
-  registry_secret: '',
-  multi_stage: false,
-  targets: [],
 }
 
 export function toDraft(project: Project): ProjectDraft {
@@ -37,13 +25,7 @@ export function toDraft(project: Project): ProjectDraft {
     repository: project.repository,
     label: project.label,
     forge_url: project.forge_url,
-    dockerfile: project.dockerfile,
-    build_context: project.build_context,
     slug: project.slug,
-    image_registry: project.image_registry,
-    registry_secret: project.registry_secret,
-    multi_stage: project.multi_stage,
-    targets: project.targets,
   }
 }
 
@@ -93,12 +75,6 @@ export function ProjectForm({
   const set = <K extends keyof ProjectDraft>(key: K, value: ProjectDraft[K]) =>
     setForm((previous) => ({ ...previous, [key]: value }))
 
-  const setTarget = (index: number, target: ProjectTarget) =>
-    set(
-      'targets',
-      form.targets.map((entry, position) => (position === index ? target : entry)),
-    )
-
   return (
     <form
       className="flex flex-col gap-3"
@@ -139,27 +115,6 @@ export function ProjectForm({
         </label>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-700">Dockerfile</span>
-          <input
-            value={form.dockerfile}
-            onChange={(event) => set('dockerfile', event.target.value)}
-            placeholder="vide : dépôt cloné sans être construit"
-            className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-700">Contexte</span>
-          <input
-            value={form.build_context}
-            onChange={(event) => set('build_context', event.target.value)}
-            className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-          />
-        </label>
-      </div>
-
       {/* Le nom du projet dans les URL. Laissé vide à la création, l'API le dérive
           du dépôt — `vcarroy/mstore` donne `mstore`. Modifiable, parce que ces adresses
           sont mises en favori et collées dans des tickets. */}
@@ -175,162 +130,6 @@ export function ProjectForm({
           />
         </div>
       </label>
-
-      {form.dockerfile && (
-        <>
-          {/* Le registre est porté par le projet et non répété par étape : ses
-              images vont au même endroit, et les répéter ferait diverger la
-              dernière au premier changement. */}
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-700">Dépôt d'images</span>
-            <input
-              value={form.image_registry}
-              onChange={(event) => set('image_registry', event.target.value)}
-              placeholder="registry.example.org/team"
-              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-            />
-          </label>
-
-          {/* Un **nom** de secret, jamais un identifiant. Le secret lui-même est
-              provisionné par le déploiement — par Vault en production — et le
-              dashboard se contente de le désigner : faire entrer un mot de passe
-              de registre ici le ferait transiter par le navigateur et l'API. */}
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-700">Secret de poussée</span>
-            <input
-              value={form.registry_secret}
-              onChange={(event) => set('registry_secret', event.target.value)}
-              placeholder="celui du déploiement"
-              className="w-80 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-            />
-            <span className="text-xs text-zinc-500">
-              Le nom d'un secret déjà présent dans le namespace des pipelines. Vide, les runs
-              emploient celui du déploiement.
-            </span>
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={form.multi_stage}
-              onChange={(event) => {
-                const multi = event.target.checked
-                set('multi_stage', multi)
-                // Passer d'un régime à l'autre ne perd pas le nom d'image déjà
-                // saisi : c'est la même image, elle gagne ou perd sa cible.
-                if (!multi && form.targets.length > 1) {
-                  set('targets', form.targets.slice(0, 1))
-                }
-              }}
-              className="size-3.5"
-            />
-            Dockerfile à plusieurs cibles
-          </label>
-
-          {/* Le cas simple avait été oublié : la liste des étapes était masquée,
-              et rien ne disait ce que le projet produit. Une image unique passe
-              par la même liste, avec une entrée sans cible — un second champ
-              dirait la même chose d'une autre façon, et il faudrait savoir lequel
-              fait foi. */}
-          {!form.multi_stage && (
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-700">Image à construire</span>
-              <div className="flex items-center gap-2">
-                <input
-                  value={form.targets[0]?.image ?? ''}
-                  onChange={(event) =>
-                    set('targets', [
-                      { stage: '', image: event.target.value, promote: true },
-                    ])
-                  }
-                  placeholder="portal"
-                  className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-                />
-                <Reference registry={form.image_registry} image={form.targets[0]?.image} />
-              </div>
-            </label>
-          )}
-
-          {form.multi_stage && (
-            <div className="flex flex-col gap-2">
-              {/* Deux champs et non un : la cible `cli` publie `portal-cli`, et
-                  renommer l'une ne doit pas obliger à renommer l'autre. */}
-              <span className="text-xs text-zinc-500">
-                Chaque image publiée : sa cible dans le Dockerfile du projet, ou son propre Dockerfile.
-              </span>
-
-              {form.targets.map((target, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  {/* Cible **ou** Dockerfile : un dépôt décrit ses images par
-                      les étapes d'un fichier unique, ou par un fichier chacune.
-                      Les deux champs coexistent parce que les deux formes
-                      existent, et aucune n'est un cas particulier de l'autre. */}
-                  <input
-                    value={target.stage}
-                    onChange={(event) => setTarget(index, { ...target, stage: event.target.value })}
-                    placeholder="cible"
-                    className="w-24 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-                  />
-                  <input
-                    value={target.dockerfile ?? ''}
-                    onChange={(event) =>
-                      setTarget(index, { ...target, dockerfile: event.target.value })
-                    }
-                    placeholder="Dockerfile"
-                    className="w-32 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-                  />
-                  <Icon name="arrow-right" className="size-3.5 text-zinc-400" />
-                  <input
-                    value={target.image}
-                    onChange={(event) => setTarget(index, { ...target, image: event.target.value })}
-                    placeholder="image"
-                    className="w-48 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
-                  />
-                  <Reference registry={form.image_registry} image={target.image} />
-                  {/* Construite n'est pas promue : l'image de développement sert
-                      au débogage et à l'amorçage des overlays, et aucun
-                      environnement du flux ne la déploie. La propager reviendrait
-                      à annoncer comme livrable ce qui ne l'est pas. */}
-                  <label className="flex items-center gap-1.5 text-xs text-zinc-600">
-                    <input
-                      type="checkbox"
-                      checked={target.promote}
-                      onChange={(event) =>
-                        setTarget(index, { ...target, promote: event.target.checked })
-                      }
-                      className="size-3.5 rounded border-zinc-300"
-                    />
-                    Promue
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      set(
-                        'targets',
-                        form.targets.filter((_, position) => position !== index),
-                      )
-                    }
-                    aria-label={`Retirer l'étape ${target.stage || index + 1}`}
-                    className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-                  >
-                    <Icon name="cross" className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-
-              <button
-                type="button"
-                onClick={() =>
-                  set('targets', [...form.targets, { stage: '', image: '', promote: true }])
-                }
-                className="w-fit rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
-              >
-                Ajouter une étape
-              </button>
-            </div>
-          )}
-        </>
-      )}
 
       {/* Changer de dépôt efface le constat d'accès : il portait sur ce qu'on ne
           pilote plus, et le garder afficherait « accès vérifié » sur un dépôt que
@@ -363,27 +162,6 @@ export function ProjectForm({
         </button>
       </div>
     </form>
-  )
-}
-
-/**
- * La référence complète, telle que le pipeline la construira.
- *
- * Affichée à côté du nom court parce que c'est elle qui compte : un nom seul
- * ressemble à une référence tirable sans l'être, et c'est le genre de chaîne
- * qu'on recopie dans un déploiement avant de découvrir qu'elle ne désigne rien.
- */
-
-function Reference({ registry, image }: { registry: string; image?: string }) {
-  const name = (image ?? '').trim()
-  const prefix = registry.trim().replace(/\/+$/, '')
-
-  if (!name || !prefix) return null
-
-  return (
-    <span className="truncate font-mono text-xs text-zinc-500" title={`${prefix}/${name}`}>
-      {prefix}/{name}
-    </span>
   )
 }
 

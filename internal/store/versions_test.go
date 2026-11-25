@@ -1073,8 +1073,8 @@ func TestTwoProjectsDoNotStealEachOthersVersions(t *testing.T) {
 
 	var second int64
 	if err := db.Pool().QueryRow(ctx,
-		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context, created_by)
-		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'test')
 		 returning id`).Scan(&second); err != nil {
 		t.Fatalf("second project: %v", err)
 	}
@@ -1146,8 +1146,8 @@ func TestAProjectWithoutATrackerProducesDefinitiveVersions(t *testing.T) {
 
 	var untracked int64
 	if err := db.Pool().QueryRow(ctx,
-		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'team/mstore-theme', 'Theme', 'https://forge.example', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('theme', 'team/mstore-theme', 'Theme', 'https://forge.example', 'test')
 		 returning id`).Scan(&untracked); err != nil {
 		t.Fatalf("project with no tracker: %v", err)
 	}
@@ -1221,8 +1221,8 @@ func TestAnOwnVersionHasNoExternalIdentifier(t *testing.T) {
 
 	var untracked int64
 	if err := db.Pool().QueryRow(ctx,
-		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', 'test')
 		 returning id`).Scan(&untracked); err != nil {
 		t.Fatalf("project: %v", err)
 	}
@@ -1290,9 +1290,9 @@ func TestTheVersionListDoesNotSpillOntoAnotherProject(t *testing.T) {
 
 	var second int64
 	if err := db.Pool().QueryRow(ctx,
-		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
+		`insert into projects (slug, repository, label, forge_url,
 		                       created_by)
-		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example', 'Dockerfile', '.',
+		 values ('autre', 'vcarroy/autre', 'Autre', 'https://forge.example',
 		         'test')
 		 returning id`).Scan(&second); err != nil {
 		t.Fatalf("second project: %v", err)

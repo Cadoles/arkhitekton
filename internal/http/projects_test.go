@@ -189,9 +189,6 @@ func TestTheDefaultsAreInferred(t *testing.T) {
 	if project.ForgeURL != "https://forge.example.fr" {
 		t.Errorf("forge = %q, expected the one from the configuration", project.ForgeURL)
 	}
-	if project.BuildContext != "." {
-		t.Errorf("context = %q", project.BuildContext)
-	}
 }
 
 func TestAnAlreadyDeclaredRepositoryReturns409(t *testing.T) {

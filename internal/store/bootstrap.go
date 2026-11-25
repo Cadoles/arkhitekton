@@ -55,6 +55,8 @@ type Grant struct {
 type BootstrapSpec struct {
 	Grants   []Grant
 	Projects []Project
+	// ProjectPlugins are the plugin settings of the projects declared, by repository.
+	ProjectPlugins map[string][]PluginSettings
 	// Trackers names, by repository, the project each one is in its tracker.
 	Trackers map[string]string
 	// Plugins carries the settings derived from the configuration, with secrets already
@@ -109,7 +111,7 @@ func (db *DB) Bootstrap(ctx context.Context, spec BootstrapSpec) (BootstrapRepor
 	}
 
 	applied, count, err = db.applyStep(ctx, BootstrapProjects, func(ctx context.Context) (int, string, error) {
-		declared, err := db.SeedProjects(ctx, spec.Projects)
+		declared, err := db.SeedProjects(ctx, spec.Projects, spec.ProjectPlugins)
 		return declared, fmt.Sprintf("%d repository(ies)", declared), err
 	})
 	switch {

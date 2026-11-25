@@ -140,7 +140,7 @@ func newHarness(t *testing.T) harness {
 
 	projectID, err := db.CreateProject(ctx, store.Project{
 		Repository: "team/mstore", Label: "Mstore", ForgeURL: "https://forge.example.fr",
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("projectRow: %v", err)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -157,8 +158,16 @@ func (s *Set) decode(raw []byte) error {
 // name rather than as an unknown field, so that an older file says what to change.
 var movedKeys = map[string]string{
 	"trackerProject": "it is the tracker plugin's setting: plugins.redmine.config.project",
-	"versionFile":    "it is the Mstore plugin's setting: plugins.mstore.config.versionFile",
+	"versionFile":    "no file is committed at a release any more: remove it",
 	"stack":          "the plugins install their pipelines; switch them in pipelines",
+	"dockerfile":     "it is the Docker plugin's setting: plugins.docker.config.dockerfile",
+	"buildContext":   "it is the Docker plugin's setting: plugins.docker.config.buildContext",
+	"registrySecret": "it is the Docker plugin's setting: plugins.docker.config.registrySecret",
+	"imageRegistry":  "it is the Docker plugin's setting: plugins.docker.config.registry",
+	"multiStage": "the release plan declares the images, one build step each, with the target " +
+		"in its params: remove it",
+	"targets": "the release plan declares the images, one docker/build step each; an image no " +
+		"environment takes carries `promote: false` on its step",
 }
 
 func movedProjectKeys(raw []byte) error {
@@ -166,12 +175,13 @@ func movedProjectKeys(raw []byte) error {
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		return nil
 	}
-	for key, where := range movedKeys {
+	var problems []error
+	for _, key := range slices.Sorted(maps.Keys(movedKeys)) {
 		if _, found := keys[key]; found {
-			return fmt.Errorf("%s is no longer a project's key: %s", key, where)
+			problems = append(problems, fmt.Errorf("%s is no longer a project's key: %s", key, movedKeys[key]))
 		}
 	}
-	return nil
+	return errors.Join(problems...)
 }
 
 // strict decodes JSON refusing unknown fields: a misspelled key in a hand-written file must be an

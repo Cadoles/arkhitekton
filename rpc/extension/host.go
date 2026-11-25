@@ -162,8 +162,13 @@ func projectFrom(project *pluginv1.Project) Project {
 }
 
 func releaseFrom(release *pluginv1.Release) Release {
+	images := make([]ReleaseImage, 0, len(release.GetImages()))
+	for _, image := range release.GetImages() {
+		images = append(images, ReleaseImage{Name: image.GetName(), Reference: image.GetReference()})
+	}
 	return Release{
-		ID: release.GetId(), ProjectID: release.GetProjectId(), VersionID: release.GetVersionId(),
+		Images: images,
+		ID:     release.GetId(), ProjectID: release.GetProjectId(), VersionID: release.GetVersionId(),
 		Tag: release.GetTag(), Kind: release.GetKind(), State: release.GetState(),
 		ImageVersion: release.GetImageVersion(), SourceReleaseID: release.SourceReleaseId,
 		GitRef: release.GetGitRef(), GitCommit: release.GetGitCommit(), CreatedBy: release.GetCreatedBy(),

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
@@ -31,10 +30,6 @@ type runSink struct {
 	// facts reads finished runs through their capability's interpreter. Nil when storage is not
 	// available: the rest of the observation continues without it.
 	facts *FactIngester
-	// registryProject prefixes the published images, to name them in the audit. Empty, the kinds
-	// that require them are not launchable and the log says so — better than a run that would fail
-	// on a truncated reference.
-	registryProject string
 	// catalog serves to chain the verifications of a successful build. Nil when it is not wired:
 	// observation continues, with no chaining.
 	catalog catalog.Source
@@ -118,18 +113,9 @@ type Enqueuer interface {
 }
 
 // WithCatalog wires the chaining of the verifications.
-func (s *runSink) WithCatalog(pipelines catalog.Source, registryProject string) *runSink {
+func (s *runSink) WithCatalog(pipelines catalog.Source) *runSink {
 	s.catalog = pipelines
-	s.registryProject = registryProject
 	return s
-}
-
-// imageRef composes the reference of an image published by the build.
-//
-// The image's tag is the release's: that is what `build-image` receives as `version` and
-// writes into `version.txt`.
-func (s *runSink) imageRef(name, tag string) string {
-	return images.Reference(s.registryProject, name, tag)
 }
 
 // buildJobKind is the kind of job that builds the images.

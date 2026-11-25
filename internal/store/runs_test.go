@@ -518,9 +518,9 @@ func migrated(t *testing.T) *DB {
 	if _, err := db.Pool().Exec(context.Background(),
 		// Most of these tests are about matching releases with a tracker's versions: they ask
 		// EnsureVersion for a tracked project. The untracked case has its own test.
-		`insert into projects (slug, repository, label, forge_url, dockerfile, build_context,
+		`insert into projects (slug, repository, label, forge_url,
 		                       created_by)
-		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'Dockerfile', '.', 'test')`,
+		 values ($1, 'vcarroy/test', 'Test', 'https://forge.example', 'test')`,
 		testProjectSlug); err != nil {
 		t.Fatalf("test project: %v", err)
 	}

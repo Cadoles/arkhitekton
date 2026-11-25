@@ -65,10 +65,6 @@ type ProjectsHandler struct {
 	// project's configuration may be refused by whoever does.
 	schemeCheck func(context.Context, version.Scheme) error
 	forgeURL    string
-	// imageRegistry is the registry offered by default when declaring a project. The
-	// configuration's: that is where existing projects publish, and retyping it on every
-	// declaration would invite a typo.
-	imageRegistry string
 }
 
 func NewProjectsHandler(projects ProjectStore) *ProjectsHandler {
@@ -99,53 +95,20 @@ func (h *ProjectsHandler) WithForgeURL(forgeURL string) *ProjectsHandler {
 	return h
 }
 
-// WithImageRegistry declares the registry offered by default.
-func (h *ProjectsHandler) WithImageRegistry(registry string) *ProjectsHandler {
-	h.imageRegistry = strings.Trim(strings.TrimSpace(registry), "/")
-	return h
-}
-
-type targetPayload struct {
-	Stage string `json:"stage"`
-	Image string `json:"image"`
-	// Dockerfile specific to this image, when it differs from the project's.
-	Dockerfile string `json:"dockerfile,omitempty"`
-	// Promote says whether a re-tag propagates this image. Always returned, never omitted:
-	// an absent boolean reads as false on the form side, which would say "not promoted"
-	// about a stage nobody has pronounced on.
-	Promote bool `json:"promote"`
-	// Reference is the full reference, registry included. Composed by the server: the
-	// screen shows it so it can be recognised, and recomposing it in the browser would let
-	// it diverge from what the pipeline will receive.
-	Reference string `json:"reference,omitempty"`
-}
-
 type projectPayload struct {
-	ID           int64  `json:"id"`
-	Repository   string `json:"repository"`
-	Label        string `json:"label"`
-	ForgeURL     string `json:"forge_url"`
-	URL          string `json:"url"`
-	Dockerfile   string `json:"dockerfile"`
-	BuildContext string `json:"build_context"`
+	ID         int64  `json:"id"`
+	Repository string `json:"repository"`
+	Label      string `json:"label"`
+	ForgeURL   string `json:"forge_url"`
+	URL        string `json:"url"`
 	// Slug names the project in URLs: `/projects/mstore/releases/1.8.0`. Returned and
 	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
 	// one endures.
-	Slug          string `json:"slug"`
-	ImageRegistry string `json:"image_registry"`
-	// RegistrySecret names the secret allowing pushes to this registry. Empty means the
-	// deployment's.
-	//
-	// A name, never a credential. The secret itself is provisioned by the deployment, and
-	// the dashboard merely names it: letting a registry password in through this form would
-	// route it through the browser and the API.
-	RegistrySecret string `json:"registry_secret"`
+	Slug string `json:"slug"`
 	// VersionScheme names the shape of the tags. An opaque scheme stays usable: it loses
 	// the next-version suggestion and range selection, and the screen must say so rather
 	// than compute something arbitrary.
-	VersionScheme string          `json:"version_scheme"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	VersionScheme string `json:"version_scheme"`
 	// CheckedAt absent: no check has happened. A state distinct from a check that failed,
 	// and which must not read like one.
 	CheckedAt *time.Time `json:"checked_at,omitempty"`
@@ -199,8 +162,6 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"projects":  payload,
 		"forge_url": h.forgeURL,
-		// Offered when declaring: that is where existing projects publish.
-		"image_registry": h.imageRegistry,
 		// The check proves only the dashboard's access, by token and over HTTPS. Pipelines
 		// clone over SSH with the deploy key, and nothing here exercises that: saying so avoids
 		// reading a green check as a guarantee that a clone will work.
@@ -209,24 +170,10 @@ func (h *ProjectsHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectsHandler) toPayload(project store.Project) projectPayload {
-	targets := make([]targetPayload, 0, len(project.Targets))
-	for _, target := range project.Targets {
-		targets = append(targets, targetPayload{
-			Stage: target.Stage, Image: target.Image,
-			Dockerfile: target.Dockerfile, Promote: target.Promoted(),
-			Reference: project.Reference(target),
-		})
-	}
-
 	return projectPayload{
 		ID: project.ID, Repository: project.Repository, Label: project.Label,
 		ForgeURL: project.ForgeURL, URL: repositoryURL(project.ForgeURL, project.Repository),
-		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
-		Slug:           project.Slug,
-		ImageRegistry:  project.ImageRegistry,
-		RegistrySecret: project.RegistrySecret,
-		VersionScheme:  project.VersionScheme,
-		MultiStage:     project.MultiStage, Targets: targets,
+		Slug: project.Slug, VersionScheme: project.VersionScheme,
 		CheckedAt: project.CheckedAt, CheckOK: project.CheckOK,
 		CheckNote: project.CheckNote, CreatedBy: project.CreatedBy,
 		DeployKey: project.DeployKeyPublic, DeployKeyCreatedAt: project.DeployKeyCreatedAt,
@@ -247,21 +194,15 @@ func repositoryURL(forgeURL, repository string) string {
 }
 
 type projectRequest struct {
-	Repository   string `json:"repository"`
-	Label        string `json:"label"`
-	ForgeURL     string `json:"forge_url"`
-	Dockerfile   string `json:"dockerfile"`
-	BuildContext string `json:"build_context"`
+	Repository string `json:"repository"`
+	Label      string `json:"label"`
+	ForgeURL   string `json:"forge_url"`
 	// Slug names the project in URLs: `/projects/mstore/releases/1.8.0`. Returned and
 	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
 	// one endures.
-	Slug           string `json:"slug"`
-	ImageRegistry  string `json:"image_registry"`
-	RegistrySecret string `json:"registry_secret"`
+	Slug string `json:"slug"`
 	// VersionScheme names the shape of this project's tags. Empty means `semver`.
-	VersionScheme string          `json:"version_scheme"`
-	MultiStage    bool            `json:"multi_stage"`
-	Targets       []targetPayload `json:"targets"`
+	VersionScheme string `json:"version_scheme"`
 	// ReleaseKinds declares the release cycle. Absent: the default at creation, the recorded
 	// cycle at a correction.
 	ReleaseKinds release.Cycle `json:"release_kinds,omitempty"`
@@ -270,8 +211,7 @@ type projectRequest struct {
 // service is the declaration's rules, built from what the deployment set on this handler.
 func (h *ProjectsHandler) service() configure.Projects {
 	return configure.Projects{
-		Store: h.store, ForgeURL: h.forgeURL, ImageRegistry: h.imageRegistry,
-		SchemeCheck: h.schemeCheck,
+		Store: h.store, ForgeURL: h.forgeURL, SchemeCheck: h.schemeCheck,
 	}
 }
 
@@ -281,18 +221,9 @@ func decodeProject(w http.ResponseWriter, r *http.Request) (configure.ProjectInp
 		writeProblem(w, http.StatusBadRequest, "Unreadable request", "")
 		return configure.ProjectInput{}, false
 	}
-	targets := make([]configure.TargetInput, 0, len(request.Targets))
-	for _, target := range request.Targets {
-		targets = append(targets, configure.TargetInput{
-			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile, Promote: target.Promote,
-		})
-	}
 	return configure.ProjectInput{
 		Repository: request.Repository, Label: request.Label, ForgeURL: request.ForgeURL,
-		Dockerfile: request.Dockerfile, BuildContext: request.BuildContext, Slug: request.Slug,
-		ImageRegistry: request.ImageRegistry, RegistrySecret: request.RegistrySecret,
-		VersionScheme: request.VersionScheme,
-		MultiStage:    request.MultiStage, Targets: targets, ReleaseKinds: request.ReleaseKinds,
+		Slug: request.Slug, VersionScheme: request.VersionScheme, ReleaseKinds: request.ReleaseKinds,
 	}, true
 }
 

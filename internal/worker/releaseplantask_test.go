@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
@@ -38,7 +39,7 @@ func releasePlanTask(declared plan.Plan, ran *[]string) (*ReleasePlanTask, *rele
 	})
 	releases := &releasePlanStore{release: store.Release{ID: 7, ProjectID: 3, Tag: "1.0.0-rc1"}}
 	planner := NewReleasePlanner(NewEngine(newFakePlanStore(), runner, quietLogger()), nil,
-		testAutomation{plan: declared}, "reg.example/team", quietLogger())
+		testAutomation{plan: declared}, images.Fixed("reg.example/team"), quietLogger())
 	return NewReleasePlanTask(planner, releases, quietLogger()), releases
 }
 

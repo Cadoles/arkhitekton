@@ -191,3 +191,24 @@ func TestTagsByDigestKeepsTheMostRecent(t *testing.T) {
 		t.Errorf("the most recent tag is missing: %v", byDigest)
 	}
 }
+
+// A full reference is read where it points on the registry, another project included; an image on
+// another registry is not, the client's credentials do not open it.
+func TestADigestIsReadByItsFullReference(t *testing.T) {
+	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead || r.URL.Path != "/v2/other-team/portal/manifests/1.2.0" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Docker-Content-Digest", "sha256:ccc")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	digest, err := client.DigestOf(context.Background(), "reg.example.fr/other-team/portal:1.2.0")
+	if err != nil || digest != "sha256:ccc" {
+		t.Errorf("digest = %q, %v", digest, err)
+	}
+	if _, err := client.DigestOf(context.Background(), "elsewhere.example/team/portal:1.2.0"); !errors.Is(err, ErrForeign) {
+		t.Errorf("foreign image: %v", err)
+	}
+}

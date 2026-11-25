@@ -131,8 +131,7 @@ func runConfigApply(
 	// scheme check is left out: it is a hook of a running plugin, and the screen still applies it.
 	services := configure.Services{
 		Projects: configure.Projects{
-			Store: db, ForgeURL: cfg.Forge.URL, ImageRegistry: cfg.Registry.Project,
-			Logger: logger,
+			Store: db, ForgeURL: cfg.Forge.URL, Logger: logger,
 		},
 		Plugins:          configure.Plugins{Store: db, Registry: registry, Cipher: cipher, Logger: logger},
 		ProjectPipelines: configure.ProjectPipelines{Store: db, Catalog: pipelines, Logger: logger},

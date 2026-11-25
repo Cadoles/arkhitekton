@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 )
 
 // Manifest types requested.
@@ -43,7 +44,13 @@ type Client struct {
 	http     *http.Client
 	// project is the repository prefix, without the host.
 	project string
+	// host is the registry's host as image references name it: `reg.example.fr`.
+	host string
 }
+
+// ErrForeign reports an image on another registry than this client's: its credentials do not
+// open it.
+var ErrForeign = images.ErrForeign
 
 // ErrNotConfigured reports missing credentials.
 //
@@ -65,9 +72,9 @@ func Open(cfg config.RegistryConfig) (*Client, error) {
 
 	// `registry.project` carries the host because that is the form it takes in pipeline
 	// parameters. The registry's API expects only the path.
-	project := cfg.Project
-	if _, path, found := strings.Cut(project, "/"); found {
-		project = path
+	project, host := cfg.Project, base.Host
+	if prefix, path, found := strings.Cut(project, "/"); found {
+		project, host = path, prefix
 	}
 
 	return &Client{
@@ -75,6 +82,7 @@ func Open(cfg config.RegistryConfig) (*Client, error) {
 		username: cfg.Username,
 		password: cfg.Password,
 		project:  project,
+		host:     host,
 		http:     &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
@@ -100,8 +108,27 @@ func (c *Client) Tags(ctx context.Context, repository string) ([]string, error) 
 // the whole manifest to keep only the digest would download kilobytes per tag, and a
 // repository has hundreds.
 func (c *Client) Digest(ctx context.Context, repository, tag string) (string, error) {
+	return c.digest(ctx, c.path(repository), tag)
+}
+
+// DigestOf returns the digest of an image named by its full reference, `host/path/name:tag`: a
+// project may publish to another project of the registry than the deployment's.
+func (c *Client) DigestOf(ctx context.Context, reference string) (string, error) {
+	parsed := images.Parse(reference)
+	host, path, _ := strings.Cut(parsed.Registry, "/")
+	if host != c.host || parsed.Name == "" || parsed.Tag == "" {
+		return "", fmt.Errorf("%w: %s", ErrForeign, reference)
+	}
+	repository := parsed.Name
+	if path != "" {
+		repository = path + "/" + parsed.Name
+	}
+	return c.digest(ctx, repository, parsed.Tag)
+}
+
+func (c *Client) digest(ctx context.Context, repository, tag string) (string, error) {
 	request, err := c.request(ctx, http.MethodHead,
-		fmt.Sprintf("/v2/%s/manifests/%s", c.path(repository), url.PathEscape(tag)))
+		fmt.Sprintf("/v2/%s/manifests/%s", repository, url.PathEscape(tag)))
 	if err != nil {
 		return "", err
 	}

@@ -41,6 +41,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/oauth"
 	pipelinelib "forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/docker"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/registry"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
@@ -320,7 +321,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// The launch form's lists: release tags and published images. The registry's prefix comes
 		// from the same configuration as the one used to read the tags — deducing it elsewhere would
 		// make what is offered diverge from what is pulled.
-		WithSuggestions(db, cfg.Registry.Project, logger).
+		WithSuggestions(db, registryOf(db, cfg.Registry.Project), logger).
 		WithEnvironmentSuggestions(answers.suggestions())
 	// The name of the promoted repository comes from the registry's configuration: it is the same
 	// prefix as the one used to read the tags, and deducing it elsewhere would make reading and
@@ -339,7 +340,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	releasesHandler := dashhttp.NewReleasesHandler(
-		db, inForce.Catalogs(), authorizer, images, cfg.Registry.Project).
+		db, inForce.Catalogs(), authorizer, images, registryOf(db, cfg.Registry.Project)).
 		// The same weighting as the test manager: the list's badge and a release's screen display the
 		// same figure.
 		WithScoreCatalog(inForce.Catalogs()).
@@ -371,7 +372,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	mounts := []dashhttp.Mount{
 		// A project's pull requests, followed from its forge by the worker: launching on their head and
 		// reading what ran there.
-		dashhttp.NewPullsHandler(db, inForce.Catalogs(), cfg.Registry.Project, logger).WithResults(testsHandler).Routes,
+		dashhttp.NewPullsHandler(db, inForce.Catalogs(), registryOf(db, cfg.Registry.Project), logger).WithResults(testsHandler).Routes,
 		// The bindings an administrator records for what the catalogue file does not bind.
 		dashhttp.NewCapabilitiesHandler(inForce.Registries(), inForce.Catalogs(), db,
 			sources.checkBinding, reloader.Reload, logger).WithWeights(db).Routes,
@@ -525,7 +526,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	logger.Info("catalogue loaded", "kinds", pipelines.Kinds(), "cap", pipelines.MaxConcurrentRuns,
 		"awaiting_plugin", pipelines.Awaiting)
 
-	// The projects that never declared their automation receive it, composed from their targets.
+	// The projects that never declared their automation receive a default one.
 	// Without it, all of them would stop building on the deployment of this version.
 	//
 	// **After the catalogue's validation**, and not before: the catch-up composes steps naming
@@ -536,6 +537,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	// several replicas, and three concurrent catch-ups would write the same thing three times.
 	// The `api` reads the declaration, it does not compose it.
 	if err := worker.NewAutomationCatchUp(db, pipelines, logger).
+		WithBuildable(namesADockerfile(db, logger)).
 		WithStacks(carriedStacks()...).Run(ctx); err != nil {
 		return err
 	}
@@ -595,7 +597,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				WithFactIngester(worker.NewFactIngester(db, objects, inForce.Registries(), logger)).
 				// The catalogue makes it possible to chain the verifications of a successful build: without
 				// it, observation continues but a built release stays waiting for a test nothing launches.
-				WithCatalog(inForce.Catalogs(), resolved["registry.project"]).
+				WithCatalog(inForce.Catalogs()).
 				// Without the database's identity, a run left in the cluster after a reset concludes the
 				// namesake job of the current database.
 				WithInstance(instance).
@@ -651,7 +653,10 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 							return ""
 						}
 						return tracker.IssueURL(issue)
-					}, logger)).
+					}, logger).
+					// The plugins' settings, `{docker.dockerfile}` for a build step.
+					WithSettings(mergedSettings(
+						builtinSettings(db, carriedPlugins()), dockerVariables(db, cfg.Registry.Project)))).
 				// What the steps produce, collected when they conclude and offered to the following stages
 				// under `{artifacts.<step>.<name>}`.
 				WithArtifacts(db, worker.ProductOf(inForce.Catalogs()))
@@ -678,7 +683,9 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 				// And the settings the plugins add for this project. Nothing from a plugin switched
 				// off for it.
 				// The built-in plugins' settings first, the installed plugins' answers over them.
-				WithProjectSettings(mergedSettings(builtinSettings(db, carriedPlugins()), answers.projectSettings())).
+				WithProjectSettings(mergedSettings(
+					builtinSettings(db, carriedPlugins()), dockerKeys(db, cfg.Registry.Project),
+					answers.projectSettings())).
 				// A plugin switched off by an administrator stops its pipelines.
 				WithPluginGate(pluginGate(db)).
 				// The Secrets a sealed setting feeds, the review's model key, written before the run that
@@ -697,7 +704,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 
 			// A release's plan, opened with the engine that carries out pipelines and actions alike.
 			scheduler.Handle(worker.NewReleasePlanTask(
-				worker.NewReleasePlanner(engine, pipelines, db, cfg.Registry.Project, logger), db, logger))
+				worker.NewReleasePlanner(engine, pipelines, db, registryOf(db, cfg.Registry.Project), logger), db, logger))
 
 			// The release note, for the same reason: it reads the tracker, the forge and the database.
 			// Both are the project's plugins, resolved per job: a project with no forge plugin gets a
@@ -781,7 +788,7 @@ func runWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 						worker.TrackerProbes(registry, db, cfg.Tracker.Timeout, logger)...)
 					// And the pull requests, followed through each forge plugin.
 					return append(probes, worker.PullRequestProbes(
-						registry, db, cfg.Forge.Timeout, cfg.Registry.Project, logger)...)
+						registry, db, cfg.Forge.Timeout, registryOf(db, cfg.Registry.Project), logger)...)
 				}).
 				WithDispatcher(dispatcher)
 			reloader.OnReplace(func(live.Snapshot) { probes.Wake() })
@@ -941,9 +948,11 @@ func bootstrap(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	}
 	trackerPluginID, _ := providers(registry)
 
+	seededProjects, seededPlugins := configuredProjects(cfg)
 	report, err := db.Bootstrap(ctx, store.BootstrapSpec{
 		Grants:          configuredGrants(cfg),
-		Projects:        configuredProjects(cfg),
+		Projects:        seededProjects,
+		ProjectPlugins:  seededPlugins,
 		Trackers:        configuredTrackers(cfg),
 		Plugins:         plugins,
 		TrackerPluginID: trackerPluginID,
@@ -1160,7 +1169,6 @@ func projectsHandler(
 ) *dashhttp.ProjectsHandler {
 	handler := dashhttp.NewProjectsHandler(db).
 		WithForgeURL(cfg.Forge.URL).
-		WithImageRegistry(cfg.Registry.Project).
 		// The plugins that deploy refuse what they cannot route.
 		WithSchemeCheck(schemeCheck)
 
@@ -1182,7 +1190,7 @@ func configuredTrackers(cfg config.Config) map[string]string {
 	return map[string]string{repository: cfg.Tracker.Project}
 }
 
-func configuredProjects(cfg config.Config) []store.Project {
+func configuredProjects(cfg config.Config) ([]store.Project, map[string][]store.PluginSettings) {
 	resolved := schedulerConfig(cfg)
 	project := projectSeedDefaults(cfg)
 
@@ -1202,34 +1210,31 @@ func configuredProjects(cfg config.Config) []store.Project {
 	}
 
 	projects := make([]store.Project, 0, len(declarations))
+	plugins := map[string][]store.PluginSettings{}
 	for _, declaration := range declarations {
 		repository, forgeURL := config.RepositoryFromCloneURL(declaration.clone)
 		if repository == "" {
 			continue
 		}
 
-		buildContext := declaration.context
-		if buildContext == "" {
-			buildContext = "."
-		}
-
-		// The registry is filled in only for what is built: a cloned repository with no image
-		// publishes none, and giving it one would suggest the opposite.
-		registry := ""
-		if declaration.dockerfile != "" {
-			registry = resolved["registry.project"]
-		}
-
 		projects = append(projects, store.Project{
 			Repository: repository, Label: declaration.label, ForgeURL: forgeURL,
-			Dockerfile: declaration.dockerfile, BuildContext: buildContext,
-			ImageRegistry: registry,
 			// The author is the configuration itself, and saying so avoids attributing to someone a
 			// declaration nobody made.
 			CreatedBy: "configuration",
 		})
+
+		// Only what is built names a Dockerfile: a cloned repository with no image publishes none.
+		if declaration.dockerfile == "" {
+			continue
+		}
+		settings := map[string]string{docker.FieldDockerfile: declaration.dockerfile}
+		if context := strings.TrimSpace(declaration.context); context != "" && context != docker.DefaultBuildContext {
+			settings[docker.FieldBuildContext] = context
+		}
+		plugins[repository] = []store.PluginSettings{{PluginID: docker.ID, Enabled: true, Config: settings}}
 	}
-	return projects
+	return projects, plugins
 }
 
 // projectKeys opens what is needed to set one deploy key per project.

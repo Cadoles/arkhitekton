@@ -106,17 +106,11 @@ type Project struct {
 	// Name is the project's slug, from the resource's metadata.
 	Name string `json:"-"`
 
-	Repository     string        `json:"repository"`
-	Label          string        `json:"label,omitempty"`
-	ForgeURL       string        `json:"forgeUrl,omitempty"`
-	Dockerfile     string        `json:"dockerfile,omitempty"`
-	BuildContext   string        `json:"buildContext,omitempty"`
-	ImageRegistry  string        `json:"imageRegistry,omitempty"`
-	RegistrySecret string        `json:"registrySecret,omitempty"`
-	VersionScheme  string        `json:"versionScheme,omitempty"`
-	MultiStage     bool          `json:"multiStage,omitempty"`
-	Targets        []Target      `json:"targets,omitempty"`
-	ReleaseKinds   release.Cycle `json:"releaseKinds,omitempty"`
+	Repository    string        `json:"repository"`
+	Label         string        `json:"label,omitempty"`
+	ForgeURL      string        `json:"forgeUrl,omitempty"`
+	VersionScheme string        `json:"versionScheme,omitempty"`
+	ReleaseKinds  release.Cycle `json:"releaseKinds,omitempty"`
 
 	// Plugins are the project's own settings, by plugin id. A plugin absent inherits the
 	// instance's settings.
@@ -130,15 +124,6 @@ type Project struct {
 	ReleaseAutomation *ReleaseAutomation `json:"releaseAutomation,omitempty"`
 	Reactions         []Reaction         `json:"reactions,omitempty"`
 	Schedules         []Schedule         `json:"schedules,omitempty"`
-}
-
-// Target is one image a project builds.
-type Target struct {
-	Stage      string `json:"stage,omitempty"`
-	Image      string `json:"image"`
-	Dockerfile string `json:"dockerfile,omitempty"`
-	// Promote defaults to true: an image is promoted with its release unless it says otherwise.
-	Promote *bool `json:"promote,omitempty"`
 }
 
 // ProjectPlugin is a project's decision about a plugin.
@@ -308,11 +293,6 @@ func (p Project) validate() error {
 	}
 	if strings.TrimSpace(p.Repository) == "" {
 		problems = append(problems, errors.New("spec.repository is required"))
-	}
-	for index, target := range p.Targets {
-		if strings.TrimSpace(target.Image) == "" {
-			problems = append(problems, fmt.Errorf("spec.targets[%d].image is required", index))
-		}
 	}
 	for id, entry := range p.Plugins {
 		problems = append(problems, validateConfig("spec.plugins."+id+".config", entry.Config))

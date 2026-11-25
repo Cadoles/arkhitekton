@@ -21,13 +21,15 @@ type catchUpStore struct {
 	written         map[int64]plan.Plan
 	actorsByName    map[int64]string
 	switchedOffList map[string]bool
-	err             error
+	// unbuilt are the projects naming no Dockerfile.
+	unbuilt map[int64]bool
+	err     error
 }
 
 func newCatchUpStore(projects ...store.Project) *catchUpStore {
 	return &catchUpStore{
 		without: projects, written: map[int64]plan.Plan{},
-		actorsByName: map[int64]string{}, switchedOffList: map[string]bool{},
+		actorsByName: map[int64]string{}, switchedOffList: map[string]bool{}, unbuilt: map[int64]bool{},
 	}
 }
 
@@ -46,42 +48,44 @@ func (r *catchUpStore) SaveReleaseAutomation(
 	return nil
 }
 
+// buildable says every project builds but the unbuilt ones.
+func (r *catchUpStore) buildable(_ context.Context, project store.Project) bool {
+	return !r.unbuilt[project.ID]
+}
+
 func (r *catchUpStore) PipelineEnabled(_ context.Context, _ int64, kind string) (bool, error) {
 	return !r.switchedOffList[kind], nil
 }
 
 func catchUp(t *testing.T, db *catchUpStore) {
 	t.Helper()
-	if err := NewAutomationCatchUp(db, testCatalogue(t), quietLogger()).
+	if err := NewAutomationCatchUp(db, testCatalogue(t), quietLogger()).WithBuildable(db.buildable).
 		Run(context.Background()); err != nil {
 		t.Fatalf("catch-up: %v", err)
 	}
 }
 
-// The catch-up returns what ran the day before.
-//
-// That is its whole contract: the plan caught up is the one the code composed, by
-// construction and not by re-reading.
-func TestTheCatchUpReturnsWhatRanTheDayBefore(t *testing.T) {
-	db := newCatchUpStore(twoImageProject())
+// The catch-up writes the default automation, by construction and not by re-reading.
+func TestTheCatchUpWritesTheDefaultAutomation(t *testing.T) {
+	db := newCatchUpStore(portalProject())
 	catchUp(t, db)
 
 	caught, present := db.written[1]
 	if !present {
 		t.Fatal("the project was not caught up")
 	}
-	expected := DefaultAutomation(testCatalogue(t), twoImageProject(), nil)
+	expected := DefaultAutomation(testCatalogue(t), portalProject(), true, nil)
 	if len(caught.Stages) != len(expected.Stages) {
 		t.Fatalf("%d stage(s), expected %d", len(caught.Stages), len(expected.Stages))
 	}
 	if caught.Stages[0].Role != plan.RoleBuild || caught.Stages[1].Role != plan.RoleTest {
 		t.Errorf("roles = %q / %q", caught.Stages[0].Role, caught.Stages[1].Role)
 	}
-	if len(caught.Stages[0].Gestes) != 2 {
-		t.Errorf("%d build(s), expected one per target", len(caught.Stages[0].Gestes))
+	if len(caught.Stages[0].Gestes) != 1 {
+		t.Errorf("%d build(s), expected the project's image", len(caught.Stages[0].Gestes))
 	}
 	// The author is readable on screen: someone opening the tab must be able to say "this was not
-	// typed, it comes from my targets".
+	// typed, it was composed for me".
 	if db.actorsByName[1] != catchUpActor {
 		t.Errorf("author = %q", db.actorsByName[1])
 	}
@@ -92,7 +96,7 @@ func TestTheCatchUpReturnsWhatRanTheDayBefore(t *testing.T) {
 // That is what ties the two stages other than by the accident of a recomposed reference: the
 // audit analyses the image the build has just published.
 func TestTheCatchUpTargetsTheArtifactWhenTheProjectBuildsTheImage(t *testing.T) {
-	db := newCatchUpStore(twoImageProject())
+	db := newCatchUpStore(portalProject())
 	catchUp(t, db)
 
 	audit := stepNamed(t, db.written[1], "security-audit")
@@ -108,8 +112,8 @@ func TestTheCatchUpTargetsTheArtifactWhenTheProjectBuildsTheImage(t *testing.T) 
 // a catch-up must break nothing on its way. The fallback recomposes the reference from the
 // registry, as the day before.
 func TestTheCatchUpDoesNotTargetAnArtifactTheProjectDoesNotBuild(t *testing.T) {
-	other := twoImageProject()
-	other.Targets = []store.Target{{Stage: "app", Image: "autre-chose"}}
+	other := portalProject()
+	other.Slug = "autre-chose"
 
 	db := newCatchUpStore(other)
 	catchUp(t, db)
@@ -123,7 +127,7 @@ func TestTheCatchUpDoesNotTargetAnArtifactTheProjectDoesNotBuild(t *testing.T) {
 
 // A kind switched off on the project does not come back through the catch-up.
 func TestTheCatchUpDoesNotSwitchBackOnASwitchedOffKind(t *testing.T) {
-	db := newCatchUpStore(twoImageProject())
+	db := newCatchUpStore(portalProject())
 	db.switchedOffList["e2e-tests"] = true
 	catchUp(t, db)
 
@@ -141,6 +145,7 @@ func TestTheCatchUpDoesNotSwitchBackOnASwitchedOffKind(t *testing.T) {
 func TestAProjectWithNothingToComposeStillGetsItsRow(t *testing.T) {
 	empty := store.Project{ID: 2, Slug: "empty"}
 	db := newCatchUpStore(empty)
+	db.unbuilt[2] = true
 	db.switchedOffList["security-audit"] = true
 	db.switchedOffList["unit-tests"] = true
 	db.switchedOffList["e2e-tests"] = true
@@ -161,7 +166,7 @@ func TestAProjectWithNothingToComposeStillGetsItsRow(t *testing.T) {
 // It will be seen again at the next start-up, since it still has no row. Interrupting the
 // pass would deprive all the others of their automation.
 func TestAProjectNotCaughtUpDoesNotStopTheNextOnes(t *testing.T) {
-	db := newCatchUpStore(twoImageProject(), store.Project{ID: 2, Slug: "second"})
+	db := newCatchUpStore(portalProject(), store.Project{ID: 2, Slug: "second"})
 	db.err = errors.New("write refused")
 
 	// The error is logged and not returned: the catch-up goes through to the end.
@@ -194,10 +199,10 @@ func TestACatchUpChainsOnlyTheLegacyLanguagesTests(t *testing.T) {
 		unit.Kind = kind
 		registry.Pipelines = append(registry.Pipelines, unit)
 	}
-	php, other := twoImageProject(), twoImageProject()
+	php, other := portalProject(), portalProject()
 	other.ID, other.Slug = 2, "api"
 	db := newCatchUpStore(php, other)
-	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithStacks("php", "go").
+	if err := NewAutomationCatchUp(db, registry, quietLogger()).WithBuildable(db.buildable).WithStacks("php", "go").
 		Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

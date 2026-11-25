@@ -127,6 +127,10 @@ func (s Plugins) SetProject(
 			"“"+descriptor.Label+"” applies to the whole instance: what it carries "+
 				"is not a property of a project.")
 	}
+	if descriptor.Mandatory && !input.Enabled {
+		return descriptor, store.PluginSettings{}, refuse(http.StatusConflict, "Mandatory plugin",
+			fmt.Sprintf("the dashboard cannot work without plugin %q: a project sets it, it does not switch it off", descriptor.ID))
+	}
 
 	global, err := s.Store.PluginSettingsAll(ctx)
 	if err != nil {

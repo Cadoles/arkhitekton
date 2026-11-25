@@ -217,7 +217,7 @@ func TestTheMappingLayersTheDefaultAndTheProjectsDepartures(t *testing.T) {
 	// that protects the figure displayed to the other deployment.
 	other, err := db.CreateProject(ctx, Project{
 		Repository: "team/other", Slug: "other", Label: "other",
-		ForgeURL: "https://forge.example.fr", BuildContext: ".",
+		ForgeURL: "https://forge.example.fr",
 	})
 	if err != nil {
 		t.Fatalf("second project: %v", err)
@@ -238,7 +238,7 @@ func TestEachProjectCarriesItsOwnCursor(t *testing.T) {
 
 	other, err := db.CreateProject(ctx, Project{
 		Repository: "team/other", Slug: "other", Label: "other",
-		ForgeURL: "https://forge.example.fr", BuildContext: ".",
+		ForgeURL: "https://forge.example.fr",
 	})
 	if err != nil {
 		t.Fatalf("second project: %v", err)

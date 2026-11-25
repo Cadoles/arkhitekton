@@ -22,38 +22,23 @@ type ProjectStore interface {
 
 // ProjectInput is a project as an administrator declares it.
 type ProjectInput struct {
-	Repository   string
-	Label        string
-	ForgeURL     string
-	Dockerfile   string
-	BuildContext string
+	Repository string
+	Label      string
+	ForgeURL   string
 	// Slug names the project in URLs. Empty: derived from the repository.
-	Slug           string
-	ImageRegistry  string
-	RegistrySecret string
+	Slug string
 	// VersionScheme names the shape of the project's tags. Empty means `semver`.
 	VersionScheme string
-	MultiStage    bool
-	Targets       []TargetInput
 	// ReleaseKinds declares the release cycle. Empty: the default at creation, the recorded cycle
 	// at a correction.
 	ReleaseKinds release.Cycle
 }
 
-// TargetInput is one image a project builds.
-type TargetInput struct {
-	Stage      string
-	Image      string
-	Dockerfile string
-	Promote    bool
-}
-
 // Projects declares and corrects the repositories the dashboard drives.
 type Projects struct {
 	Store ProjectStore
-	// ForgeURL and ImageRegistry are the deployment's defaults, used when a project names none.
-	ForgeURL      string
-	ImageRegistry string
+	// ForgeURL is the deployment's default, used when a project names none.
+	ForgeURL string
 	// SchemeCheck refuses a version scheme the deployer cannot follow. Nil: no deployer objects.
 	SchemeCheck func(context.Context, version.Scheme) error
 	Logger      *slog.Logger
@@ -85,19 +70,7 @@ func (s Projects) Normalise(ctx context.Context, input ProjectInput) (ProjectInp
 		input.ForgeURL = strings.TrimRight(s.ForgeURL, "/")
 	}
 
-	input.BuildContext = strings.TrimSpace(input.BuildContext)
-	if input.BuildContext == "" {
-		input.BuildContext = "."
-	}
-	input.Dockerfile = strings.TrimSpace(input.Dockerfile)
-	// Trailing slashes are stripped: composing the reference would double them, and
-	// `registry/project//image` is not the same image as `registry/project/image` to a registry.
-	input.ImageRegistry = strings.Trim(strings.TrimSpace(input.ImageRegistry), "/")
-	if input.ImageRegistry == "" {
-		input.ImageRegistry = strings.Trim(strings.TrimSpace(s.ImageRegistry), "/")
-	}
 	input.Slug = strings.TrimSpace(input.Slug)
-	input.RegistrySecret = strings.TrimSpace(input.RegistrySecret)
 
 	// The scheme and deployer coupling is refused here, at configuration time, and not discovered
 	// at the first deployment that does not leave.
@@ -119,13 +92,6 @@ func (s Projects) Normalise(ctx context.Context, input ProjectInput) (ProjectInp
 		if err := input.ReleaseKinds.Validate(scheme); err != nil {
 			return input, invalid("Invalid release cycle", err)
 		}
-	}
-
-	for index := range input.Targets {
-		target := &input.Targets[index]
-		target.Stage = strings.TrimSpace(target.Stage)
-		target.Image = strings.TrimSpace(target.Image)
-		target.Dockerfile = strings.TrimSpace(target.Dockerfile)
 	}
 	return input, nil
 }
@@ -179,20 +145,8 @@ func (s Projects) Update(ctx context.Context, actor string, id int64, input Proj
 }
 
 func (input ProjectInput) project() store.Project {
-	targets := make([]store.Target, 0, len(input.Targets))
-	for _, target := range input.Targets {
-		// Written explicitly, including when it is true: the form settled it, and leaving the entry
-		// silent would make it indistinguishable from those the migration caught up.
-		promote := target.Promote
-		targets = append(targets, store.Target{
-			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile, Promote: &promote,
-		})
-	}
 	return store.Project{
-		Repository: input.Repository, Label: input.Label, ForgeURL: input.ForgeURL,
-		Dockerfile: input.Dockerfile, BuildContext: input.BuildContext, Slug: input.Slug,
-		ImageRegistry: input.ImageRegistry, RegistrySecret: input.RegistrySecret,
-		VersionScheme: input.VersionScheme,
-		MultiStage:    input.MultiStage, Targets: targets, ReleaseKinds: input.ReleaseKinds,
+		Repository: input.Repository, Label: input.Label, ForgeURL: input.ForgeURL, Slug: input.Slug,
+		VersionScheme: input.VersionScheme, ReleaseKinds: input.ReleaseKinds,
 	}
 }

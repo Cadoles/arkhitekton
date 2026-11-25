@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -37,18 +38,18 @@ type PullStore interface {
 type PullsHandler struct {
 	store   PullStore
 	catalog catalog.Source
-	// registry is the registry project a request's images are named in, as a release's are.
-	registry string
+	// registry gives the registry a request's images are named in, its project's, as a release's are.
+	registry imagenames.RegistryOf
 	// results serves the requests' results. Nil: only the requests and their jobs are served.
 	results *TestsHandler
 	logger  *slog.Logger
 }
 
-func NewPullsHandler(pulls PullStore, pipelines catalog.Source, registryProject string, logger *slog.Logger) *PullsHandler {
+func NewPullsHandler(pulls PullStore, pipelines catalog.Source, registry imagenames.RegistryOf, logger *slog.Logger) *PullsHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &PullsHandler{store: pulls, catalog: pipelines, registry: registryProject, logger: logger}
+	return &PullsHandler{store: pulls, catalog: pipelines, registry: registry, logger: logger}
 }
 
 type pullPayload struct {
@@ -188,8 +189,9 @@ func (h *PullsHandler) Launch(w http.ResponseWriter, r *http.Request) {
 		}
 		params[name] = value
 	}
+	registry := h.registry.Resolve(r.Context(), project.ID)
 	for _, input := range pipeline.Inputs() {
-		if value := input.FromContext(pull.HeadSHA, tag, h.registry, strconv.FormatInt(pull.Number, 10)); value != "" {
+		if value := input.FromContext(pull.HeadSHA, tag, registry, strconv.FormatInt(pull.Number, 10)); value != "" {
 			params[input.Name] = value
 		}
 	}

@@ -399,8 +399,8 @@ func TestBothScopesCoexist(t *testing.T) {
 		// `projects` is not purged between this package's tests — only sessions, roles and
 		// declarations are. The insert is therefore idempotent rather than dependent on
 		// execution order.
-		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
 		t.Fatalf("project: %v", err)
@@ -455,8 +455,8 @@ func TestAdminIsNotGrantedPerProject(t *testing.T) {
 		// `projects` is not purged between this package's tests — only sessions, roles and
 		// declarations are. The insert is therefore idempotent rather than dependent on
 		// execution order.
-		`insert into projects (slug, repository, label, forge_url, build_context, created_by)
-		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', '.', 'test')
+		`insert into projects (slug, repository, label, forge_url, created_by)
+		 values ('theme', 'team/theme', 'Theme', 'https://forge.example', 'test')
 		 on conflict (repository) do update set label = excluded.label
 		 returning id`).Scan(&projectID); err != nil {
 		t.Fatalf("project: %v", err)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,114 +27,16 @@ import (
  * taken on its own.
  */
 
-// Target is a buildable stage and the image repository it feeds.
-type Target struct {
-	// Stage is the Dockerfile target — `web`, `cli`, `dev`. Empty on a single-image
-	// Dockerfile, which has none.
-	Stage string `json:"stage"`
-	// Image is the short name of the published repository. The registry that prefixes
-	// it lives on the project: it is the same for every stage.
-	Image string `json:"image"`
-	// Dockerfile is the file that builds this image, when it differs from the
-	// project's.
-	//
-	// Added because a real project required it: one repository carries
-	// `Dockerfile.dev` and `Dockerfile.prod` at its root, each producing a distinct
-	// image, and neither has stages. The model could only say "this stage of the
-	// project's Dockerfile produces that image", which is one repository's shape and
-	// not a general truth.
-	//
-	// Empty, the project's applies. Both forms therefore coexist without either
-	// becoming a special case of the other.
-	Dockerfile string `json:"dockerfile,omitempty"`
-	// Promote says whether a re-tag propagates this image. False for an image the
-	// build publishes that no environment of the flow deploys — a development image:
-	// re-tagging it to pre-production would announce as shippable something that is
-	// not.
-	//
-	// A pointer, to tell "not promoted" from an entry written before the field
-	// existed. A silent entry is treated as promoted: that is the common case, and
-	// staying silent is what the code that promoted everything did.
-	Promote *bool `json:"promote,omitempty"`
-}
-
-// Promoted says whether a re-tag propagates this image.
-func (t Target) Promoted() bool { return t.Promote == nil || *t.Promote }
-
-// Reference composes an image's full reference, without a tag.
-//
-// Empty when either half is missing: a name without a registry looks like a
-// pullable reference without being one, and that is the kind of string someone
-// copies into a deployment before finding it names nothing.
-func (p Project) Reference(target Target) string {
-	registry := strings.Trim(strings.TrimSpace(p.ImageRegistry), "/")
-	image := strings.TrimSpace(target.Image)
-	if registry == "" || image == "" {
-		return ""
-	}
-	return registry + "/" + image
-}
-
-// DockerfileFor returns the file that builds this stage.
-//
-// The stage's when it declares one, the project's otherwise. The order is not
-// arbitrary: the most specific wins, and a project changing its default Dockerfile
-// must not move those that had already chosen their own.
-func (p Project) DockerfileFor(target Target) string {
-	if file := strings.TrimSpace(target.Dockerfile); file != "" {
-		return file
-	}
-	return p.Dockerfile
-}
-
-// Buildable returns the stages a release builds.
-//
-// Empty with no Dockerfile: a repository cloned by a pipeline — kustomizations, an
-// end-to-end campaign — describes targets nowhere, and inventing one would launch a
-// build failing at the first `docker build`.
-func (p Project) Buildable() []Target {
-	var buildable []Target
-	for _, target := range p.Targets {
-		// The condition is on the resolved Dockerfile and not on the project's. A
-		// repository may have none at project level and still be perfectly buildable when
-		// its stages carry their own, and requiring a project file declared it
-		// unbuildable.
-		if strings.TrimSpace(p.DockerfileFor(target)) == "" {
-			continue
-		}
-		buildable = append(buildable, target)
-	}
-	return buildable
-}
-
-// Promotable returns the stages a re-tag propagates.
-func (p Project) Promotable() []Target {
-	var promoted []Target
-	for _, target := range p.Buildable() {
-		if target.Promoted() {
-			promoted = append(promoted, target)
-		}
-	}
-	return promoted
-}
-
 // Project describes a driven repository.
 type Project struct {
 	ID int64
 	// Slug names the project in a URL: `/projects/mstore/releases/1.8.0`. A usage name and
 	// not an identity — that stays the identifier, and the slug can change without
 	// anything coming loose.
-	Slug         string
-	Repository   string
-	Label        string
-	ForgeURL     string
-	Dockerfile   string
-	BuildContext string
-	// ImageRegistry is the registry and project to publish to, without the image name.
-	// Carried by the project and not repeated per stage — an application's images go to
-	// the same place, and repeating it would let the last one diverge at the first
-	// registry change.
-	ImageRegistry string
+	Slug       string
+	Repository string
+	Label      string
+	ForgeURL   string
 	// VersionScheme names this project's tag scheme — `semver` or `opaque`. Empty means
 	// `semver`.
 	//
@@ -145,19 +48,6 @@ type Project struct {
 	// gives each project the historical cycle, and an empty cycle would describe a
 	// project that is declared and unusable.
 	ReleaseKinds release.Cycle
-	// RegistrySecret names the secret allowing pushes to this registry. Empty means the
-	// deployment's.
-	//
-	// Named, not created: a registry credential comes from a human, and putting it into
-	// a Secret from the interface would route it through the browser and the API —
-	// which runs without a cluster token. The deployment provisions it, the project
-	// names it. See docs/09-security.md.
-	RegistrySecret string
-	MultiStage     bool
-	// Targets carries the buildable stages. A single entry with no Stage describes a
-	// single-image Dockerfile: a second field would say the same thing another way, and
-	// one would have to know which prevails.
-	Targets []Target
 	// CheckedAt and CheckOK carry the verdict of the last access check. Nil while no
 	// check has happened — a state distinct from a check that failed.
 	CheckedAt *time.Time
@@ -198,24 +88,35 @@ var ErrProjectNotFound = errors.New("project not found")
 // Distinct from a read error: the table is reachable, it simply does not describe
 var ErrNoBuildableProject = errors.New("no buildable repository declared")
 
-// BuildableProject returns the repository whose images a release builds.
+// BuildableProject returns the repository a release builds: the one whose release plan has a
+// build stage.
 //
 // One only, for now: the dashboard versions one application, and the caller has
 // nowhere to receive a choice. Several candidates are refused rather than settled by
 // table order — building one at random would produce a release nobody could
 // describe.
-//
-// This is the point where the table replaces the image names that used to be Go
-// constants.
 func (db *DB) BuildableProject(ctx context.Context) (Project, error) {
+	rows, err := db.pool.Query(ctx,
+		`select ra.project_id from release_automations ra
+		 where exists (
+		     select 1 from jsonb_array_elements(ra.plan -> 'stages') as st (stage)
+		     where st.stage ->> 'role' = 'build'
+		       and jsonb_array_length(coalesce(st.stage -> 'gestes', '[]'::jsonb)) > 0)`)
+	if err != nil {
+		return Project{}, fmt.Errorf("finding the buildable project: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return Project{}, fmt.Errorf("finding the buildable project: %w", err)
+	}
+
 	projects, err := db.ListProjects(ctx)
 	if err != nil {
 		return Project{}, err
 	}
-
 	var found []Project
 	for _, project := range projects {
-		if len(project.Buildable()) > 0 {
+		if slices.Contains(ids, project.ID) {
 			found = append(found, project)
 		}
 	}
@@ -251,9 +152,7 @@ var ErrProjectExists = errors.New("repository already declared")
 // ListProjects returns the declared projects, by label.
 func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
-		        multi_stage, targets,
+		`select id, slug, repository, label, forge_url, version_scheme, release_kinds,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -278,9 +177,7 @@ func (db *DB) ListProjects(ctx context.Context) ([]Project, error) {
 // GetProject returns a project.
 func (db *DB) GetProject(ctx context.Context, id int64) (Project, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
-		        multi_stage, targets,
+		`select id, slug, repository, label, forge_url, version_scheme, release_kinds,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -327,9 +224,7 @@ func SlugFor(repository string) string {
 // answer 404, not 500 — a stale URL is not a fault.
 func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 	rows, err := db.pool.Query(ctx,
-		`select id, slug, repository, label, forge_url, dockerfile, build_context,
-		        image_registry, registry_secret, version_scheme, release_kinds,
-		        multi_stage, targets,
+		`select id, slug, repository, label, forge_url, version_scheme, release_kinds,
 		        checked_at, check_ok,
 		        check_note, deploy_key_public, deploy_key_created_at, deploy_key_active,
 		        deploy_key_error, key_note, keys_url, uid::text,
@@ -351,23 +246,15 @@ func (db *DB) ProjectBySlug(ctx context.Context, slug string) (Project, error) {
 
 func scanProject(rows pgx.Rows) (Project, error) {
 	var project Project
-	var targets, kinds []byte
+	var kinds []byte
 	if err := rows.Scan(&project.ID, &project.Slug, &project.Repository, &project.Label,
-		&project.ForgeURL, &project.Dockerfile, &project.BuildContext,
-		&project.ImageRegistry, &project.RegistrySecret, &project.VersionScheme,
-		&kinds, &project.MultiStage, &targets,
+		&project.ForgeURL, &project.VersionScheme, &kinds,
 		&project.CheckedAt, &project.CheckOK,
 		&project.CheckNote, &project.DeployKeyPublic, &project.DeployKeyCreatedAt,
 		&project.DeployKeyActive, &project.DeployKeyError, &project.KeyNote, &project.KeysURL, &project.UID,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("reading a project: %w", err)
-	}
-	// Unreadable stages do not make the project disappear: the rest of its description
-	// is right, and a project missing from the screen would be looked for in the forge
-	// before being looked for in the database.
-	if len(targets) > 0 {
-		_ = json.Unmarshal(targets, &project.Targets)
 	}
 	// An unreadable cycle falls back to the original one rather than leaving the project
 	// with no creatable kind: the column is constrained non-empty, and a decoding
@@ -383,11 +270,6 @@ func scanProject(rows pgx.Rows) (Project, error) {
 
 // CreateProject declares a repository.
 func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error) {
-	targets, err := json.Marshal(normaliseTargets(project.Targets))
-	if err != nil {
-		return 0, fmt.Errorf("serialising the stages: %w", err)
-	}
-
 	if strings.TrimSpace(project.Slug) == "" {
 		project.Slug = SlugFor(project.Repository)
 	}
@@ -406,18 +288,12 @@ func (db *DB) CreateProject(ctx context.Context, project Project) (int64, error)
 
 	var id int64
 	err = db.pool.QueryRow(ctx,
-		`insert into projects (slug, repository, label, forge_url, dockerfile,
-		                       build_context, image_registry, registry_secret,
-		                       version_scheme, release_kinds, multi_stage,
-		                       targets, created_by)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8, coalesce(nullif($9, ''), 'semver'),
-		         $10, $11, $12, $13)
+		`insert into projects (slug, repository, label, forge_url, version_scheme, release_kinds, created_by)
+		 values ($1, $2, $3, $4, coalesce(nullif($5, ''), 'semver'), $6, $7)
 		 on conflict (repository) do nothing
 		 returning id`,
-		project.Slug, project.Repository, project.Label, project.ForgeURL, project.Dockerfile,
-		project.BuildContext, project.ImageRegistry, project.RegistrySecret,
-		project.VersionScheme, kinds, project.MultiStage,
-		targets, project.CreatedBy).Scan(&id)
+		project.Slug, project.Repository, project.Label, project.ForgeURL,
+		project.VersionScheme, kinds, project.CreatedBy).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// `do nothing` returned nothing: the repository is already declared.
@@ -448,11 +324,6 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		return fmt.Errorf("updating project %d: empty repository", project.ID)
 	}
 
-	targets, err := json.Marshal(normaliseTargets(project.Targets))
-	if err != nil {
-		return fmt.Errorf("serialising the stages: %w", err)
-	}
-
 	if strings.TrimSpace(project.Slug) == "" {
 		project.Slug = SlugFor(project.Repository)
 	}
@@ -460,6 +331,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 	// No cycle keeps the recorded one: the edit form does not carry it, and writing the default
 	// in its place erased a project's kinds at every correction.
 	var kinds []byte
+	var err error
 	if len(project.ReleaseKinds) > 0 {
 		if kinds, err = json.Marshal(project.ReleaseKinds); err != nil {
 			return fmt.Errorf("serialising the cycle: %w", err)
@@ -468,11 +340,9 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 
 	tag, err := db.pool.Exec(ctx,
 		`update projects
-		 set repository = $2, label = $3, forge_url = $4, dockerfile = $5,
-		     build_context = $6, image_registry = $7, multi_stage = $8,
-		     targets = $9, slug = $10, registry_secret = $11,
-		     version_scheme = coalesce(nullif($12, ''), 'semver'),
-		     release_kinds = coalesce($13::jsonb, release_kinds),
+		 set repository = $2, label = $3, forge_url = $4, slug = $5,
+		     version_scheme = coalesce(nullif($6, ''), 'semver'),
+		     release_kinds = coalesce($7::jsonb, release_kinds),
 		     -- The verdict survives only an unchanged repository. The comparison
 		     -- is on the stored value, still readable during the update: a prior
 		     -- read would open a window between the verdict and the write.
@@ -482,9 +352,7 @@ func (db *DB) UpdateProject(ctx context.Context, project Project) error {
 		     updated_at = now()
 		 where id = $1`,
 		project.ID, project.Repository, project.Label, project.ForgeURL,
-		project.Dockerfile, project.BuildContext, project.ImageRegistry,
-		project.MultiStage, targets, project.Slug,
-		project.RegistrySecret, project.VersionScheme, kinds)
+		project.Slug, project.VersionScheme, kinds)
 	if err != nil {
 		// A repository already declared elsewhere: two entries would describe it, and
 		// nothing would say which prevails. The caller must be able to say so rather than
@@ -604,25 +472,6 @@ func (db *DB) RecordProjectProbe(ctx context.Context, id int64, probe ProjectPro
 		return false, fmt.Errorf("check of project %d: %w", id, err)
 	}
 	return changed, nil
-}
-
-// normaliseTargets discards empty stages.
-//
-// A form readily leaves a half-filled row behind. Saving it would give a stage with
-// no name, which no build could build and which nothing on screen would tell from a
-// valid one.
-func normaliseTargets(targets []Target) []Target {
-	kept := make([]Target, 0, len(targets))
-	for _, target := range targets {
-		// The image alone is enough: a stage may have neither a target nor its own
-		// Dockerfile — that is a single-Dockerfile repository — but with no image name it
-		// names nothing to publish.
-		if strings.TrimSpace(target.Image) == "" {
-			continue
-		}
-		kept = append(kept, target)
-	}
-	return kept
 }
 
 // SetDeployKey records the public half of a project's key.
@@ -759,23 +608,4 @@ func (db *DB) ProjectsAwaitingKey(ctx context.Context) ([]PendingKey, error) {
 		pending = append(pending, entry)
 	}
 	return pending, rows.Err()
-}
-
-// RegistrySecret returns the registry secret a project names.
-//
-// False when it names none: the run then uses the deployment's, which is the case of
-// every project publishing to the same place.
-func (db *DB) RegistrySecret(ctx context.Context, projectID int64) (string, bool, error) {
-	var name string
-	err := db.pool.QueryRow(ctx,
-		`select registry_secret from projects where id = $1`, projectID).Scan(&name)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return "", false, nil
-	case err != nil:
-		return "", false, fmt.Errorf("registry secret of project %d: %w", projectID, err)
-	case name == "":
-		return "", false, nil
-	}
-	return name, true, nil
 }

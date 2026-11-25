@@ -13,15 +13,9 @@ import (
 /*
  * Catching up the projects that never declared their automation.
  *
- * # Why a catch-up, and not an SQL migration
- *
- * The change must be silent: without it, every project would stop building on deployment.
- *
- * Composing this plan in SQL would mean copying the resolved Dockerfile's rule, the catalogue's
- * verification kinds and the per-project filter — three things that live in the binary, one of
- * them in a ConfigMap. The catch-up therefore calls the **same code** that composed the plan
- * until now: the plan caught up is identical to the one that ran, by construction and not by
- * re-reading.
+ * A project with no automation receives a default one: an image named after it when its Docker
+ * settings name a Dockerfile, then the verifications it ticked. Written once, then the project's
+ * to change in the automation editor.
  *
  * # It runs once per project, and does not come round again
  *
@@ -55,7 +49,7 @@ type AutomationStore interface {
 // catchUpActor names the author of a caught-up automation.
 //
 // Distinct from a human identifier, and readable on screen: someone opening the tab must be
-// able to say "this was not typed, it comes from my targets".
+// able to say "this was not typed, it was composed for me".
 const catchUpActor = "system:reprise" // the value is stored, and stays as written
 
 // AutomationCatchUp gives an automation to the projects that have none.
@@ -63,7 +57,9 @@ type AutomationCatchUp struct {
 	store   AutomationStore
 	catalog *catalog.Catalog
 	stacks  map[string]bool
-	logger  *slog.Logger
+	// buildable says whether a project builds an image. Nil: none does.
+	buildable func(ctx context.Context, project store.Project) bool
+	logger    *slog.Logger
 }
 
 func NewAutomationCatchUp(
@@ -73,6 +69,14 @@ func NewAutomationCatchUp(
 		logger = slog.Default()
 	}
 	return &AutomationCatchUp{store: db, catalog: registry, logger: logger}
+}
+
+// WithBuildable says which projects build an image: those whose Docker settings name a
+// Dockerfile. One that names none is driven without being built, a repository of
+// kustomizations, and a build step would fail at the first `docker build`.
+func (r *AutomationCatchUp) WithBuildable(buildable func(ctx context.Context, project store.Project) bool) *AutomationCatchUp {
+	r.buildable = buildable
+	return r
 }
 
 // WithStacks names the language plugins, whose kinds a catch-up chains only for the legacy one.
@@ -108,7 +112,7 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 
 	caught := 0
 	for _, project := range projects {
-		plan := DefaultAutomation(r.catalog, project, r.enabled(ctx, project))
+		plan := DefaultAutomation(r.catalog, project, r.builds(ctx, project), r.enabled(ctx, project))
 
 		if err := r.store.SaveReleaseAutomation(ctx, store.ReleaseAutomation{
 			ProjectID: project.ID, Plan: plan, Enabled: true,
@@ -120,7 +124,7 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 			continue
 		}
 		caught++
-		r.logger.Info("automation caught up from the project's targets",
+		r.logger.Info("automation composed",
 			"project", project.Slug, "stages", len(plan.Stages),
 			"steps", stepsOf(plan))
 	}
@@ -128,6 +132,10 @@ func (r *AutomationCatchUp) Run(ctx context.Context) error {
 	r.logger.Info("catching up the automations",
 		"examines", len(projects), "caught", caught)
 	return nil
+}
+
+func (r *AutomationCatchUp) builds(ctx context.Context, project store.Project) bool {
+	return r.buildable != nil && r.buildable(ctx, project)
 }
 
 // enabled returns the filter of a project's enabled kinds: those it ticked, less those of another
@@ -161,22 +169,27 @@ func stepsOf(p plan.Plan) int {
  * The composition, as it was — and as it stays, for once.
  */
 
-// DefaultAutomation composes a project's automation from its targets.
+// DefaultAutomation composes the automation of a project that has none: its image, when it builds
+// one, then the verifications it ticked.
 //
-// Exported because it is the **catch-up's contract**: what it returns must be what ran before
-// it, and a test holds that. Returns an empty plan when nothing applies.
+// Exported because it is the **catch-up's contract**, which a test holds. Returns an empty plan
+// when nothing applies.
 func DefaultAutomation(
-	registry *catalog.Catalog, project store.Project, enabled func(kind string) bool,
+	registry *catalog.Catalog, project store.Project, builds bool, enabled func(kind string) bool,
 ) plan.Plan {
 	if registry == nil {
 		return plan.Plan{}
 	}
 
 	var stages []plan.Stage
-	if build := buildStage(registry, project); len(build.Gestes) > 0 {
+	build := plan.Stage{}
+	if builds {
+		build = buildStage(registry, project)
+	}
+	if len(build.Gestes) > 0 {
 		stages = append(stages, build)
 	}
-	if test := testStage(registry, project, enabled); len(test.Gestes) > 0 {
+	if test := testStage(registry, build, enabled); len(test.Gestes) > 0 {
 		stages = append(stages, test)
 	}
 	if len(stages) == 0 {
@@ -185,35 +198,23 @@ func DefaultAutomation(
 	return plan.Plan{Stages: stages}
 }
 
-// buildStage composes the build stage from the project's targets.
-//
-// One step per target, and that is the point: a project's images stop being a loop in the API
-// and become three steps that are readable, re-runnable and now declared.
+// buildStage composes the build stage: one image, named after the project, from the Dockerfile
+// its Docker settings name. A project publishing several images declares one step each in its plan.
 func buildStage(registry *catalog.Catalog, project store.Project) plan.Stage {
 	pipeline, found := registry.Find(buildKind)
 	if !found {
 		return plan.Stage{}
 	}
-
-	targets := project.Buildable()
-	gestes := make([]plan.Geste, 0, len(targets))
-	for _, target := range targets {
-		gestes = append(gestes, plan.Geste{
-			Kind: plan.GestePipeline, Ref: pipeline.Kind,
-			// The label is the image's name: it is what tells apart three steps carrying the same
-			// catalogue reference, on screen as in the artifact map — `{artifacts.portal.image}` names
-			// this step.
-			Label: target.Image,
-			Params: map[string]string{
-				"image-name": target.Image,
-				"target":     target.Stage,
-				"dockerfile": project.DockerfileFor(target),
-				"context":    project.BuildContext,
-			},
-		})
-	}
-
-	return plan.Stage{Role: plan.RoleBuild, Label: "Construire", Gestes: gestes}
+	return plan.Stage{Role: plan.RoleBuild, Label: "Construire", Gestes: []plan.Geste{{
+		Kind: plan.GestePipeline, Ref: pipeline.Kind,
+		// The label is the image's name: `{artifacts.<image>.image}` names this step.
+		Label: project.Slug,
+		Params: map[string]string{
+			"image-name": project.Slug,
+			"dockerfile": "{docker.dockerfile}",
+			"context":    "{docker.buildContext}",
+		},
+	}}}
 }
 
 // testStage composes the verification stage.
@@ -223,7 +224,7 @@ func buildStage(registry *catalog.Catalog, project store.Project) plan.Stage {
 // fail for want of a scenario, and leave its release waiting for a verdict that would never
 // come.
 func testStage(
-	registry *catalog.Catalog, project store.Project, enabled func(kind string) bool,
+	registry *catalog.Catalog, build plan.Stage, enabled func(kind string) bool,
 ) plan.Stage {
 	var gestes []plan.Geste
 	for _, kind := range registry.VerificationKinds() {
@@ -240,7 +241,7 @@ func testStage(
 			// recomposed from the registry.
 			//
 			// `when` stays at its default — the previous stage succeeded.
-			Params: targetedArtifacts(pipeline, project),
+			Params: targetedArtifacts(pipeline, build),
 		})
 	}
 
@@ -260,10 +261,10 @@ func testStage(
 // But only where the project actually builds that image — elsewhere, the catch-up would leave
 // a plan that refuses to start, although it started the day before. A catch-up must break
 // nothing on its way.
-func targetedArtifacts(pipeline catalog.Pipeline, project store.Project) map[string]string {
+func targetedArtifacts(pipeline catalog.Pipeline, build plan.Stage) map[string]string {
 	built := map[string]bool{}
-	for _, target := range project.Buildable() {
-		built[target.Image] = true
+	for _, geste := range build.Gestes {
+		built[geste.Params["image-name"]] = true
 	}
 
 	var params map[string]string

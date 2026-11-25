@@ -15,7 +15,7 @@ import (
  * A release's automation, and its **three** states.
  *
  * No row, a row with an empty plan, a row with a filled plan. The first lets the catch-up compose
- * from `targets`; the second says someone decided this project no longer builds.
+ * a default plan; the second says someone decided this project no longer builds.
  *
  * Confusing them would make an automation one has just erased reappear at the next start-up —
  * and nothing would say why.
@@ -68,9 +68,8 @@ func TestTheCatchUpSeesOnlyProjectsWithNoRow(t *testing.T) {
 	if len(without) != 1 || without[0].ID != testProjectID {
 		t.Fatalf("projects without an automation = %+v, expected the single project", without)
 	}
-	// The project is returned in full: the catch-up needs its targets and its build context to
-	// compose anything at all.
-	if without[0].BuildContext == "" || without[0].Slug == "" {
+	// The project is returned in full: the catch-up names the default image after its slug.
+	if without[0].Slug == "" || without[0].Repository == "" {
 		t.Errorf("project returned incomplete: %+v", without[0])
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 )
 
@@ -408,6 +409,9 @@ type PlanArtifact struct {
 	// none.
 	Kind      string
 	Reference string
+	// Promoted says whether a final release re-tags it and an environment takes it: false for
+	// what the step declared `promote: false`, a development image.
+	Promoted bool
 }
 
 // RecordPlanArtifacts records what a step produced.
@@ -423,15 +427,15 @@ func (db *DB) RecordPlanArtifacts(
 	}
 
 	const query = `
-		insert into plan_artifacts (run_id, stage, position, name, kind, reference, release_id, pull_request_id)
-		values ($1, $2, $3, $4, $5, $6, $7, (select pull_request_id from plan_runs where id = $1))
+		insert into plan_artifacts (run_id, stage, position, name, kind, reference, release_id, pull_request_id, promote)
+		values ($1, $2, $3, $4, $5, $6, $7, (select pull_request_id from plan_runs where id = $1), $8)
 		on conflict (run_id, stage, position, name) do update
-		set kind = excluded.kind, reference = excluded.reference`
+		set kind = excluded.kind, reference = excluded.reference, promote = excluded.promote`
 
 	batch := &pgx.Batch{}
 	for _, artifact := range artifacts {
 		batch.Queue(query, runID, artifact.Stage, artifact.Position,
-			artifact.Name, artifact.Kind, artifact.Reference, releaseID)
+			artifact.Name, artifact.Kind, artifact.Reference, releaseID, artifact.Promoted)
 	}
 
 	results := db.pool.SendBatch(ctx, batch)
@@ -447,7 +451,7 @@ func (db *DB) RecordPlanArtifacts(
 // PlanArtifacts returns what a run has produced so far.
 func (db *DB) PlanArtifacts(ctx context.Context, runID int64) ([]PlanArtifact, error) {
 	rows, err := db.pool.Query(ctx,
-		`select stage, position, name, kind, reference
+		`select stage, position, name, kind, reference, promote
 		 from plan_artifacts where run_id = $1
 		 order by stage, position, name`, runID)
 	if err != nil {
@@ -459,7 +463,7 @@ func (db *DB) PlanArtifacts(ctx context.Context, runID int64) ([]PlanArtifact, e
 	for rows.Next() {
 		var entry PlanArtifact
 		if err := rows.Scan(&entry.Stage, &entry.Position,
-			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
+			&entry.Name, &entry.Kind, &entry.Reference, &entry.Promoted); err != nil {
 			return nil, fmt.Errorf("artifacts of run %d: %w", runID, err)
 		}
 		artifacts = append(artifacts, entry)
@@ -520,7 +524,7 @@ type GesteRef struct {
 // why `plan_artifacts` carries `release_id` as well as `run_id`.
 func (db *DB) ReleaseArtifacts(ctx context.Context, releaseID int64) ([]PlanArtifact, error) {
 	rows, err := db.pool.Query(ctx,
-		`select run_id, stage, position, name, kind, reference
+		`select run_id, stage, position, name, kind, reference, promote
 		 from plan_artifacts where release_id = $1
 		 order by created_at desc, stage, position, name`, releaseID)
 	if err != nil {
@@ -532,10 +536,62 @@ func (db *DB) ReleaseArtifacts(ctx context.Context, releaseID int64) ([]PlanArti
 	for rows.Next() {
 		var entry PlanArtifact
 		if err := rows.Scan(&entry.RunID, &entry.Stage, &entry.Position,
-			&entry.Name, &entry.Kind, &entry.Reference); err != nil {
+			&entry.Name, &entry.Kind, &entry.Reference, &entry.Promoted); err != nil {
 			return nil, fmt.Errorf("artifacts of release %d: %w", releaseID, err)
 		}
 		artifacts = append(artifacts, entry)
 	}
 	return artifacts, rows.Err()
+}
+
+// ReleaseImage is an image a release promotes.
+type ReleaseImage struct {
+	// Name is the short repository name, `portal`.
+	Name string
+	// Reference is the full reference the build published, registry and tag included.
+	Reference string
+}
+
+// PromotedImages are the images among a release's artifacts that follow it: published by a build,
+// not declared `promote: false`, from its latest run only. A rebuilt release has two runs, and the
+// first one's images are no longer what it ships.
+func PromotedImages(artifacts []PlanArtifact) []ReleaseImage {
+	latest := int64(0)
+	for _, artifact := range artifacts {
+		latest = max(latest, artifact.RunID)
+	}
+	var promoted []ReleaseImage
+	seen := map[string]bool{}
+	for _, artifact := range artifacts {
+		if artifact.RunID != latest || artifact.Kind != "image" || artifact.Name != "image" ||
+			!artifact.Promoted || seen[artifact.Reference] {
+			continue
+		}
+		seen[artifact.Reference] = true
+		promoted = append(promoted, ReleaseImage{
+			Name: images.Parse(artifact.Reference).Name, Reference: artifact.Reference,
+		})
+	}
+	return promoted
+}
+
+// ReleaseImages returns the images a release promotes. A final release built none: they are its
+// source's, re-tagged under its own tag.
+func (db *DB) ReleaseImages(ctx context.Context, release Release) ([]ReleaseImage, error) {
+	artifacts, err := db.ReleaseArtifacts(ctx, release.ID)
+	if err != nil {
+		return nil, err
+	}
+	if promoted := PromotedImages(artifacts); len(promoted) > 0 || release.SourceReleaseID == nil {
+		return promoted, nil
+	}
+	if artifacts, err = db.ReleaseArtifacts(ctx, *release.SourceReleaseID); err != nil {
+		return nil, err
+	}
+	promoted := PromotedImages(artifacts)
+	for index, image := range promoted {
+		parsed := images.Parse(image.Reference)
+		promoted[index].Reference = images.Reference(parsed.Registry, parsed.Name, release.Tag)
+	}
+	return promoted, nil
 }

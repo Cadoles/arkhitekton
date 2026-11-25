@@ -20,7 +20,6 @@ import (
 
 type fakeProjectSecrets struct {
 	deployKey string
-	registry  string
 	err       error
 }
 
@@ -29,13 +28,6 @@ func (f *fakeProjectSecrets) DeployKeySecret(context.Context, int64) (string, bo
 		return "", false, f.err
 	}
 	return f.deployKey, f.deployKey != "", nil
-}
-
-func (f *fakeProjectSecrets) RegistrySecret(context.Context, int64) (string, bool, error) {
-	if f.err != nil {
-		return "", false, f.err
-	}
-	return f.registry, f.registry != "", nil
 }
 
 func schedulerWith(keys ProjectKeys) *Scheduler {
@@ -67,13 +59,10 @@ var elsewhere = catalog.Pipeline{Kind: "mstore/e2e-tests", Workspaces: []catalog
 	{Name: "git-credentials", Secret: &catalog.SecretSource{ConfigKey: "pipeline.gitSecret"}},
 }}
 
-// A project's two secrets replace the deployment's, and the rest of the configuration passes
-// through untouched.
-func TestTheProjectsSecretsReplaceTheDeploymentsOnes(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{
-		deployKey: "arkhitekton-project-mstore-git",
-		registry:  "regcred-mstore",
-	})
+// A project's key replaces the deployment's, and the rest of the configuration passes through
+// untouched.
+func TestTheProjectsKeyReplacesTheDeploymentsOne(t *testing.T) {
+	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "arkhitekton-project-mstore-git"})
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err != nil {
@@ -88,33 +77,8 @@ func TestTheProjectsSecretsReplaceTheDeploymentsOnes(t *testing.T) {
 	if settings["pipeline.gitSecret"] != "git-credentials" {
 		t.Errorf("deployment's credential = %q", settings["pipeline.gitSecret"])
 	}
-	if settings["pipeline.registrySecret"] != "regcred-mstore" {
-		t.Errorf("registry secret = %q", settings["pipeline.registrySecret"])
-	}
 	if settings["tekton.namespace"] != "mstore-pipelines" {
 		t.Errorf("the rest of the configuration was lost: %v", settings)
-	}
-}
-
-// Both are read **separately**: a project that has its key without naming a registry pushes
-// where the others push. Handling them together would lose the deployment's registry secret on
-// the grounds that the project names none.
-func TestAProjectNamingNoRegistryPushesWhereTheOthersPush(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{
-		deployKey: "arkhitekton-project-mstore-git",
-	})
-
-	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
-	if err != nil {
-		t.Fatalf("settings: %v", err)
-	}
-
-	if settings[ProjectDeployKey] != "arkhitekton-project-mstore-git" {
-		t.Errorf("project key = %q", settings[ProjectDeployKey])
-	}
-	if settings["pipeline.registrySecret"] != "regcred" {
-		t.Errorf("registry secret = %q — the project names none",
-			settings["pipeline.registrySecret"])
 	}
 }
 
@@ -131,7 +95,7 @@ func TestAProjectNamingNoRegistryPushesWhereTheOthersPush(t *testing.T) {
 // Without it, the clone would fail in the pipeline on an SSH error, very far from its cause:
 // nobody would connect it with a key never pasted into the forge.
 func TestAProjectWithNoActiveKeyDoesNotBuild(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{registry: "regcred-mstore"})
+	scheduler := schedulerWith(&fakeProjectSecrets{})
 
 	_, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err == nil {
@@ -195,7 +159,7 @@ func TestAReadFailureDoesNotDisguiseItselfAsAMissingKey(t *testing.T) {
 // A pipeline cloning another repository than the project's needs no key of its own, and keeps
 // the deployment's credential: the project's key would not open that repository.
 func TestAPipelineCloningElsewhereNeedsNoProjectKey(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{registry: "regcred-mstore"})
+	scheduler := schedulerWith(&fakeProjectSecrets{})
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), elsewhere)
 	if err != nil {

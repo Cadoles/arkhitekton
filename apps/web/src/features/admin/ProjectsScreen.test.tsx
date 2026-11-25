@@ -13,7 +13,7 @@ import { ProjectsScreen } from './ProjectsScreen'
  */
 
 const ready = {
-  id: 1, slug: 'portal', repository: 'team/portal', label: 'Portal', uid: 'u1', targets: [],
+  id: 1, slug: 'portal', repository: 'team/portal', label: 'Portal', uid: 'u1',
   checked_at: '2026-11-20T10:00:00Z', check_ok: true, deploy_key: 'ssh-ed25519 A', deploy_key_active: true,
 } as unknown as Project
 const waiting = { ...ready, id: 2, slug: 'theme', repository: 'team/theme', label: 'Theme', deploy_key_active: false }
@@ -36,7 +36,7 @@ describe('la liste des dépôts', () => {
   beforeEach(() => vi.unstubAllGlobals())
 
   it("montre ce qui n'est pas en service, sans bouton de test", async () => {
-    mockFetch([{ path: '/projects', body: { projects: [ready, waiting], forge_url: '', image_registry: '', probe_configured: true } }])
+    mockFetch([{ path: '/projects', body: { projects: [ready, waiting], forge_url: '', probe_configured: true } }])
     render(screenWithRoutes())
 
     const link = await screen.findByRole('link', { name: 'à mettre en service' })
@@ -48,7 +48,7 @@ describe('la liste des dépôts', () => {
   it('mène au projet déclaré, pour le mettre en service', async () => {
     mockFetch([
       { path: '/projects', method: 'POST', status: 201, body: { id: 3, slug: 'new-app' } },
-      { path: '/projects', body: { projects: [], forge_url: 'https://forge', image_registry: '', probe_configured: true } },
+      { path: '/projects', body: { projects: [], forge_url: 'https://forge', probe_configured: true } },
     ])
     render(screenWithRoutes())
 

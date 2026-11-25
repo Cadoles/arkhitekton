@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -109,7 +110,7 @@ func pullCatalogue() *catalog.Catalog {
 
 func pullRouter(fixture *pullFixture) http.Handler {
 	mux := http.NewServeMux()
-	handler := NewPullsHandler(fixture, pullCatalogue(), "reg.example/team", quietLogger())
+	handler := NewPullsHandler(fixture, pullCatalogue(), imagenames.Fixed("reg.example/team"), quietLogger())
 	mux.HandleFunc("GET /projects/{project}/pulls", handler.List)
 	mux.HandleFunc("GET /projects/{project}/pulls/{number}", handler.Get)
 	mux.HandleFunc("POST /projects/{project}/pulls/{number}/launch", handler.Launch)

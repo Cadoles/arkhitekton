@@ -14,6 +14,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -55,21 +56,54 @@ type fakeReleaseStore struct {
 	results []store.TestResult
 	// attachments are the files kept, by result.
 	attachments map[int64][]store.ResultAttachment
+	// images are what a release promotes, by tag. A tag absent promotes both images of the fixture.
+	images map[string][]store.ReleaseImage
 }
 
-// fixtureProject reproduces what the bootstrap installs: three stages, one of them
-// built without being promoted.
+// fixtureProject is the project the releases belong to.
 func fixtureProject() store.Project {
-	promoted, held := true, false
-	return store.Project{
-		Repository: "vcarroy/mstore",
-		Dockerfile: "Dockerfile",
-		Targets: []store.Target{
-			{Stage: "web", Image: "portal", Promote: &promoted},
-			{Stage: "cli", Image: "portal-cli", Promote: &promoted},
-			{Stage: "dev", Image: "portal-dev", Promote: &held},
-		},
+	return store.Project{Repository: "vcarroy/mstore"}
+}
+
+// fixturePlan builds three images, one of them not promoted, then verifies.
+func fixturePlan(pipelines *catalog.Catalog) plan.Plan {
+	declared := worker.DefaultAutomation(pipelines, store.Project{Slug: "portal"}, true, nil)
+	if len(declared.Stages) == 0 || declared.Stages[0].Role != plan.RoleBuild {
+		return declared
 	}
+	held := false
+	build := declared.Stages[0].Gestes[0]
+	declared.Stages[0].Gestes = nil
+	for _, image := range []struct{ name, target string }{{"portal", "web"}, {"portal-cli", "cli"}, {"portal-dev", "dev"}} {
+		step := build
+		step.Label = image.name
+		step.Params = map[string]string{"image-name": image.name, "target": image.target, "dockerfile": "Dockerfile"}
+		if image.name == "portal-dev" {
+			step.Promote = &held
+		}
+		declared.Stages[0].Gestes = append(declared.Stages[0].Gestes, step)
+	}
+	return declared
+}
+
+// fixtureBuilds is how many images the fixture's plan builds.
+const fixtureBuilds = 3
+
+// promotedImages are what a candidate published and promotes: its development image is not one.
+func promotedImages(tag string) []store.ReleaseImage {
+	return []store.ReleaseImage{
+		{Name: "portal", Reference: "reg/team/portal:" + tag},
+		{Name: "portal-cli", Reference: "reg/team/portal-cli:" + tag},
+	}
+}
+
+// ReleaseImages returns what a release promotes: the images set for its tag, or both promoted
+// images of the fixture.
+func (f *fakeReleaseStore) ReleaseImages(_ context.Context, release store.Release) ([]store.ReleaseImage, error) {
+	if images, set := f.images[release.Tag]; set {
+		return images, nil
+	}
+	return promotedImages(release.Tag), nil
 }
 
 // GetProject returns the project the route names. Only one here: these tests are about
@@ -95,7 +129,7 @@ func (f *fakeReleaseStore) ReleaseAutomation(
 ) (store.ReleaseAutomation, error) {
 	return store.ReleaseAutomation{
 		ProjectID: projectID,
-		Plan:      worker.DefaultAutomation(f.pipelines, fixtureProject(), nil),
+		Plan:      fixturePlan(f.pipelines),
 		Enabled:   true,
 	}, nil
 }
@@ -359,7 +393,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 	authorizer := auth.NewAuthorizer(auth.ProjectPolicies{testProjectSlug: {
 		"prod": {Sensitive: true}, "preprod": {Sensitive: true},
 	}})
-	return NewReleasesHandler(store, pipelines, authorizer, store.registry, "reg.cadoles.com/vcarroy").
+	return NewReleasesHandler(store, pipelines, authorizer, store.registry, imagenames.Fixed("reg.cadoles.com/vcarroy")).
 		// The real planner, on the same fake store. A substitute here would make these tests
 		// pass while saying nothing about what creation actually queues.
 		WithArtifactReader(store).
@@ -370,7 +404,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		WithPlans(worker.NewReleasePlanner(
 			worker.NewEngine(store, worker.NewReleaseRunner(pipelines, store, quietLogger()),
 				quietLogger()),
-			pipelines, store, "reg.cadoles.com/vcarroy", quietLogger()))
+			pipelines, store, imagenames.Fixed("reg.cadoles.com/vcarroy"), quietLogger()))
 }
 
 // launched creates a draft from the body, then launches it, and returns the launch's response.
@@ -480,16 +514,43 @@ func TestCreateFinalRetagsFromItsSource(t *testing.T) {
 	}
 
 	retags := fake.jobsOfKind("docker/retag")
-	if len(retags) != len(fixtureProject().Promotable()) {
-		t.Fatalf("%d re-tag job(s), expected %d", len(retags), len(fixtureProject().Promotable()))
+	if len(retags) != 2 {
+		t.Fatalf("%d re-tag job(s), expected one per promoted image", len(retags))
 	}
-	if retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
-		t.Errorf("re-tag = %+v", retags[0].Params)
+	if retags[0].Params["image-name"] != "portal" || retags[1].Params["image-name"] != "portal-cli" ||
+		retags[0].Params["old-tag"] != "1.8.0-rc3" || retags[0].Params["new-tag"] != "1.8.0" {
+		t.Errorf("re-tags = %+v, %+v", retags[0].Params, retags[1].Params)
 	}
 	// The note is composed for every release, final ones included: what it brings the
 	// client does not depend on how its image was produced.
 	if len(fake.jobsOfKind(ReleaseNotesJobKind)) != 1 {
 		t.Error("composing the note should be queued")
+	}
+}
+
+// A candidate that published no image leaves its final nothing to re-tag: the launch is refused
+// before anything is recorded, rather than giving a tag that names no image.
+func TestAFinalOfACandidateWithNoImageIsRefused(t *testing.T) {
+	fake := newFakeStore()
+	fake.releases["1.8.0-rc3"] = store.Release{
+		ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3",
+	}
+	fake.images = map[string][]store.ReleaseImage{"1.8.0-rc3": nil}
+	handler := newReleasesHandler(t, fake)
+
+	body := `{"tag":"1.8.0","kind":"final","source_tag":"1.8.0-rc3","tests_green":true}`
+	recorder := httptest.NewRecorder()
+	handler.Create(recorder, asRole(httptest.NewRequest(http.MethodPost, "/releases", strings.NewReader(body)), auth.RoleReleaser))
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("code = %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	launched := launchDraft(handler, "1.8.0", auth.RoleReleaser)
+	if launched.Code != http.StatusConflict || !strings.Contains(launched.Body.String(), "published no promoted image") {
+		t.Errorf("launch: code = %d: %s", launched.Code, launched.Body.String())
+	}
+	if fake.releases["1.8.0"].State != "draft" || len(fake.jobsOfKind("docker/retag")) != 0 {
+		t.Errorf("state = %q, re-tags = %d", fake.releases["1.8.0"].State, len(fake.jobsOfKind("docker/retag")))
 	}
 }
 
@@ -537,12 +598,27 @@ func TestCreateFinalRequiresTheReleaserRole(t *testing.T) {
 // that has been queued does not exist in the registry yet.
 type fakeRegistry map[string]string
 
-func (f fakeRegistry) Digest(_ context.Context, _, tag string) (string, error) {
-	digest, found := f[tag]
+func (f fakeRegistry) DigestOf(_ context.Context, reference string) (string, error) {
+	if strings.HasPrefix(reference, "elsewhere.example/") {
+		return "", imagenames.ErrForeign
+	}
+	digest, found := f[imagenames.Parse(reference).Tag]
 	if !found {
 		return "", errors.New("manifest missing")
 	}
 	return digest, nil
+}
+
+// An image on another registry than the deployment's is said to be unread, rather than shown with
+// no digest as if the registry were down.
+func TestAnImageOnAnotherRegistryIsSaidUnread(t *testing.T) {
+	handler := &ReleasesHandler{images: fakeRegistry{"1.8.0": "sha256:aaa"}}
+	if digest, diverged, foreign := handler.digestOf(context.Background(), "elsewhere.example/team/portal:1.8.0", nil); digest != "" || diverged || !foreign {
+		t.Errorf("foreign image: %q %v %v", digest, diverged, foreign)
+	}
+	if digest, _, foreign := handler.digestOf(context.Background(), "reg/team/portal:1.8.0", nil); digest != "sha256:aaa" || foreign {
+		t.Errorf("image of the registry: %q %v", digest, foreign)
+	}
 }
 
 // The digest is what proves a promotion did not rebuild: the suffixed tag and the
@@ -762,14 +838,13 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 	// One run per image: the pipeline builds only one, and it is the dashboard that decides
 	// how many it launches.
 	builds := fake.jobsOfKind("docker/build")
-	if len(builds) != len(fixtureProject().Buildable()) {
-		t.Fatalf("%d build(s) queued, expected %d", len(builds), len(fixtureProject().Buildable()))
+	if len(builds) != fixtureBuilds {
+		t.Fatalf("%d build(s) queued, expected %d", len(builds), fixtureBuilds)
 	}
-	for index, target := range fixtureProject().Buildable() {
-		if builds[index].Params["image-name"] != target.Image ||
-			builds[index].Params["target"] != target.Stage {
-			t.Errorf("build %d = %+v, expected %s/%s",
-				index, builds[index].Params, target.Image, target.Stage)
+	for index, step := range fixturePlan(fake.pipelines).Stages[0].Gestes {
+		if builds[index].Params["image-name"] != step.Params["image-name"] ||
+			builds[index].Params["target"] != step.Params["target"] {
+			t.Errorf("build %d = %+v, expected %v", index, builds[index].Params, step.Params)
 		}
 	}
 	job := builds[0]
@@ -800,9 +875,9 @@ func TestAPreReleaseQueuesItsBuild(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("unreadable response: %v", err)
 	}
-	if response.BuildJobs != len(fixtureProject().Buildable()) {
+	if response.BuildJobs != fixtureBuilds {
 		t.Errorf("%d build(s) returned, expected %d",
-			response.BuildJobs, len(fixtureProject().Buildable()))
+			response.BuildJobs, fixtureBuilds)
 	}
 	if response.Release.State != "building" {
 		t.Errorf("state returned %q, expected building", response.Release.State)
@@ -1056,7 +1131,7 @@ func TestRerunningAFailedBuildReusesTheSameReference(t *testing.T) {
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if len(fake.jobs) != len(fixtureProject().Buildable()) || fake.jobs[0].Kind != "docker/build" {
+	if len(fake.jobs) != fixtureBuilds || fake.jobs[0].Kind != "docker/build" {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if fake.jobs[0].Params["revision"] != "main" {
@@ -1139,7 +1214,7 @@ func TestAPreReleaseIsAnchoredOnACommitAndTagged(t *testing.T) {
 	// not create a tag's local reference, and the checkout the Task then performs would
 	// fail.
 	builds := fake.jobsOfKind("docker/build")
-	if len(builds) != len(fixtureProject().Buildable()) {
+	if len(builds) != fixtureBuilds {
 		t.Fatalf("jobs: %+v", fake.jobs)
 	}
 	if got := builds[0].Params["revision"]; got != "abc123def456" {

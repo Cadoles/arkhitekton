@@ -19,7 +19,7 @@ type contextStore struct {
 }
 
 func (s contextStore) GetProject(context.Context, int64) (store.Project, error) {
-	return store.Project{Slug: "mstore", VersionScheme: "semver", Dockerfile: "./misc/Dockerfile", BuildContext: "."}, nil
+	return store.Project{Slug: "mstore", VersionScheme: "semver"}, nil
 }
 
 func (s contextStore) GetReleaseByID(_ context.Context, id int64) (store.Release, error) {
@@ -59,11 +59,14 @@ func TestARunReadsItsReleasesVariables(t *testing.T) {
 		return "https://tracker/issues/" + issue
 	}
 	releaseID, projectID := int64(7), int64(3)
-	got := NewRunContext(source, "https://dash", issues, quietLogger()).
+	settings := func(context.Context, int64) (map[string]string, error) {
+		return map[string]string{"docker.dockerfile": "./misc/Dockerfile", "docker.buildContext": "."}, nil
+	}
+	got := NewRunContext(source, "https://dash", issues, quietLogger()).WithSettings(settings).
 		Enrich(context.Background(), store.PlanRun{ReleaseID: &releaseID, ProjectID: &projectID})
 
-	if got[contextDockerfile] != "./misc/Dockerfile" || got[contextBuildContext] != "." {
-		t.Errorf("project variables %q %q", got[contextDockerfile], got[contextBuildContext])
+	if got["docker.dockerfile"] != "./misc/Dockerfile" || got["docker.buildContext"] != "." {
+		t.Errorf("plugin variables %q %q", got["docker.dockerfile"], got["docker.buildContext"])
 	}
 	if got[contextReleaseURL] != "https://dash/releases/1.0.0-rc1?project=mstore" {
 		t.Errorf("url %q", got[contextReleaseURL])

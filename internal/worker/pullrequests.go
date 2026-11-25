@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -43,15 +44,15 @@ type pullRequestProbe struct {
 	forge    capability.ForgeCapability
 	store    PullRequestStore
 	timeout  time.Duration
-	registry string
+	registry images.RegistryOf
 	logger   *slog.Logger
 	now      func() time.Time
 }
 
-// PullRequestProbes returns a probe for every plugin bringing a forge. `registry` is the registry
-// project a pull request's images are named in, as a release's are.
+// PullRequestProbes returns a probe for every plugin bringing a forge. `registryOf` gives the
+// registry a pull request's images are named in, its project's, as a release's are.
 func PullRequestProbes(
-	registry *capabilities.Registry, db PullRequestStore, timeout time.Duration, registryProject string, logger *slog.Logger,
+	registry *capabilities.Registry, db PullRequestStore, timeout time.Duration, registryOf images.RegistryOf, logger *slog.Logger,
 ) []Probe {
 	if logger == nil {
 		logger = slog.Default()
@@ -63,7 +64,7 @@ func PullRequestProbes(
 		}
 		probes = append(probes, pullRequestProbe{
 			plugin: plugin.ID, forge: plugin.Forge, store: db, timeout: timeout,
-			registry: registryProject, logger: logger, now: time.Now,
+			registry: registryOf, logger: logger, now: time.Now,
 		})
 	}
 	return probes
@@ -117,7 +118,7 @@ func (p pullRequestProbe) Poll(
 			next = pull.UpdatedAt
 		}
 		if !priming {
-			facts = append(facts, p.transitions(project, previous, recorded)...)
+			facts = append(facts, p.transitions(project, p.registry.Resolve(ctx, project.ID), previous, recorded)...)
 		}
 	}
 
@@ -151,13 +152,15 @@ func recordOf(projectID int64, pull provider.PullRequest) store.PullRequest {
 }
 
 // transitions returns the facts of what changed between two readings of a request.
-func (p pullRequestProbe) transitions(project store.Project, previous *store.PullRequest, current store.PullRequest) []event.Event {
+func (p pullRequestProbe) transitions(
+	project store.Project, registry string, previous *store.PullRequest, current store.PullRequest,
+) []event.Event {
 	at := p.now().UTC()
 	if current.UpdatedAt != nil {
 		at = *current.UpdatedAt
 	}
 	fact := func(kind event.Type, occurrence string) event.Event {
-		return event.PullRequestAt(kind, at, project.ID, current.Number, occurrence, PullRequestPayload(current, p.registry))
+		return event.PullRequestAt(kind, at, project.ID, current.Number, occurrence, PullRequestPayload(current, registry))
 	}
 	instant := strconv.FormatInt(at.Unix(), 10)
 

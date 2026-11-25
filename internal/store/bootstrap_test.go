@@ -23,7 +23,7 @@ func spec() BootstrapSpec {
 		Projects: []Project{
 			{
 				Repository: "team/mstore", Label: "Application",
-				ForgeURL: "https://forge.example.fr", BuildContext: ".",
+				ForgeURL:  "https://forge.example.fr",
 				CreatedBy: "configuration",
 			},
 		},
@@ -131,7 +131,7 @@ func TestTheBootstrapNamesTheProjectInItsTracker(t *testing.T) {
 
 	seeded := spec()
 	seeded.Projects = append(seeded.Projects, Project{
-		Repository: "team/theme", Label: "Theme", ForgeURL: "https://forge.example.fr", BuildContext: ".",
+		Repository: "team/theme", Label: "Theme", ForgeURL: "https://forge.example.fr",
 		CreatedBy: "configuration",
 	})
 	seeded.Trackers = map[string]string{"team/mstore": "mstore-dev", "team/theme": "theme-dev"}
@@ -139,7 +139,7 @@ func TestTheBootstrapNamesTheProjectInItsTracker(t *testing.T) {
 
 	// The theme's tracker is already set: the step runs after the projects, so it is set between the
 	// two by hand to stand for an administrator's choice.
-	if _, err := db.SeedProjects(ctx, seeded.Projects); err != nil {
+	if _, err := db.SeedProjects(ctx, seeded.Projects, nil); err != nil {
 		t.Fatal(err)
 	}
 	theme, err := db.ProjectBySlug(ctx, "theme")

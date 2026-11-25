@@ -266,7 +266,7 @@ describe("le plan d'une release", () => {
     armer([], { plan: { stages: [] }, declared: false, enabled: true })
     render(<AutomationsScreen />)
 
-    expect(await screen.findByText(/composée depuis les cibles du projet/)).toBeInTheDocument()
+    expect(await screen.findByText(/en compose une par défaut/)).toBeInTheDocument()
   })
 
   it('dit qu’un projet vidé ne construit plus', async () => {
@@ -299,6 +299,38 @@ describe("le plan d'une release", () => {
     expect(libelles.some((libelle) => libelle?.includes("Construction d'image"))).toBe(true)
     expect(libelles.some((libelle) => libelle?.includes('Tests unitaires'))).toBe(false)
     expect(libelles.some((libelle) => libelle?.includes('Appel sortant'))).toBe(false)
+  })
+})
+
+describe('une image promue', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("décoche l'image de développement d'une étape de construction, et l'envoie", async () => {
+    const calls = mockFetch([
+      { path: '/automations/catalogue', body: catalogue },
+      { path: '/automation', body: automatisation },
+      { path: '/automation', method: 'PUT', body: automatisation },
+      { path: '/reactions', body: { reactions: [], project: 'mstore' } },
+      { path: '/schedules', body: { schedules: [] } },
+    ])
+    render(<AutomationsScreen />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Modifier' }))
+    // Une étape de vérification ne publie rien : la case n'y apparaît pas.
+    const cases = await screen.findAllByRole('checkbox', { name: /Image promue/ })
+    expect(cases).toHaveLength(1)
+    const promoted = cases[0] as HTMLElement
+    expect(promoted).toBeChecked()
+
+    await userEvent.click(promoted)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Enregistrer' })[0] as HTMLElement)
+
+    const sent = calls.find((call) => call.method === 'PUT' && call.url.endsWith('/automation'))
+    const body = sent?.body as { plan: { stages: { gestes: { promote?: boolean }[] }[] } }
+    expect(body.plan.stages[0]?.gestes[0]?.promote).toBe(false)
+    expect(body.plan.stages[1]?.gestes[0]?.promote).toBeUndefined()
   })
 })
 
@@ -442,7 +474,7 @@ describe("l'interrupteur d'une automatisation", () => {
     armer([], { plan: { stages: [] }, declared: false, enabled: true })
     render(<AutomationsScreen />)
 
-    await screen.findByText(/composée depuis les cibles du projet/)
+    await screen.findByText(/en compose une par défaut/)
     expect(screen.queryByRole('switch', { name: "Allumer l'automatisation de release" })).not.toBeInTheDocument()
   })
 })

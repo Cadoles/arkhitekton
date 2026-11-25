@@ -496,7 +496,7 @@ function ReleaseAutomationCard({
         <EmptyState>
           {automation.declared
             ? "Ce projet ne construit rien : son automatisation a été vidée. Les releases créées ne lanceront aucun pipeline."
-            : "Aucune automatisation déclarée. Elle sera composée depuis les cibles du projet au prochain démarrage du worker."}
+            : "Aucune automatisation déclarée. Le worker en compose une par défaut à son prochain démarrage : l'image du projet si ses réglages Docker nomment un Dockerfile, puis ses vérifications."}
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-2">
@@ -525,7 +525,7 @@ function ReleaseAutomationCard({
           })}
           {automation.updated_by === 'system:reprise' && (
             <p className="text-xs text-zinc-400">
-              Repris depuis les cibles du projet — personne ne l'a encore saisi.
+              Composée par défaut : personne ne l'a encore saisie.
             </p>
           )}
         </div>
@@ -900,6 +900,7 @@ function PlanEditor({
                 fields={fields}
                 geste={geste}
                 first={index === 0}
+                building={stage.role === 'build'}
                 onChange={(next) =>
                   setStage(index, {
                     ...stage,
@@ -990,6 +991,7 @@ function GesteRow({
   fields,
   geste,
   first,
+  building,
   onChange,
   onRemove,
 }: {
@@ -999,12 +1001,15 @@ function GesteRow({
   /** Première étape : rien ne la précède, et une condition d'échec n'y partirait
    *  jamais — le serveur la refuse. */
   first: boolean
+  /** Le geste est dans une étape de construction : ce qu'il publie suit sa release. */
+  building: boolean
   onChange: (geste: Geste) => void
   onRemove: () => void
 }) {
   const choice = catalogue.gestes.find(
     (entry) => entry.kind === geste.kind && entry.ref === geste.ref,
   )
+  const publishesImage = building && (choice?.produces ?? []).includes('image')
 
   return (
     <div className="flex flex-col gap-1 rounded-md bg-zinc-50 p-2">
@@ -1087,6 +1092,20 @@ function GesteRow({
           {field.help && <span className="text-zinc-500">{field.help}</span>}
         </label>
       ))}
+
+      {publishesImage && (
+        <label className="flex items-center gap-2 text-xs text-zinc-700">
+          <input
+            type="checkbox"
+            checked={geste.promote ?? true}
+            onChange={(change) =>
+              onChange({ ...geste, promote: change.target.checked ? undefined : false })
+            }
+          />
+          Image promue : une finale la re-tague, les environnements la reçoivent. Décochée pour une
+          image de développement.
+        </label>
+      )}
 
       {/* Les variables disponibles viennent du fait écouté : les proposer évite
           d'interpoler une clé qui n'existe pas. */}

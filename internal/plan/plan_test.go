@@ -536,3 +536,40 @@ func TestASkippedStageDoesNotHideAnEarlierFailure(t *testing.T) {
 		t.Errorf("last stage: %+v, expected publish to stay and summary to leave", last)
 	}
 }
+
+// Only a build stage publishes what a final release re-tags: `promote` anywhere else is refused,
+// and a step that says nothing is promoted.
+func TestPromoteAppliesToABuildStageOnly(t *testing.T) {
+	off := false
+	build := Plan{Stages: []Stage{{Role: RoleBuild, Gestes: []Geste{
+		{Kind: GestePipeline, Ref: "docker/build", Label: "portal"},
+		{Kind: GestePipeline, Ref: "docker/build", Label: "portal-dev", Promote: &off},
+	}}}}
+	if err := build.Validate(); err != nil {
+		t.Fatalf("a build stage refused promote: %v", err)
+	}
+	if !build.Stages[0].Gestes[0].Promoted() || build.Stages[0].Gestes[1].Promoted() {
+		t.Error("promote read wrongly")
+	}
+
+	for _, role := range []Role{RoleTest, ""} {
+		subject := Plan{Stages: []Stage{{Role: role, Gestes: []Geste{
+			{Kind: GestePipeline, Ref: "php/unit-tests", Promote: &off},
+		}}}}
+		if err := subject.Validate(); err == nil || !strings.Contains(err.Error(), string(RoleBuild)) {
+			t.Errorf("role %q: %v", role, err)
+		}
+	}
+}
+
+// A variable that moved is refused, naming its replacement: kept, it would reach the build literal.
+func TestAMovedVariableIsRefusedWithItsReplacement(t *testing.T) {
+	subject := Plan{Stages: []Stage{{Role: RoleBuild, Gestes: []Geste{{
+		Kind: GestePipeline, Ref: "docker/build",
+		Params: map[string]string{"dockerfile": "{project.dockerfile}", "context": "{docker.buildContext}"},
+	}}}}}
+	err := subject.Validate()
+	if err == nil || !strings.Contains(err.Error(), "{docker.dockerfile}") {
+		t.Errorf("error = %v", err)
+	}
+}

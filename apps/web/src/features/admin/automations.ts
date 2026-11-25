@@ -28,6 +28,9 @@ export type Geste = {
    *  parce qu'un poids qu'on saisit et que rien ne lit est pire qu'un champ
    *  absent. */
   weight?: number
+  /** Faux : une finale ne re-tague pas l'image que ce geste de construction publie, et aucun
+   *  environnement ne la reçoit. L'image de développement, par exemple. Indéfini vaut vrai. */
+  promote?: boolean
 }
 
 /** Une étape : des gestes exécutés en parallèle.
@@ -55,8 +58,8 @@ export type RoleChoice = {
 export type Automation = {
   plan: Plan
   /** Faux quand personne n'a jamais rien déclaré. Distinct d'un plan vide, qui
-   *  dit « ce projet ne construit plus » : seul le premier sera repris depuis les
-   *  cibles du projet au prochain démarrage du worker. */
+   *  dit « ce projet ne construit plus » : seul le premier reçoit un plan par défaut
+   *  au prochain démarrage du worker. */
   declared: boolean
   /** Éteinte, elle garde son plan et une release déclarée ne lance rien. Vrai
    *  tant que rien n'est déclaré : le rattrapage la compose allumée. */

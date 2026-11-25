@@ -312,6 +312,12 @@ function ArtifactRow({ artifact }: { artifact: ProducedArtifact }) {
         </span>
       )}
 
+      {artifact.foreign && (
+        <span className="text-xs text-zinc-500">
+          digest non lu : l&apos;image est sur un autre registre que celui du dashboard
+        </span>
+      )}
+
       {artifact.diverged && (
         <span className="flex items-center gap-1 text-critical-700">
           <Icon name="alert" className="size-3.5" />

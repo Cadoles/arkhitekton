@@ -680,19 +680,9 @@ func comparableReaction(entry reaction.Reaction) any {
 }
 
 func projectInput(project configfile.Project) ProjectInput {
-	targets := make([]TargetInput, 0, len(project.Targets))
-	for _, target := range project.Targets {
-		targets = append(targets, TargetInput{
-			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile,
-			Promote: configfile.IsOn(target.Promote),
-		})
-	}
 	return ProjectInput{
 		Repository: project.Repository, Label: project.Label, ForgeURL: project.ForgeURL,
-		Dockerfile: project.Dockerfile, BuildContext: project.BuildContext, Slug: project.Name,
-		ImageRegistry: project.ImageRegistry, RegistrySecret: project.RegistrySecret,
-		VersionScheme: project.VersionScheme,
-		MultiStage:    project.MultiStage, Targets: targets, ReleaseKinds: project.ReleaseKinds,
+		Slug: project.Name, VersionScheme: project.VersionScheme, ReleaseKinds: project.ReleaseKinds,
 	}
 }
 

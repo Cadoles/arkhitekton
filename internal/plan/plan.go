@@ -20,6 +20,7 @@ package plan
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -93,7 +94,14 @@ type Geste struct {
 	// is frozen with the rest: replaying the score of a release shipped six months ago
 	// uses that day's weights. A figure once communicated does not rewrite itself.
 	Weight *float64 `json:"weight,omitempty"`
+	// Promote says whether a final release re-tags the image this build step publishes, and
+	// whether it goes to an environment. Absent means true: a development image is the
+	// exception, and says so.
+	Promote *bool `json:"promote,omitempty"`
 }
+
+// Promoted says whether what this step publishes follows its release.
+func (g Geste) Promoted() bool { return g.Promote == nil || *g.Promote }
 
 // Condition returns the effective rule; absence means [WhenSuccess].
 func (g Geste) Condition() When {
@@ -194,6 +202,7 @@ func (p Plan) Validate() error {
 		}
 		problems = append(problems, stage.validateRole(index)...)
 		problems = append(problems, stage.validateWeights(index)...)
+		problems = append(problems, stage.validatePromotion(index)...)
 		for rank, geste := range stage.Gestes {
 			problems = append(problems, geste.validate(index, rank)...)
 		}
@@ -268,6 +277,24 @@ func (s Stage) validateWeights(index int) []error {
 	return problems
 }
 
+// validatePromotion refuses `promote` outside a build stage: only what a build publishes is
+// re-tagged with its release, and the flag would be saved and read by nothing.
+func (s Stage) validatePromotion(index int) []error {
+	if s.Role == RoleBuild {
+		return nil
+	}
+	var problems []error
+	for rank, geste := range s.Gestes {
+		if geste.Promote == nil {
+			continue
+		}
+		problems = append(problems, fmt.Errorf(
+			"%w: stage %d, step %d: promote only applies to a stage with role %q (this one carries %q)",
+			ErrInvalid, index+1, rank+1, RoleBuild, s.Role))
+	}
+	return problems
+}
+
 // LastWithRole returns the index of the last stage carrying this role, or -1.
 //
 // The last, not the first: a plan may build in two passes — a base image, then the
@@ -328,7 +355,25 @@ func (g Geste) validate(stage, rank int) []error {
 			ErrInvalid, where, *g.Weight))
 	}
 
+	// A variable that is gone would stay literal, and the step would leave with `{project.dockerfile}`
+	// as its Dockerfile: refused when saved, naming the one that replaced it.
+	for _, name := range slices.Sorted(maps.Keys(g.Params)) {
+		for old, replacement := range movedVariables {
+			if strings.Contains(g.Params[name], "{"+old+"}") {
+				problems = append(problems, fmt.Errorf(
+					"%w: %s: parameter %s: {%s} is gone, write {%s}",
+					ErrInvalid, where, name, old, replacement))
+			}
+		}
+	}
+
 	return problems
+}
+
+// movedVariables are the variables of a step's parameters that moved, with their new name.
+var movedVariables = map[string]string{
+	"project.dockerfile":    "docker.dockerfile",
+	"project.build_context": "docker.buildContext",
 }
 
 /*

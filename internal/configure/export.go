@@ -199,27 +199,16 @@ func (e Exporter) project(
 ) (configfile.Project, error) {
 	declared := configfile.Project{
 		Name: project.Slug, Repository: project.Repository, Label: project.Label,
-		ForgeURL: project.ForgeURL, Dockerfile: project.Dockerfile, ImageRegistry: project.ImageRegistry,
-		RegistrySecret: project.RegistrySecret, MultiStage: project.MultiStage,
+		ForgeURL: project.ForgeURL,
 	}
 	// The defaults are left out: written, they would pin this instance's choice where the file
 	// means "whatever the dashboard does by default".
-	if project.BuildContext != "." {
-		declared.BuildContext = project.BuildContext
-	}
 	if project.VersionScheme != "semver" {
 		declared.VersionScheme = project.VersionScheme
 	}
 	if !reflect.DeepEqual(project.ReleaseKinds, release.DefaultCycle()) {
 		declared.ReleaseKinds = project.ReleaseKinds
 	}
-	for _, target := range project.Targets {
-		declared.Targets = append(declared.Targets, configfile.Target{
-			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile,
-			Promote: configfile.On(target.Promote == nil || *target.Promote),
-		})
-	}
-
 	own, err := e.Store.ProjectPluginSettings(ctx, project.ID)
 	if err != nil {
 		return declared, err

@@ -9,19 +9,24 @@ import (
 // The dashboard's data a plugin reads, as the Host service returns it.
 type (
 	Project struct {
-		ID            int64
-		Slug          string
-		Repository    string
-		Label         string
-		ForgeURL      string
-		Dockerfile    string
-		BuildContext  string
+		ID         int64
+		Slug       string
+		Repository string
+		Label      string
+		ForgeURL   string
+		// Deprecated: always empty, the Docker settings belong to the docker plugin.
+		Dockerfile string
+		// Deprecated: always empty, the Docker settings belong to the docker plugin.
+		BuildContext string
+		// Deprecated: always empty, the Docker settings belong to the docker plugin.
 		ImageRegistry string
 		// Stack is always empty: a project no longer declares one.
 		Stack         string
 		VersionScheme string
-		Targets       []Target
-		MultiStage    bool
+		// Deprecated: always empty, a release says what it published in [Release.Images].
+		Targets []Target
+		// Deprecated: always false, like Targets.
+		MultiStage bool
 	}
 
 	Target struct {
@@ -46,6 +51,17 @@ type (
 		CreatedBy       string
 		CreatedAt       time.Time
 		ReleasedAt      *time.Time
+		// Images are the images this release promotes: those its build published, the development
+		// image excepted, or for a final release, its source's.
+		Images []ReleaseImage
+	}
+
+	// ReleaseImage is an image a release published.
+	ReleaseImage struct {
+		// Name is the short repository name, `portal`.
+		Name string
+		// Reference is the full reference, registry and tag included.
+		Reference string
 	}
 
 	JobRequest struct {
@@ -307,6 +323,8 @@ func (p Project) Buildable() []Target {
 }
 
 // Promotable are the built targets a re-tag propagates.
+//
+// Deprecated: always empty since Targets is; read [Release.Images].
 func (p Project) Promotable() []Target {
 	var promoted []Target
 	for _, target := range p.Buildable() {

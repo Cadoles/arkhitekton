@@ -2,8 +2,9 @@ package http
 
 import (
 	"context"
-	"strings"
+	"errors"
 
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -46,6 +47,8 @@ type planArtifactPayload struct {
 	// Diverged says a promotion tag carries a different digest from this one — hence that an
 	// image was rebuilt between approval and delivery.
 	Diverged bool `json:"diverged,omitempty"`
+	// Foreign says the image is on another registry than the deployment's: its digest is not read.
+	Foreign bool `json:"foreign,omitempty"`
 }
 
 // releaseArtifacts composes what the automation produced for this release.
@@ -87,7 +90,7 @@ func (h *ReleasesHandler) releaseArtifacts(
 		// Only images have a digest. The name is authoritative and not `kind`, which is `image` for
 		// everything an image pipeline returns — the tag included.
 		if artifact.Name == "image" {
-			entry.Digest, entry.Diverged = h.digestOf(ctx, artifact.Reference, promotions)
+			entry.Digest, entry.Diverged, entry.Foreign = h.digestOf(ctx, artifact.Reference, promotions)
 		}
 		payload = append(payload, entry)
 	}
@@ -114,29 +117,29 @@ func (h *ReleasesHandler) stepLabels(
 	return labels
 }
 
-// digestOf reads a published image's digest, and says whether it diverged.
+// digestOf reads a published image's digest, and says whether it diverged, or whether the image is
+// on a registry the dashboard does not read.
 //
 // Divergence is the delivery invariant: a promotion tag must carry the approved image's
 // digest. A gap reports an image rebuilt meanwhile, that is, a delivery that is no longer
 // the one that was approved.
 func (h *ReleasesHandler) digestOf(
 	ctx context.Context, reference string, promotions []ReleasePromotion,
-) (string, bool) {
+) (digest string, diverged, foreign bool) {
 	if h.images == nil {
-		return "", false
+		return "", false, false
 	}
-	repository, tag, ok := splitReference(reference)
-	if !ok {
-		return "", false
+	digest, err := h.images.DigestOf(ctx, reference)
+	if errors.Is(err, imagenames.ErrForeign) {
+		return "", false, true
 	}
-
-	digest, err := h.images.Digest(ctx, repository, tag)
 	if err != nil || digest == "" {
-		return "", false
+		return "", false, false
 	}
 
+	parsed := imagenames.Parse(reference)
 	for _, promotion := range promotions {
-		promoted, err := h.images.Digest(ctx, repository, promotion.Tag)
+		promoted, err := h.images.DigestOf(ctx, imagenames.Reference(parsed.Registry, parsed.Name, promotion.Tag))
 		if err != nil || promoted == "" {
 			// A tag absent from the registry is not a divergence: the promotion may simply not have
 			// completed. Announcing it as a gap would send someone hunting for a rebuild where there is
@@ -144,28 +147,8 @@ func (h *ReleasesHandler) digestOf(
 			continue
 		}
 		if promoted != digest {
-			return digest, true
+			return digest, true, false
 		}
 	}
-	return digest, false
-}
-
-// splitReference separates the short repository and the tag of a full reference.
-//
-// The short repository because that is what the registry client expects: it already carries
-// its organisation.
-func splitReference(reference string) (repository, tag string, ok bool) {
-	colon := strings.LastIndex(reference, ":")
-	slash := strings.LastIndex(reference, "/")
-	if colon < 0 || colon < slash {
-		return "", "", false
-	}
-	path, tag := reference[:colon], reference[colon+1:]
-	if slash >= 0 {
-		path = path[slash+1:]
-	}
-	if path == "" || tag == "" {
-		return "", "", false
-	}
-	return path, tag, true
+	return digest, false, false
 }

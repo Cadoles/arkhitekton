@@ -147,10 +147,6 @@ type ProjectKeys interface {
 	// its own. The absence **stops the run**: there is no shared key left to fall back on, and
 	// building with another project's is precisely what was made impossible.
 	DeployKeySecret(ctx context.Context, projectID int64) (string, bool, error)
-	// RegistrySecret returns the secret the project **names** in order to push its images, and
-	// false when it names none. Named and not created: a registry credential comes from a human,
-	// and the deployment provisions it.
-	RegistrySecret(ctx context.Context, projectID int64) (string, bool, error)
 }
 
 // WithProjectKeys wires the per-project deploy keys.
@@ -723,9 +719,6 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 		return settings, nil
 	}
 
-	// Two settings, read separately: a project may have its key without naming a registry, and the
-	// reverse. Handling them together would lose one when the other is missing.
-
 	gitSecret, found, err := s.deployKeys.DeployKeySecret(ctx, *job.ProjectID)
 	switch {
 	case err == nil && !found && !binds(pipeline, ProjectDeployKey):
@@ -742,16 +735,6 @@ func (s *Scheduler) settingsFor(ctx context.Context, job store.Job, pipeline cat
 	}
 	if found {
 		overrides[ProjectDeployKey] = gitSecret
-	}
-
-	registrySecret, found, err := s.deployKeys.RegistrySecret(ctx, *job.ProjectID)
-	if err != nil {
-		// This one does not fail the run: the deployment's secret stays valid, and that is where the
-		// projects naming none push.
-		s.logger.Error("project's registry secret",
-			"job", job.ID, "project", *job.ProjectID, "error", err)
-	} else if found {
-		overrides["pipeline.registrySecret"] = registrySecret
 	}
 
 	// A **copy** layered over, never a write into the shared map.

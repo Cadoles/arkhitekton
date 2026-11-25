@@ -10,6 +10,7 @@ import (
 
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
@@ -95,7 +96,7 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 				},
 			},
 		},
-	}).WithSuggestions(fake, "reg.example.fr/mstore", nil)
+	}).WithSuggestions(fake, imagenames.Fixed("reg.example.fr/mstore"), nil)
 }
 
 type queueListing struct {
@@ -372,7 +373,7 @@ func TestAFancifulParameterNameIsRefused(t *testing.T) {
 // BuildableProject names the host project. One is enough here: these tests are about what
 // the handler does with the project, not about choosing it.
 func (f *fakeQueueStore) BuildableProject(context.Context) (store.Project, error) {
-	return store.Project{ID: 1, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+	return store.Project{ID: 1, Repository: "vcarroy/test"}, nil
 }
 
 // ProjectBySlug resolves the project named in the path. One here, answering any slug:
@@ -381,7 +382,7 @@ func (f *fakeQueueStore) ProjectBySlug(_ context.Context, slug string) (store.Pr
 	if slug != testProjectSlug {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test", Dockerfile: "Dockerfile"}, nil
+	return store.Project{ID: 1, Slug: slug, Repository: "vcarroy/test"}, nil
 }
 
 // A run launched from a project's screen clones that project's repository: the job carries the
@@ -427,7 +428,7 @@ func TestTheLaunchFormOffersTheOpenPullRequests(t *testing.T) {
 	fake := newFakeQueueStore()
 	followed := pullFollowingStore{fake}
 	handler := NewQueueHandler(fake, &catalog.Catalog{MaxConcurrentRuns: 1}).
-		WithSuggestions(followed, "reg", nil)
+		WithSuggestions(followed, imagenames.Fixed("reg"), nil)
 
 	listing := listQueues(t, handler)
 	offered := listing.Suggestions[catalog.SuggestPullRequest]

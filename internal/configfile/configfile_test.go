@@ -26,14 +26,14 @@ kind: Project
 metadata: {name: mstore-test-project}
 spec:
   repository: vcarroy/mstore-test-project
-  targets: [{stage: portal, image: portal}, {image: cli, promote: false}]
   plugins:
+    docker: {config: {dockerfile: ./misc/Dockerfile}}
     mstore: {config: {deployer: flux}}
   pipelines: {mstore/e2e-tests: false}
   trackerStatuses: {"En cours": doing}
   releaseAutomation:
     enabled: false
-    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}]}]
+    stages: [{role: build, gestes: [{kind: pipeline, ref: docker/build}, {kind: pipeline, ref: docker/build, promote: false}]}]
   reactions:
     - name: Analyse à chaque push
       event: gitea.push
@@ -70,15 +70,18 @@ func TestAConfigurationIsReadWithItsDefaults(t *testing.T) {
 	if project.Name != "mstore-test-project" || project.Pipelines["mstore/e2e-tests"] {
 		t.Errorf("project = %+v", project)
 	}
-	if !IsOn(project.Targets[0].Promote) || IsOn(project.Targets[1].Promote) {
-		t.Errorf("targets = %+v", project.Targets)
+	if project.Plugins["docker"].Config["dockerfile"].Plain != "./misc/Dockerfile" {
+		t.Errorf("docker settings = %+v", project.Plugins["docker"])
 	}
 	if !IsOn(project.Reactions[0].Enabled) || IsOn(project.Schedules[0].Enabled) {
 		t.Errorf("switches: reaction %v, schedule %v", project.Reactions[0].Enabled, project.Schedules[0].Enabled)
 	}
 	automation := project.ReleaseAutomation
 	if automation == nil || IsOn(automation.Enabled) || len(automation.Stages) != 1 {
-		t.Errorf("release automation = %+v, want its stage, switched off", automation)
+		t.Fatalf("release automation = %+v, want its stage, switched off", automation)
+	}
+	if gestes := automation.Stages[0].Gestes; !gestes[0].Promoted() || gestes[1].Promoted() {
+		t.Errorf("promote = %+v", gestes)
 	}
 }
 
@@ -167,8 +170,12 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 			want: "enable",
 		},
 		"a key moved to a plugin": {
-			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec: {repository: a/b, versionFile: version.txt}\n",
-			want: "plugins.mstore.config.versionFile",
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec: {repository: a/b, dockerfile: Dockerfile}\n",
+			want: "plugins.docker.config.dockerfile",
+		},
+		"a project's images": {
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: p}\nspec: {repository: a/b, targets: [{image: portal}]}\n",
+			want: "promote: false",
 		},
 		"bad slug": {
 			yaml: "apiVersion: arkhitekton.config/v1\nkind: Project\nmetadata: {name: My_Project}\nspec: {repository: a/b}\n",

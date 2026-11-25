@@ -51,10 +51,10 @@ type QueueHandler struct {
 	// releases populates the tag lists. Nil-safe: without it the fields concerned stay
 	// free-text, which is the previous behaviour.
 	releases Releases
-	// registryProject prefixes the images offered. Empty, no image is suggested: a
+	// registry prefixes the images offered, the project's. Empty, no image is suggested: a
 	// truncated name would look like a pullable reference without being one.
-	registryProject string
-	logger          *slog.Logger
+	registry imagenames.RegistryOf
+	logger   *slog.Logger
 	// environments returns the environments offered. Nil: none, the field stays free-text.
 	// Supplied by the extensions.
 	environments func(ctx context.Context, projectSlug string) []Suggestion
@@ -66,10 +66,10 @@ func NewQueueHandler(queue QueueStore, pipelines catalog.Source) *QueueHandler {
 
 // WithSuggestions wires the lists the launch form offers.
 func (h *QueueHandler) WithSuggestions(
-	releases Releases, registryProject string, logger *slog.Logger,
+	releases Releases, registry imagenames.RegistryOf, logger *slog.Logger,
 ) *QueueHandler {
 	h.releases = releases
-	h.registryProject = registryProject
+	h.registry = registry
 	h.logger = logger
 	return h
 }
@@ -239,7 +239,7 @@ func (h *QueueHandler) List(w http.ResponseWriter, r *http.Request) {
 // suggestions builds the lists the launch form offers.
 //
 // Composed here and not by the client: the tags come from the database, the
-// environments from the extensions, and the images from a configuration prefix the
+// environments from the extensions, and the images from the project's registry, which the
 // browser does not know. Having the client assemble them would mean sending it that
 // prefix, hence publishing it, for no gain.
 //
@@ -317,10 +317,11 @@ func (h *QueueHandler) suggestions(ctx context.Context, slug string) map[string]
 	// One list per image declared by the catalogue, and not per image known to the code:
 	// two parameters that both want a reference do not expect the same one, and publishing
 	// one more image must not require a recompile.
+	registry := h.registry.Resolve(ctx, currentID)
 	for _, name := range catalog.Of(h.catalog).SuggestedImages() {
 		references := make([]option, 0, len(releases))
 		for _, release := range releases {
-			reference := imagenames.Reference(h.registryProject, name, release.Tag)
+			reference := imagenames.Reference(registry, name, release.Tag)
 			if reference == "" {
 				continue
 			}

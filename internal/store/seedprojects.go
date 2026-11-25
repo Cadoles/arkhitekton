@@ -19,7 +19,10 @@ import (
 //
 // Returns how many repositories were actually declared, so the caller can say it in its logs
 // rather than suggest an operation with no effect.
-func (db *DB) SeedProjects(ctx context.Context, projects []Project) (int, error) {
+//
+// A project declared here also receives its plugin settings, by repository: the Dockerfile a
+// deployment names belongs to the docker plugin.
+func (db *DB) SeedProjects(ctx context.Context, projects []Project, plugins map[string][]PluginSettings) (int, error) {
 	declared := 0
 	for _, project := range projects {
 		if project.Repository == "" {
@@ -29,10 +32,15 @@ func (db *DB) SeedProjects(ctx context.Context, projects []Project) (int, error)
 			continue
 		}
 
-		_, err := db.CreateProject(ctx, project)
+		id, err := db.CreateProject(ctx, project)
 		switch {
 		case err == nil:
 			declared++
+			for _, entry := range plugins[project.Repository] {
+				if err := db.SetProjectPluginSettings(ctx, id, entry, project.CreatedBy); err != nil {
+					return declared, fmt.Errorf("bootstrapping project %q: %w", project.Repository, err)
+				}
+			}
 		case errors.Is(err, ErrProjectExists):
 			// Already declared: the nominal case after the first start-up.
 		default:

@@ -27,8 +27,6 @@ const (
 	contextPrerelease     = "release.prerelease"
 	contextPullRequestURL = "pull_request.url"
 	contextPlanSummary    = "plan.summary"
-	contextDockerfile     = "project.dockerfile"
-	contextBuildContext   = "project.build_context"
 )
 
 // ContextSource adds to a run's context what the database knows of its subject.
@@ -84,10 +82,21 @@ type IssueLinks func(ctx context.Context, projectID int64, issue string) string
 
 // RunContext reads a run's release and pull request variables.
 type RunContext struct {
-	store  RunContextStore
-	links  DashboardLinks
-	issues IssueLinks
-	logger *slog.Logger
+	store    RunContextStore
+	links    DashboardLinks
+	issues   IssueLinks
+	settings ProjectSettings
+	logger   *slog.Logger
+}
+
+// ProjectSettings gives the plugins' settings resolved for a project, as `<plugin>.<field>`.
+type ProjectSettings func(ctx context.Context, projectID int64) (map[string]string, error)
+
+// WithSettings has a run read its project's plugin settings: a build step then writes
+// `{docker.dockerfile}` once rather than a path per environment.
+func (c *RunContext) WithSettings(settings ProjectSettings) *RunContext {
+	c.settings = settings
+	return c
 }
 
 func NewRunContext(source RunContextStore, publicURL string, issues IssueLinks, logger *slog.Logger) *RunContext {
@@ -103,13 +112,12 @@ func NewRunContext(source RunContextStore, publicURL string, issues IssueLinks, 
 // Enrich implements ContextSource.
 func (c *RunContext) Enrich(ctx context.Context, run store.PlanRun) map[string]string {
 	added := map[string]string{}
-	if run.ProjectID != nil {
-		// What a build step names when it builds as the project declares: a configuration then
-		// writes `{project.dockerfile}` once rather than a path per environment.
-		if project, err := c.store.GetProject(ctx, *run.ProjectID); err == nil {
-			added[contextDockerfile] = project.Dockerfile
-			added[contextBuildContext] = project.BuildContext
+	if run.ProjectID != nil && c.settings != nil {
+		values, err := c.settings(ctx, *run.ProjectID)
+		if err != nil {
+			c.logger.Warn("plugin settings of a run", "run", run.ID, "error", err)
 		}
+		maps.Copy(added, values)
 	}
 	if run.PullRequestID != nil {
 		if link := c.links.PullRequest(ctx, run.ProjectID, run.Context["number"]); link != "" {

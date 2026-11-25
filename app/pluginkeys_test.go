@@ -59,3 +59,37 @@ func TestSettingsSourcesLayerInOrder(t *testing.T) {
 		t.Errorf("%v, %v", merged, err)
 	}
 }
+
+// A project's registry and its Secret reach the Docker pipelines over the deployment's; what it
+// leaves empty keeps the deployment's.
+func TestAProjectsRegistryReplacesTheDeploymentsOne(t *testing.T) {
+	db := resolvedFixture{"docker": {"registry": "reg.example.fr/shop/", "registrySecret": "regcred-shop"}}
+	keys, err := dockerKeys(db, "reg.example.fr/team")(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys["registry.project"] != "reg.example.fr/shop" || keys["pipeline.registrySecret"] != "regcred-shop" {
+		t.Errorf("keys = %v", keys)
+	}
+
+	keys, err = dockerKeys(resolvedFixture{"docker": {}}, "reg.example.fr/team")(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, named := keys["pipeline.registrySecret"]; named || keys["registry.project"] != "reg.example.fr/team" {
+		t.Errorf("a project naming nothing: keys = %v", keys)
+	}
+}
+
+// A run reads a project's Docker settings with their defaults: a project that set nothing builds
+// its `Dockerfile` from the root.
+func TestARunReadsTheDockerSettingsWithTheirDefaults(t *testing.T) {
+	values, err := dockerVariables(resolvedFixture{"docker": {"dockerfile": "./misc/Dockerfile"}}, "reg/team")(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["docker.dockerfile"] != "./misc/Dockerfile" || values["docker.buildContext"] != "." ||
+		values["docker.registry"] != "reg/team" {
+		t.Errorf("values = %v", values)
+	}
+}

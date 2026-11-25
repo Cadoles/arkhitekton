@@ -36,11 +36,8 @@ func TestTheExportWritesWhatWasConfigured(t *testing.T) {
 	if !ok {
 		t.Fatalf("project portal missing: %+v", set.Projects)
 	}
-	if project.Repository != "team/portal" || len(project.ReleaseKinds) != 1 || project.BuildContext != "" {
+	if project.Repository != "team/portal" || len(project.ReleaseKinds) != 1 {
 		t.Errorf("project = %+v", project)
-	}
-	if len(project.Targets) != 2 || !configfile.IsOn(project.Targets[0].Promote) || configfile.IsOn(project.Targets[1].Promote) {
-		t.Errorf("targets = %+v", project.Targets)
 	}
 	if secret := project.Plugins["gitea"].Config["webhook_secret"]; secret.Env != "ARK_PORTAL_GITEA_WEBHOOK_SECRET" {
 		t.Errorf("project secret = %+v", secret)

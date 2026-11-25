@@ -116,7 +116,7 @@ func TestLiveACommitStatusIsReallySet(t *testing.T) {
 		// The repository comes from the project's settings, and not from the step: that is where it is
 		// declared once and for all.
 		Repository: repo, Label: "Demo", ForgeURL: url,
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("projectRow: %v", err)
@@ -254,7 +254,7 @@ func TestLiveASwitchedOffPluginDoesNotWriteToTheForge(t *testing.T) {
 
 	projectID, err := db.CreateProject(ctx, store.Project{
 		Repository: repo, Label: "Demo", ForgeURL: url,
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("projectRow: %v", err)
@@ -351,7 +351,7 @@ func TestLiveAStateOutsideTheVocabularyDoesNotReachTheForge(t *testing.T) {
 
 	projectID, err := db.CreateProject(ctx, store.Project{
 		Repository: repo, Label: "Demo", ForgeURL: url,
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("projectRow: %v", err)

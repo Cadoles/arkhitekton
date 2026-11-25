@@ -6,6 +6,7 @@ package docker
 
 import (
 	"embed"
+	"strings"
 
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
 	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
@@ -38,11 +39,88 @@ func Plugin() capability.Plugin {
 		Label:      "Docker",
 		Summary:    "Construction, re-tag et scan de vulnérabilités (Trivy) des images de chaque projet.",
 		Mandatory:  true,
+		PerProject: true,
+		Global: []capability.Field{
+			{
+				Name: FieldRegistry, Label: "Registre", Type: capability.FieldText,
+				Help: "Hôte et projet où les images sont publiées, sans nom d'image. " +
+					"Vide : celui du déploiement (REGISTRY_PROJECT).",
+				Placeholder: "reg.example.fr/my-team",
+			},
+		},
+		Project: []capability.Field{
+			{
+				Name: FieldRegistry, Label: "Registre", Type: capability.FieldText,
+				Help:        "Vide : celui de l'instance.",
+				Placeholder: "reg.example.fr/my-team",
+			},
+			{
+				Name: FieldRegistrySecret, Label: "Secret du registre", Type: capability.FieldText,
+				Help: "Nom du Secret Kubernetes qui autorise à publier dans ce registre, créé " +
+					"à côté des pipelines. Vide : celui du déploiement.",
+				Placeholder: "regcred-my-project",
+			},
+			{
+				Name: FieldDockerfile, Label: "Dockerfile", Type: capability.FieldText,
+				Help: "Depuis la racine du dépôt. Une étape de construction le cite par " +
+					"`{docker.dockerfile}`. Vide : `Dockerfile`.",
+				Placeholder: DefaultDockerfile,
+			},
+			{
+				Name: FieldBuildContext, Label: "Contexte de construction", Type: capability.FieldText,
+				Help: "Répertoire envoyé au moteur de build. Une étape le cite par " +
+					"`{docker.buildContext}`. Vide : la racine.",
+				Placeholder: DefaultBuildContext,
+			},
+		},
 		Pipelines: []capability.Pipeline{
 			build(pick(all, "build-image", "generate-image-tag", "buildx-build-image", "push-image")),
 			retag(pick(all, "retag-image", "tag-image")),
 			scan(pick(all, "docker-scan", "trivy-image")),
 		},
+	}
+}
+
+// The settings' names, as a project's configuration and a plan's variables `{docker.<name>}` say them.
+const (
+	FieldRegistry       = "registry"
+	FieldRegistrySecret = "registrySecret"
+	FieldDockerfile     = "dockerfile"
+	FieldBuildContext   = "buildContext"
+)
+
+// The defaults of a project that names no Dockerfile and no context.
+const (
+	DefaultDockerfile   = "Dockerfile"
+	DefaultBuildContext = "."
+)
+
+// Settings are a project's Docker settings, resolved.
+type Settings struct {
+	// Registry is where its images are published, `host/project`, without an image name.
+	Registry string
+	// RegistrySecret names the Secret allowing pushes to Registry. Empty: the deployment's.
+	RegistrySecret string
+	Dockerfile     string
+	BuildContext   string
+}
+
+// Resolve reads a project's resolved plugin configuration, the instance's under the project's.
+//
+// The deployment's registry stands in for an instance that names none: it is where every image
+// went before the setting existed.
+func Resolve(config map[string]string, deploymentRegistry string) Settings {
+	value := func(name, fallback string) string {
+		if typed := strings.TrimSpace(config[name]); typed != "" {
+			return typed
+		}
+		return fallback
+	}
+	return Settings{
+		Registry:       strings.Trim(value(FieldRegistry, deploymentRegistry), "/"),
+		RegistrySecret: value(FieldRegistrySecret, ""),
+		Dockerfile:     value(FieldDockerfile, DefaultDockerfile),
+		BuildContext:   value(FieldBuildContext, DefaultBuildContext),
 	}
 }
 
@@ -74,7 +152,7 @@ func build(manifests []capability.Manifest) capability.Pipeline {
 				"dockerfile": {
 					Source: capability.ParamInput, Label: "Dockerfile",
 					Help: "Chemin du fichier qui construit cette image, depuis la racine du dépôt. " +
-						"Dans un plan, `{project.dockerfile}` pour celui du projet.",
+						"Dans un plan, `{docker.dockerfile}` pour celui du projet.",
 					Placeholder: "./Dockerfile",
 				},
 				"context": {

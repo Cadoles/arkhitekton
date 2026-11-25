@@ -132,6 +132,9 @@ export type ProducedArtifact = {
   /** Un tag de promotion porte un digest différent : une image a été
    *  reconstruite entre la validation et la livraison (B17). */
   diverged?: boolean
+  /** L'image est sur un autre registre que celui du déploiement : son digest
+   *  n'est pas lu. */
+  foreign?: boolean
 }
 
 /** Détail d'une release : la liste n'en porte que l'en-tête. */

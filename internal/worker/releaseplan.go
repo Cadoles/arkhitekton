@@ -12,6 +12,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"forge.cadoles.com/vcarroy/arkhitekton/internal/images"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
@@ -343,7 +344,7 @@ type ReleasePlanner struct {
 	engine      *Engine
 	catalog     catalog.Source
 	automations Automations
-	registry    string
+	registry    images.RegistryOf
 	logger      *slog.Logger
 }
 
@@ -356,15 +357,15 @@ type Automations interface {
 }
 
 func NewReleasePlanner(
-	engine *Engine, registry catalog.Source, automations Automations,
-	registryProject string, logger *slog.Logger,
+	engine *Engine, pipelines catalog.Source, automations Automations,
+	registry images.RegistryOf, logger *slog.Logger,
 ) *ReleasePlanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &ReleasePlanner{
-		engine: engine, catalog: registry, automations: automations,
-		registry: registryProject, logger: logger,
+		engine: engine, catalog: pipelines, automations: automations,
+		registry: registry, logger: logger,
 	}
 }
 
@@ -421,7 +422,7 @@ func (p *ReleasePlanner) OpenReleasePlan(
 		ProjectID: &projectID,
 		ReleaseID: &releaseID,
 		Plan:      declared,
-		Context:   releaseContext(record, revision, p.registry),
+		Context:   releaseContext(record, revision, p.registry.Resolve(ctx, project.ID)),
 	})
 }
 

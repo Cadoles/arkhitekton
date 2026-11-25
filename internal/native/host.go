@@ -21,6 +21,7 @@ type HostStore interface {
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
 	GetProject(ctx context.Context, id int64) (store.Project, error)
 	GetRelease(ctx context.Context, projectID int64, tag string) (store.Release, error)
+	ReleaseImages(ctx context.Context, release store.Release) ([]store.ReleaseImage, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	Audit(ctx context.Context, actor, action, target string, payload map[string]any) error
 	ResolvedPlugin(ctx context.Context, projectID int64, pluginID string) (store.PluginSettings, error)
@@ -72,7 +73,11 @@ func (h *host) GetRelease(ctx context.Context, request *pluginv1.ReleaseByTag) (
 	if err != nil {
 		return nil, storeStatus(err)
 	}
-	return ReleaseTo(release), nil
+	images, err := h.deps.Store.ReleaseImages(ctx, release)
+	if err != nil {
+		return nil, storeStatus(err)
+	}
+	return ReleaseTo(release, images), nil
 }
 
 func (h *host) Enqueue(ctx context.Context, request *pluginv1.JobRequest) (*pluginv1.JobID, error) {
@@ -174,22 +179,18 @@ func storeStatus(err error) error {
 
 // ProjectTo is a project as a plugin receives it.
 func ProjectTo(project store.Project) *pluginv1.Project {
-	targets := make([]*pluginv1.Target, 0, len(project.Targets))
-	for _, target := range project.Targets {
-		targets = append(targets, &pluginv1.Target{
-			Stage: target.Stage, Image: target.Image, Dockerfile: target.Dockerfile, Promote: target.Promote,
-		})
-	}
 	return &pluginv1.Project{
 		Id: project.ID, Slug: project.Slug, Repository: project.Repository, Label: project.Label,
-		ForgeUrl: project.ForgeURL, Dockerfile: project.Dockerfile, BuildContext: project.BuildContext,
-		ImageRegistry: project.ImageRegistry, VersionScheme: project.VersionScheme,
-		Targets: targets, MultiStage: project.MultiStage,
+		ForgeUrl: project.ForgeURL, VersionScheme: project.VersionScheme,
 	}
 }
 
-// ReleaseTo is a release as a plugin receives it.
-func ReleaseTo(release store.Release) *pluginv1.Release {
+// ReleaseTo is a release as a plugin receives it, with the images it promotes.
+func ReleaseTo(release store.Release, images []store.ReleaseImage) *pluginv1.Release {
+	promoted := make([]*pluginv1.ReleaseImage, 0, len(images))
+	for _, image := range images {
+		promoted = append(promoted, &pluginv1.ReleaseImage{Name: image.Name, Reference: image.Reference})
+	}
 	released := ""
 	if release.ReleasedAt != nil {
 		released = formatTime(*release.ReleasedAt)
@@ -199,6 +200,7 @@ func ReleaseTo(release store.Release) *pluginv1.Release {
 		Kind: release.Kind, State: release.State, ImageVersion: release.ImageVersion,
 		SourceReleaseId: release.SourceReleaseID, GitRef: release.GitRef, GitCommit: release.GitCommit,
 		CreatedBy: release.CreatedBy, CreatedAt: formatTime(release.CreatedAt), ReleasedAt: released,
+		Images: promoted,
 	}
 }
 

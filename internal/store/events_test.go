@@ -167,7 +167,6 @@ func TestThePayloadCrossesAndTheFeedStaysWithinTheProject(t *testing.T) {
 	// question asked.
 	other, err := db.CreateProject(ctx, Project{
 		Repository: "vcarroy/other", Slug: "other", Label: "Autre",
-		BuildContext: ".",
 	})
 	if err != nil {
 		t.Fatalf("project: %v", err)

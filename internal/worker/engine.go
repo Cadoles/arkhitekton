@@ -222,11 +222,16 @@ func (e *Engine) collectArtifacts(
 		kind = e.products(step.Ref)
 	}
 
+	promoted := true
+	if step.Stage < len(run.Plan.Stages) && step.Position < len(run.Plan.Stages[step.Stage].Gestes) {
+		promoted = run.Plan.Stages[step.Stage].Gestes[step.Position].Promoted()
+	}
+
 	produced := make([]store.PlanArtifact, 0, len(results))
 	for name, reference := range results {
 		produced = append(produced, store.PlanArtifact{
 			Stage: step.Stage, Position: step.Position,
-			Name: name, Kind: kind, Reference: reference,
+			Name: name, Kind: kind, Reference: reference, Promoted: promoted,
 		})
 	}
 

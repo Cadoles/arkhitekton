@@ -20,7 +20,7 @@ func TestLiveAReceivedFactIsRoutedOnce(t *testing.T) {
 
 	projectID, err := db.CreateProject(ctx, store.Project{
 		Repository: "acme/shop", Label: "Shop", ForgeURL: "https://forge.example.fr",
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("project: %v", err)
@@ -99,7 +99,7 @@ func TestLiveAPlanWithoutAReleaseAdvances(t *testing.T) {
 
 	projectID, err := db.CreateProject(ctx, store.Project{
 		Repository: "acme/shop", Label: "Shop", ForgeURL: "https://forge.example.fr",
-		Dockerfile: "./Dockerfile", BuildContext: ".", CreatedBy: "test",
+		CreatedBy: "test",
 	})
 	if err != nil {
 		t.Fatalf("project: %v", err)

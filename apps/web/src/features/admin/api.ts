@@ -77,33 +77,6 @@ export const ACTION_LABEL: Record<string, string> = {
  * rien ne permettait de vérifier qu'il y avait accès.
  */
 
-/**
- * Une étape constructible et le dépôt d'image qu'elle alimente.
- *
- * `stage` est vide sur un Dockerfile à image unique, qui n'a pas de cible.
- * `reference` est composée par le serveur — registre compris — et n'est pas
- * renvoyée : la recomposer côté navigateur la ferait diverger de ce que le
- * pipeline recevra.
- */
-export type ProjectTarget = {
-  stage: string
-  image: string
-  /**
-   * Dockerfile propre à cette image, quand il diffère de celui du projet. Un
-   * dépôt peut en porter un par image — `Dockerfile.dev`, `Dockerfile.prod` —
-   * plutôt qu'un seul à étapes. Vide, celui du projet s'applique.
-   */
-  dockerfile?: string
-  reference?: string
-  /**
-   * Vrai si un re-tag propage cette image vers les environnements. Faux pour une
-   * image que la construction publie sans qu'aucun environnement du flux ne la
-   * déploie — l'image de développement : la re-taguer en préproduction
-   * reviendrait à l'annoncer comme livrable.
-   */
-  promote: boolean
-}
-
 export type Project = {
   id: number
   /** Nom du projet dans les URL, dérivé du dépôt à la création. */
@@ -113,16 +86,6 @@ export type Project = {
   forge_url: string
   /** Lien vers le dépôt. Vide si la forge n'est pas connue. */
   url: string
-  dockerfile: string
-  build_context: string
-  /** Registre et projet où publier, sans le nom d'image. */
-  image_registry: string
-  /** Secret autorisant à pousser vers ce registre. Vide : celui du déploiement.
-   *  Un **nom**, jamais un identifiant — le secret est provisionné par le
-   *  déploiement, le dashboard se contente de le désigner. */
-  registry_secret: string
-  multi_stage: boolean
-  targets: ProjectTarget[]
   /** Absent : aucun test n'a eu lieu. État distinct d'un test qui a échoué. */
   checked_at?: string
   check_ok?: boolean
@@ -152,8 +115,6 @@ type ProjectsResponse = {
   /** Moitié publique de la clé que les pipelines présentent au clone. */
   deploy_key: string
   forge_url: string
-  /** Registre proposé à la déclaration : celui où publient les projets existants. */
-  image_registry: string
   /** Faux quand la forge n'est pas configurée : le test ne peut pas conclure. */
   probe_configured: boolean
 }
@@ -169,12 +130,6 @@ export type ProjectDraft = {
   repository: string
   label: string
   forge_url: string
-  dockerfile: string
-  build_context: string
-  image_registry: string
-  registry_secret: string
-  multi_stage: boolean
-  targets: ProjectTarget[]
 }
 
 export function useProjects() {

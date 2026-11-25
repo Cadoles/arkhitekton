@@ -144,9 +144,8 @@ func (db *DB) ProjectsWithoutAutomation(ctx context.Context) ([]Project, error) 
 		return nil, err
 	}
 
-	// The projects are read in full: the catch-up needs their targets, their Dockerfile and
-	// their build context, and gathering them here spares the caller a second query per
-	// project.
+	// The projects are read in full: the catch-up names the default image after the slug, and
+	// gathering them here spares the caller a second query per project.
 	projects := make([]Project, 0, len(ids))
 	for _, id := range ids {
 		project, err := db.GetProject(ctx, id)

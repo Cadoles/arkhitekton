@@ -43,14 +43,10 @@ type ReleaseStore interface {
 	RecordEvent(ctx context.Context, fact event.Event) (bool, error)
 	Enqueue(ctx context.Context, request store.JobRequest) (int64, error)
 	ProjectBySlug(ctx context.Context, slug string) (store.Project, error)
-	// GetProject says which images a release builds and which a re-tag propagates. Read
-	// on every enqueue rather than memorised at start-up: the stages are edited from
-	// administration, and a release launched after the change must build what is
-	// declared now.
-	//
-	// By identifier, the one the route carries: looking for "the buildable project"
-	// assumed there was only one, which a second declared project makes false.
+	// GetProject reads the project a route names, by the identifier it carries.
 	GetProject(ctx context.Context, id int64) (store.Project, error)
+	// ReleaseImages says which images a release promotes: what a final release re-tags.
+	ReleaseImages(ctx context.Context, release store.Release) ([]store.ReleaseImage, error)
 	SetReleaseState(ctx context.Context, id int64, state string) error
 	MarkReleased(ctx context.Context, id int64, from string) (bool, error)
 	AdvanceReleaseState(ctx context.Context, id int64, from, to string) (bool, error)
@@ -102,10 +98,10 @@ type ReleasesHandler struct {
 	// trackers serves the links to a note's issues. Nil, or a project with no tracker, and the
 	// links are omitted rather than rendered dead.
 	trackers Trackers
-	// registryProject prefixes the published images. It serves to name, to the audit,
-	// the ones it must analyse on a re-run — it analyses an image already published,
+	// registry gives the registry a project's images are published to. It serves to name, to
+	// the audit, the ones it must analyse on a re-run: it analyses an image already published,
 	// never a rebuild.
-	registryProject string
+	registry imagenames.RegistryOf
 	// forges resolves a project's forge, to anchor a release on a commit and tag it. Nil when
 	// no forge is wired.
 	forges Forges
@@ -218,7 +214,9 @@ func (h *ReleasesHandler) WithForges(forges Forges) *ReleasesHandler {
 // Images is what the handler needs from the registry: reading, never writing. The
 // re-tag is done by a Task with its own credentials.
 type Images interface {
-	Digest(ctx context.Context, repository, tag string) (string, error)
+	// DigestOf reads the digest of an image by its full reference. An image on another registry
+	// than the deployment's is not read: its credentials do not open it.
+	DigestOf(ctx context.Context, reference string) (string, error)
 }
 
 // CommitResolver is what the handler needs from the forge to anchor a release.
@@ -250,11 +248,11 @@ func (h *ReleasesHandler) WithPlans(plans ReleasePlanner) *ReleasesHandler {
 
 func NewReleasesHandler(
 	releases ReleaseStore, pipelines catalog.Source,
-	authorizer *auth.Authorizer, images Images, registryProject string,
+	authorizer *auth.Authorizer, images Images, registry imagenames.RegistryOf,
 ) *ReleasesHandler {
 	return &ReleasesHandler{
 		store: releases, catalog: pipelines, authorizer: authorizer,
-		images: images, registryProject: registryProject,
+		images: images, registry: registry,
 		logger: slog.Default(),
 	}
 }
@@ -840,6 +838,7 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	var warnings []string
 	to := release.StateBuilding
 	sourceTag := ""
+	var sourceImages []store.ReleaseImage
 	if spec.Mode == release.ModeBuild {
 		// Nothing builds without a reference: the plan would refuse it, and the release would
 		// fail for a reason the draft could still fix.
@@ -894,6 +893,20 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sourceTag = source.Tag
+		// What the candidate's build published is what the final re-tags. Read before the launch
+		// is recorded: a final with nothing to re-tag would carry a tag that names no image.
+		if record.ImageVersion != record.Tag {
+			if sourceImages, err = h.store.ReleaseImages(r.Context(), source); err != nil {
+				writeProblem(w, http.StatusInternalServerError, "Cannot read the source's images", "")
+				return
+			}
+			if len(sourceImages) == 0 {
+				writeProblem(w, http.StatusConflict, "Cannot re-tag", fmt.Sprintf(
+					"release %s published no promoted image: there is nothing to re-tag under %s",
+					source.Tag, record.Tag))
+				return
+			}
+		}
 	}
 
 	switch err := h.store.LaunchRelease(r.Context(), record.ID, string(to), record.GitCommit, identity.Subject); {
@@ -948,7 +961,7 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	// candidate's. Without that re-tag, the final tag names nothing: no image policy can
 	// select it, and the release is promotable nowhere although its image is ready.
 	if record.ImageVersion != record.Tag {
-		jobIDs, err := h.enqueueRetag(r.Context(), project.ID, record.ID, record, identity.Subject)
+		jobIDs, err := h.enqueueRetag(r.Context(), record, sourceImages, identity.Subject)
 		if err != nil {
 			// The release is launched: say so, rather than suggest a failure. The re-tag can be
 			// run again.
@@ -1316,7 +1329,7 @@ func (h *ReleasesHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registryProject)
+	params, missing := pipeline.VerificationInputs(revision, record.Tag, h.registry.Resolve(r.Context(), record.ProjectID))
 	if missing != "" {
 		writeProblem(w, http.StatusUnprocessableEntity, "Cannot rerun",
 			fmt.Sprintf("parameter %q cannot be set for this release", missing))
@@ -1408,8 +1421,9 @@ func (h *ReleasesHandler) Run(w http.ResponseWriter, r *http.Request) {
 		}
 		params[name] = value
 	}
+	registry := h.registry.Resolve(r.Context(), record.ProjectID)
 	for _, input := range pipeline.Inputs() {
-		if value := input.FromContext(revision, record.Tag, h.registryProject, ""); value != "" {
+		if value := input.FromContext(revision, record.Tag, registry, ""); value != "" {
 			params[input.Name] = value
 		}
 	}
@@ -1431,10 +1445,6 @@ func (h *ReleasesHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, store.AuditReleaseRun, tag, map[string]any{"kind": pipeline.Kind, "job": jobID})
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": jobID, "kind": pipeline.Kind, "params": params})
-}
-
-func imageReference(registryProject, name, tag string) string {
-	return imagenames.Reference(registryProject, name, tag)
 }
 
 // notePayload is one line of a release note.
@@ -1800,28 +1810,23 @@ func buildReference(record store.Release, requested string) string {
 
 // enqueueRetag queues the re-tag of a release towards its own tag.
 //
-// One run per promoted image — the development image is not one: no environment of the
-// promotion flow deploys it.
+// One run per image its source published and promotes: the development image is not one, no
+// environment of the promotion flow deploys it.
 func (h *ReleasesHandler) enqueueRetag(
-	ctx context.Context, projectID, releaseID int64, record store.Release, subject string,
+	ctx context.Context, record store.Release, images []store.ReleaseImage, subject string,
 ) ([]int64, error) {
 	pipeline, found := catalog.Of(h.catalog).Find(retagJobKind)
 	if !found {
 		return nil, errors.New("catalogue with no re-tag pipeline")
 	}
 
-	project, err := h.store.GetProject(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	targets := project.Promotable()
-	jobs := make([]int64, 0, len(targets))
-	for _, target := range targets {
+	releaseID := record.ID
+	jobs := make([]int64, 0, len(images))
+	for _, image := range images {
 		jobID, err := h.store.Enqueue(ctx, store.JobRequest{
 			Kind: pipeline.Kind,
 			Params: map[string]string{
-				"image-name": target.Image,
+				"image-name": image.Name,
 				"old-tag":    record.ImageVersion,
 				"new-tag":    record.Tag,
 			},
@@ -1829,7 +1834,7 @@ func (h *ReleasesHandler) enqueueRetag(
 			ReleaseID:   &releaseID,
 		})
 		if err != nil {
-			return jobs, fmt.Errorf("re-tag of %s: %w", target.Image, err)
+			return jobs, fmt.Errorf("re-tag of %s: %w", image.Name, err)
 		}
 		jobs = append(jobs, jobID)
 	}
