@@ -886,6 +886,20 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sourceTag = source.Tag
+		// A release produced from its source names the same code: its git tag goes on the commit
+		// its source was built from, and never moves a tag that already names another.
+		record.GitCommit = source.GitCommit
+		if record.GitCommit == "" {
+			warnings = append(warnings, "release "+source.Tag+" names no commit: tag "+record.Tag+
+				" was not set")
+		}
+		if taken := h.tagElsewhere(r.Context(), project.ID, record.Tag, record.GitCommit); taken != "" {
+			writeProblem(w, http.StatusConflict, "Tag already set",
+				fmt.Sprintf("tag %q already names commit %s on the forge, not %s, the commit release %s "+
+					"was built from: a tag is never moved", record.Tag,
+					shortSHA(taken), shortSHA(record.GitCommit), source.Tag))
+			return
+		}
 	}
 
 	switch err := h.store.LaunchRelease(r.Context(), record.ID, string(to), record.GitCommit, identity.Subject); {
@@ -900,7 +914,7 @@ func (h *ReleasesHandler) Launch(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	record.State, record.LaunchedBy, record.LaunchedAt = string(to), identity.Subject, &now
 
-	if spec.Mode == release.ModeBuild && record.GitCommit != "" {
+	if record.GitCommit != "" {
 		// The tag is set for humans and for traceability; the build starts from the commit.
 		// Its failure is therefore a caveat and does not prevent building.
 		_, tagWarnings := h.tagRelease(r.Context(), project.ID, record.Tag, record.GitCommit)

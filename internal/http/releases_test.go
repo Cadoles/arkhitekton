@@ -596,6 +596,38 @@ func TestAFinalReTagsWhatItsCandidatePublished(t *testing.T) {
 	}
 }
 
+// A final's git tag goes on the commit its candidate was built from, and a tag already naming
+// another commit refuses the launch: a tag never moves.
+func TestAFinalIsTaggedOnItsCandidatesCommit(t *testing.T) {
+	for _, existing := range []string{"", "0th3rc0mm1t"} {
+		fake := newFakeStore()
+		candidate := store.Release{
+			ID: 4, Tag: "1.8.0-rc3", Kind: "pre", State: "released", ImageVersion: "1.8.0-rc3", GitCommit: "c4nd1d4t3",
+		}
+		fake.releases[candidate.Tag] = candidate
+		forge := &fakeForge{commit: "c4nd1d4t3"}
+		if existing != "" {
+			forge.tags = []string{"1.8.0@" + existing}
+		}
+		handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
+		candidateBuilt(t, fake, candidate, fixturePlan(fake.pipelines).Stages[0].Gestes)
+		finalOf(t, handler)
+
+		recorder := launchDraft(handler, "1.8.0", auth.RoleReleaser)
+		if existing == "" {
+			if recorder.Code != http.StatusOK || !slices.Contains(forge.tags, "1.8.0@c4nd1d4t3") {
+				t.Errorf("launch %d, tags %v: the final is tagged on its candidate's commit", recorder.Code, forge.tags)
+			}
+			continue
+		}
+		if recorder.Code != http.StatusConflict || len(forge.tags) != 1 || fake.releases["1.8.0"].State != "draft" ||
+			len(fake.jobsOfKind("docker/retag")) != 0 {
+			t.Errorf("launch %d, tags %v, state %q: a tag naming another commit refuses the launch",
+				recorder.Code, forge.tags, fake.releases["1.8.0"].State)
+		}
+	}
+}
+
 // What cannot be re-tagged is built again, from the candidate's commit and under the final's tag:
 // binaries carry their version.
 func TestAFinalBuildsAgainWhatItCannotReTag(t *testing.T) {
@@ -1398,9 +1430,9 @@ func TestAnUnreachableForgeDoesNotPreventCreation(t *testing.T) {
 	}
 }
 
-// A final release is neither anchored nor tagged here: it is a re-tag, its commit is its
-// source candidate's, already tagged at its own creation.
-func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
+// A final never resolves a reference: its commit is its candidate's. A candidate naming none, one
+// launched before releases recorded their commit, leaves its final untagged, and the launch says so.
+func TestAFinalOfACandidateNamingNoCommitIsNotTagged(t *testing.T) {
 	fake := newFakeStore()
 	fake.releases["3.2.0-rc1"] = store.Release{
 		ID: 1, Tag: "3.2.0-rc1", Kind: "pre", State: "released", ImageVersion: "3.2.0-rc1",
@@ -1408,10 +1440,12 @@ func TestAFinalReleaseIsNotTaggedASecondTime(t *testing.T) {
 	forge := &fakeForge{commit: "abc123"}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge})
 
-	launched(t, handler, `{"tag":"3.2.0","kind":"final","source_tag":"3.2.0-rc1","tests_green":true}`)
+	response := launched(t, handler, `{"tag":"3.2.0","kind":"final","source_tag":"3.2.0-rc1","tests_green":true}`)
 	if len(forge.tags) != 0 || len(forge.resolved) != 0 {
-		t.Errorf("a final must neither resolve nor tag: resolved=%v tags=%v",
-			forge.resolved, forge.tags)
+		t.Errorf("resolved=%v tags=%v: nothing names the commit to tag", forge.resolved, forge.tags)
+	}
+	if !strings.Contains(response.Body.String(), "names no commit") {
+		t.Errorf("the launch does not say the tag was not set: %s", response.Body.String())
 	}
 }
 

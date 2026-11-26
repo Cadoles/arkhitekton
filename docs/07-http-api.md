@@ -101,7 +101,8 @@ Creating a release creates a draft (`201`, state `draft`): its note is detected,
 else leaves. `launch` resolves its reference, sets its git tag and opens its plan; a release
 whose kind is `from-source`, a final, opens a plan of what its source built instead: one re-tag
 per image the source published and promotes, and the build again of what does not re-tag, from
-the source's commit under the release's tag. The release is `building` until that plan's build
+the source's commit under the release's tag. Its git tag goes on that same commit. A tag is never
+moved: one the forge already carries on another commit refuses the launch (`409`). The release is `building` until that plan's build
 stage concludes, then `ready`, or `failed`, which `build` relaunches. A project that declares no
 automation releases a tag, `ready` at once. A second launch answers `409`, and so does a launch
 whose tag the forge already carries on another commit (the draft stays a draft, to be given
