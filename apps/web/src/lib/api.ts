@@ -11,7 +11,7 @@ const BASE = '/api/v1'
 
 /** Nom du cookie de double soumission, posé non-HttpOnly à dessein : c'est ce
  * qui permet à ce module de le relire pour le renvoyer en en-tête. */
-const CSRF_COOKIE = 'mstore_csrf'
+const CSRF_COOKIE = 'arkhitekton_csrf'
 const CSRF_HEADER = 'X-CSRF-Token'
 
 /** Erreur portant le statut HTTP, pour que l'appelant distingue les cas. */

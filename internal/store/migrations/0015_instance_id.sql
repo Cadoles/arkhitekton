@@ -1,7 +1,7 @@
 -- +goose Up
 -- Identité de cette base, pour distinguer deux générations de données.
 
--- Les noms de PipelineRun se composent de l'identifiant du job : `mstore-build-12`.
+-- Les noms de PipelineRun se composent de l'identifiant du job : `ark-build-12`.
 -- Ce choix est délibéré — deux essais du même job donnent le même nom, et la
 -- seconde création se heurte à un conflit que l'ordonnanceur lit comme « c'était
 -- déjà fait » plutôt que de créer un doublon.

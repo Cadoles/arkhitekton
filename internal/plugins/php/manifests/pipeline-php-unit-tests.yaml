@@ -29,7 +29,7 @@ spec:
 
   tasks:
     - name: git-clone
-      displayName: Clone mstore
+      displayName: Clone the repository
       taskRef:
         name: git-clone
       workspaces:

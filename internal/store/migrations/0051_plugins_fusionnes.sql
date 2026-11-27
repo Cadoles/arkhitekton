@@ -1,29 +1,10 @@
--- Flux et AppData deviennent un seul plugin, `mstore` (doc 16).
+-- Deux plugins compilés dans un déploiement fusionnaient ici en un seul, le plugin qui déploie.
 --
--- Le réglage de Flux est repris tel quel : son activation et son namespace. Un
--- `flux` éteint à la main donne un `mstore` éteint — une décision humaine ne se perd
--- pas dans un renommage.
---
--- AppData n'avait aucun réglage, et son activation par projet disparaît : le
--- plugin Mstore vaut pour toute l'instance.
+-- Il est depuis installé à part, et migre ses propres réglages : une base neuve n'a rien à reprendre
+-- ici. Le numéro reste pour que les bases qui l'ont déjà appliquée gardent un historique continu.
 
 -- +goose Up
-insert into plugin_settings (plugin_id, enabled, config, updated_at, updated_by)
-select 'mstore', enabled, config, updated_at, updated_by
-from plugin_settings where plugin_id = 'flux'
-on conflict (plugin_id) do nothing;
-
-delete from plugin_settings where plugin_id in ('flux', 'appdata');
-delete from project_plugins where plugin_id in ('flux', 'appdata', 'mstore');
+select 1;
 
 -- +goose Down
-insert into plugin_settings (plugin_id, enabled, config, updated_at, updated_by)
-select 'flux', enabled, config, updated_at, updated_by
-from plugin_settings where plugin_id = 'mstore'
-on conflict (plugin_id) do nothing;
-
-insert into plugin_settings (plugin_id, enabled)
-select 'appdata', enabled from plugin_settings where plugin_id = 'mstore'
-on conflict (plugin_id) do nothing;
-
-delete from plugin_settings where plugin_id = 'mstore';
+select 1;

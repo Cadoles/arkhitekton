@@ -6,8 +6,8 @@ spec:
   description: >
     Builds **one** image from a Git reference, and publishes it.
 
-    One run, one image. The pipeline used to carry the three targets of `mstore`'s
-    Dockerfile literally — `portal`, then `portal-consumer`, then `portal-dev` —
+    One run, one image. The pipeline used to carry a project's three Dockerfile
+    targets literally, `portal`, then `portal-consumer`, then `portal-dev`,
     which had three defects: adding an image required modifying the pipeline, the
     failure of one failed the whole run with no way of knowing which, and the
     three shared a workspace so could not run in parallel.
@@ -60,7 +60,7 @@ spec:
 
   tasks:
     - name: git-clone
-      displayName: Clone mstore
+      displayName: Clone the repository
       taskRef:
         name: git-clone
       workspaces:

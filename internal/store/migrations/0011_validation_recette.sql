@@ -1,7 +1,7 @@
 -- Validation humaine d'une release dans un environnement.
 --
--- Son contenu appartient désormais au plugin Mstore, qui crée ses tables dans leur
--- état final (`internal/mstore/storage/migrations`, doc 16 §16.17). Le numéro reste
+-- Son contenu appartient désormais au plugin qui déploie, qui crée ses tables dans leur
+-- état final. Le numéro reste
 -- pour que les bases qui l'ont déjà appliquée gardent un historique continu.
 
 -- +goose Up

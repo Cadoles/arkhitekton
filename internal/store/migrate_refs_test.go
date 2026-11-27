@@ -57,7 +57,7 @@ func TestStoredPipelineKindsAreQualified(t *testing.T) {
 		  values ('build', 'build', 'queued', '{}', 'test'), ('export', 'local', 'queued', '{}', 'test')`, nil, nil},
 		{`insert into project_pipelines (project_id, kind, enabled) values ($1, 'static-tests', false)`,
 			[]any{&project}, nil},
-		{`insert into queue_limits (kind, max_concurrent, updated_by) values ('integration-tests', 1, 'test')`, nil, nil},
+		{`insert into queue_limits (kind, max_concurrent, updated_by) values ('security-audit', 1, 'test')`, nil, nil},
 		{`insert into release_automations (project_id, plan) values ($1, $2)`, []any{&project, plan}, nil},
 		{`insert into reactions (project_id, name, event_type, plan) values ($1, 'r', 'gitea.pull_request.opened', $2)`,
 			[]any{&project, plan}, nil},
@@ -102,7 +102,7 @@ func TestStoredPipelineKindsAreQualified(t *testing.T) {
 	}
 	expect(`select string_agg(kind, ',' order by id) from jobs`, "docker/build,export")
 	expect(`select kind from project_pipelines`, "php/static-tests")
-	expect(`select kind from queue_limits`, "mstore/integration-tests")
+	expect(`select kind from queue_limits`, "security/security-audit")
 	expect(`select string_agg(ref, ',' order by position) from plan_steps`, "docker/build,gitea.status")
 
 	for _, table := range []string{"release_automations", "reactions", "plan_runs"} {

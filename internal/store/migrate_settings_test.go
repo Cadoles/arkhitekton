@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Migration 0083 moves the tracker project and the version file into their plugins' settings,
-// without replacing a setting already made, then drops the columns.
+// Migration 0083 moves the tracker project into the tracker plugin's settings, without replacing a
+// setting already made, then drops the columns: the version file is left to the plugin that used it.
 func TestProjectSettingsMoveToTheirPlugins(t *testing.T) {
 	cfg := testDB(t)
 	resetSchema(t, cfg)
@@ -34,12 +34,12 @@ func TestProjectSettingsMoveToTheirPlugins(t *testing.T) {
 	}
 	defer db.Close()
 
-	var mstore, theme int64
+	var shop, theme int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, build_context, created_by,
 		                       tracker_project, version_file, stack)
-		 values ('mstore', 'team/mstore', 'Mstore', 'https://forge.example', '.', 'test', ' mstore-dev ', 'version.txt', 'php')
-		 returning id`).Scan(&mstore); err != nil {
+		 values ('shop', 'team/shop', 'Shop', 'https://forge.example', '.', 'test', ' shop-dev ', 'version.txt', 'php')
+		 returning id`).Scan(&shop); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Pool().QueryRow(ctx,
@@ -48,11 +48,11 @@ func TestProjectSettingsMoveToTheirPlugins(t *testing.T) {
 		 returning id`).Scan(&theme); err != nil {
 		t.Fatal(err)
 	}
-	// Mstore's plugin row exists with another setting, the theme's tracker is already chosen.
+	// The shop's deploy plugin row exists with a setting, the theme's tracker is already chosen.
 	if _, err := db.Pool().Exec(ctx,
 		`insert into project_plugins (project_id, plugin_id, enabled, config)
-		 values ($1, 'mstore', false, '{"deployer": "flux"}'), ($2, 'redmine', true, '{"project": "chosen"}')`,
-		mstore, theme); err != nil {
+		 values ($1, 'deploy', false, '{"deployer": "flux"}'), ($2, 'redmine', true, '{"project": "chosen"}')`,
+		shop, theme); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,14 +74,14 @@ func TestProjectSettingsMoveToTheirPlugins(t *testing.T) {
 		}
 		return *value, enabled
 	}
-	if value, enabled := setting(mstore, "redmine", "project"); value != "mstore-dev" || !enabled {
-		t.Errorf("Mstore's tracker = %q, enabled %v", value, enabled)
+	if value, enabled := setting(shop, "redmine", "project"); value != "shop-dev" || !enabled {
+		t.Errorf("the shop's tracker = %q, enabled %v", value, enabled)
 	}
-	if value, enabled := setting(mstore, "mstore", "versionFile"); value != "version.txt" || enabled {
-		t.Errorf("Mstore's version file = %q, enabled %v: the row keeps its switch", value, enabled)
+	if value, enabled := setting(shop, "deploy", "versionFile"); value != "" || enabled {
+		t.Errorf("the shop's version file = %q, enabled %v: the row stays as it was", value, enabled)
 	}
-	if value, _ := setting(mstore, "mstore", "deployer"); value != "flux" {
-		t.Errorf("Mstore's other setting = %q", value)
+	if value, _ := setting(shop, "deploy", "deployer"); value != "flux" {
+		t.Errorf("the shop's other setting = %q", value)
 	}
 	if value, _ := setting(theme, "redmine", "project"); value != "chosen" {
 		t.Errorf("the theme's tracker = %q: a setting already made wins", value)

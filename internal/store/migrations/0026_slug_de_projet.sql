@@ -2,15 +2,15 @@
 --
 -- Les routes deviennent `/projects/{projet}/releases/{tag}` : le projet doit donc
 -- s'écrire dans un segment de chemin. Aucune colonne existante ne convient —
--- `repository` porte une barre oblique (`vcarroy/mstore`), `label` n'est pas unique,
+-- `repository` porte une barre oblique (`team/shop`), `label` n'est pas unique,
 -- et l'identifiant numérique ferait des URL que personne ne peut lire ni deviner.
 --
 -- Ces URL sont **mises en favori et collées dans des tickets**. Un identifiant
 -- numérique y serait un choix qu'on paierait longtemps : il ne survit pas à une
 -- réinstallation, et il ne dit rien de ce qu'il désigne (doc 12 §12.9, lot B).
 --
--- Le slug est dérivé du dernier segment du dépôt, ce qui donne `mstore-test-project`
--- pour `vcarroy/mstore-test-project`. Modifiable ensuite depuis l'administration :
+-- Le slug est dérivé du dernier segment du dépôt, ce qui donne `shop-test-project`
+-- pour `team/shop-test-project`. Modifiable ensuite depuis l'administration :
 -- c'est un nom d'usage, pas une identité — celle-ci reste l'identifiant.
 
 -- +goose Up

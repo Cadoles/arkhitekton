@@ -2,7 +2,7 @@
 -- File d'exécution et runs Tekton.
 --
 -- `deployments` et `environment_observations` étaient créées ici : la première a
--- été retirée (0050), la seconde appartient au plugin Mstore (doc 16 §16.17).
+-- été retirée (0050), la seconde appartient au plugin qui déploie.
 
 create table jobs (
     id             bigserial primary key,
@@ -17,7 +17,7 @@ create table jobs (
     params         jsonb  not null,
     release_id     bigint references releases (id) on delete set null,
     -- L'environnement visé, en texte : la table des environnements appartient au
-    -- plugin Mstore, et le noyau ne la référence pas.
+    -- plugin qui déploie, et le noyau ne la référence pas.
     environment_id text,
     requested_by   text   not null,
     requested_at   timestamptz not null default now(),

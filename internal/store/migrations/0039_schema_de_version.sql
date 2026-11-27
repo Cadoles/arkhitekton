@@ -5,8 +5,8 @@
 -- `internal/release`, et tout ce qui s'y appuie la supposait acquise sans jamais
 -- la nommer (doc 12 §12.4, lot B).
 --
--- Elle n'est pas universelle. Le voisinage immédiat en donne l'exemple : les tags
--- de `mstore-deploy` s'écrivent `2026.7.27-k8sunstable.1651.91a39c48b`, du
+-- Elle n'est pas universelle. Des tags s'écrivent
+-- `2026.7.27-k8sunstable.1651.91a39c48b`, du
 -- calendaire déguisé. D'autres projets numérotent leurs constructions.
 --
 -- `semver` par défaut, et non une valeur nulle : c'est ce que tous les projets

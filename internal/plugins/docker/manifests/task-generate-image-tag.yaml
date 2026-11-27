@@ -13,7 +13,7 @@ spec:
        reason to have it recomputed. Deriving it here would open the door to a
        divergence between the Git tag, the image tag and the embedded
        `version.txt`, whereas those three values must be identical for the chain
-       release → image → AppData to stay connected.
+       release → image → reported version to stay connected.
 
     2. `version` empty — fallback to `mktools mkt-project-version`, the historical
        behaviour. It covers the triggers outside the dashboard (Gitea push,

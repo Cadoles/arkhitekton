@@ -1,8 +1,8 @@
 -- +goose Up
 -- Référentiel : versions Redmine, demandes.
 --
--- La table `environments` était créée ici. Elle appartient au plugin Mstore, qui la
--- crée par ses propres migrations (doc 16 §16.17).
+-- La table `environments` était créée ici. Elle appartient au plugin qui déploie, qui la
+-- crée par ses propres migrations.
 
 create table versions (
     id                 bigserial primary key,

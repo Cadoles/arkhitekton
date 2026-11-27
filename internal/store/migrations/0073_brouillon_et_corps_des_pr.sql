@@ -1,5 +1,5 @@
 -- Une demande de fusion en brouillon n'appelle pas encore de vérification, et son corps peut porter
--- des directives (`mstore-deploy: <branche>`) que les plans lisent.
+-- des directives (`shop-deploy: <branche>`) que les plans lisent.
 
 -- +goose Up
 alter table pull_requests

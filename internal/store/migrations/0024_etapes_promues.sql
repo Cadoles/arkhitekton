@@ -10,8 +10,8 @@
 -- préproduction au premier re-tag : elle serait annoncée comme livrable alors
 -- qu'aucun environnement du flux ne la déploie.
 --
--- La règle nomme la cible `dev`, qui est du vocabulaire propre au Dockerfile de
--- `mstore`. C'est assumé : une migration de données porte sur les données qui
+-- La règle nomme la cible `dev`, qui est du vocabulaire propre au Dockerfile d'un
+-- projet. C'est assumé : une migration de données porte sur les données qui
 -- existent, et celles-ci sont les siennes. Ce qui suit n'est pas une règle du
 -- produit — le champ, lui, est libre, et rien n'oblige un autre déploiement à
 -- appeler `dev` ce qu'il ne promeut pas.

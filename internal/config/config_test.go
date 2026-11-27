@@ -16,7 +16,7 @@ func setEnv(t *testing.T, values map[string]string) {
 
 func validAPIEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_DSN":       "postgres://u:p@db:5432/mstore",
+		"DATABASE_DSN":       "postgres://u:p@db:5432/arkhitekton",
 		"PUBLIC_URL":         "https://dashboard.example.fr",
 		"OIDC_ISSUER_URL":    "https://forge.cadoles.com/",
 		"OIDC_CLIENT_ID":     "id",
@@ -115,7 +115,7 @@ func TestRedirectURLFollowsThePublicURL(t *testing.T) {
 // A deployment left on the old name stops with the new one in its error.
 func TestTheOldDatabaseVariableIsRefused(t *testing.T) {
 	values := validAPIEnv()
-	values["DATABASE_URL"] = "postgres://u:p@db:5432/mstore"
+	values["DATABASE_URL"] = "postgres://u:p@db:5432/arkhitekton"
 	setEnv(t, values)
 
 	_, err := Load(RoleAPI)
@@ -127,7 +127,7 @@ func TestTheOldDatabaseVariableIsRefused(t *testing.T) {
 // `migrate` needs neither object store nor OIDC: requiring either would stop a
 // minimal init Job from applying the schema.
 func TestLoadMigrateRequiresOnlyDatabase(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/mstore"})
+	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/arkhitekton"})
 
 	if _, err := Load(RoleMigrate); err != nil {
 		t.Fatalf("migrate should require only DATABASE_DSN: %v", err)
@@ -136,7 +136,7 @@ func TestLoadMigrateRequiresOnlyDatabase(t *testing.T) {
 
 func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_DSN":     "postgres://u:p@db:5432/mstore",
+		"DATABASE_DSN":     "postgres://u:p@db:5432/arkhitekton",
 		"MINIO_ENDPOINT":   "s3.example.org",
 		"MINIO_ACCESS_KEY": "ak",
 		"MINIO_SECRET_KEY": "sk",
@@ -151,7 +151,7 @@ func TestLoadWorkerDoesNotRequireOIDC(t *testing.T) {
 // The namespace has no default: one named after a deployment would send another's runs there.
 func TestLoadWorkerRequiresTheTektonNamespace(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DATABASE_DSN":     "postgres://u:p@db:5432/mstore",
+		"DATABASE_DSN":     "postgres://u:p@db:5432/arkhitekton",
 		"MINIO_ENDPOINT":   "s3.example.org",
 		"MINIO_ACCESS_KEY": "ak",
 		"MINIO_SECRET_KEY": "sk",
@@ -164,7 +164,7 @@ func TestLoadWorkerRequiresTheTektonNamespace(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownRole(t *testing.T) {
-	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/mstore"})
+	setEnv(t, map[string]string{"DATABASE_DSN": "postgres://u:p@db:5432/arkhitekton"})
 
 	if _, err := Load(Role("frontend")); err == nil {
 		t.Fatal("an unknown role must be refused")
@@ -175,7 +175,7 @@ func TestLoadRejectsUnknownRole(t *testing.T) {
 // the situation in which it is logged.
 func TestRedactedKeepsDSNStructureAndHidesPassword(t *testing.T) {
 	cfg := Config{
-		Database: DatabaseConfig{DSN: "postgres://mstore:s3cr3t@db.example.fr:5432/mstore?sslmode=require"},
+		Database: DatabaseConfig{DSN: "postgres://arkhitekton:s3cr3t@db.example.fr:5432/arkhitekton?sslmode=require"},
 		Storage:  StorageConfig{SecretKey: "sk"},
 		OIDC:     OIDCConfig{ClientSecret: "cs"},
 	}
@@ -185,7 +185,7 @@ func TestRedactedKeepsDSNStructureAndHidesPassword(t *testing.T) {
 	if strings.Contains(got.Database.DSN, "s3cr3t") {
 		t.Error("the password leaks into the masked DSN")
 	}
-	for _, keep := range []string{"db.example.fr:5432", "/mstore", "sslmode=require", "mstore:"} {
+	for _, keep := range []string{"db.example.fr:5432", "/arkhitekton", "sslmode=require", "arkhitekton:"} {
 		if !strings.Contains(got.Database.DSN, keep) {
 			t.Errorf("the masked DSN lost %q, it can no longer be diagnosed: %s", keep, got.Database.DSN)
 		}
@@ -281,7 +281,7 @@ func TestTheNewVocabularyIsAccepted(t *testing.T) {
 	env := validAPIEnv()
 	env["FORGE_URL"] = "https://forge.example"
 	env["FORGE_TOKEN"] = "token"
-	env["FORGE_REPO"] = "team/mstore"
+	env["FORGE_REPO"] = "team/shop"
 	env["TRACKER_URL"] = "https://suivi.example"
 	env["TRACKER_API_KEY"] = "clef"
 	setEnv(t, env)

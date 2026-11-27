@@ -31,8 +31,8 @@ spec:
     - name: version
       description: >
         Value of the VERSION build-arg. The Dockerfile writes it into
-        /app/version.txt, which the application reads to fill in the AppData CRD
-        — the only source saying which version really runs on an environment. Left
+        /app/version.txt, which the application reads to report its version: the
+        only source saying which version really runs on an environment. Left
         empty, the Dockerfile falls back to its `latest` default, which identifies
         no release.
       default: ""

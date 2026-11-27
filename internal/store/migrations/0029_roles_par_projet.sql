@@ -3,7 +3,7 @@
 -- `user_roles` avait `subject` pour clé primaire : un rôle, et un seul, valable
 -- partout. Tant qu'un seul projet existait, la question ne se posait pas. Trois
 -- sont déclarés, dont deux thèmes qui n'ont rien à voir avec l'application : y
--- donner `releaser` à quelqu'un parce qu'il l'est sur Mstore est une autorisation
+-- donner `releaser` à quelqu'un parce qu'il l'est sur l'application est une autorisation
 -- que personne n'a demandée (doc 12 §12.9, lot B).
 --
 -- **`admin` reste global**, et la contrainte l'impose. Il gouverne les comptes,

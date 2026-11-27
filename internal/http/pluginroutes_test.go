@@ -51,7 +51,7 @@ func (p *fakePrograms) Serve(_ context.Context, _ string, request *pluginv1.HTTP
 		return nil, p.fail
 	}
 	return &pluginv1.HTTPResponse{Status: 200, Body: []byte(`{"ok":true}`), Headers: map[string]string{
-		"content-type": "application/json", "Set-Cookie": "mstore_session=stolen",
+		"content-type": "application/json", "Set-Cookie": "arkhitekton_session=stolen",
 	}}, nil
 }
 
@@ -89,7 +89,7 @@ func pluginRoutesServer(programs *fakePrograms) *http.ServeMux {
 func call(mux *http.ServeMux, role auth.Role, method, path string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, strings.NewReader(`{"x":1}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Cookie", "mstore_session=secret")
+	request.Header.Set("Cookie", "arkhitekton_session=secret")
 	request = request.WithContext(ContextWithIdentity(request.Context(), auth.Identity{Username: "alice", Role: role}))
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, request)

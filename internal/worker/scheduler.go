@@ -600,9 +600,9 @@ func RunName(instance, kind string, id int64) string {
 	// A capability's kind is `plugin/name`, and a Kubernetes name has no `/`.
 	kind = strings.ReplaceAll(kind, "/", "-")
 	if instance == "" {
-		return fmt.Sprintf("mstore-%s-%d", kind, id)
+		return fmt.Sprintf("ark-%s-%d", kind, id)
 	}
-	return fmt.Sprintf("mstore-%s-%s-%d", instance, kind, id)
+	return fmt.Sprintf("ark-%s-%s-%d", instance, kind, id)
 }
 
 // retry puts a job back in the queue, or concludes it as failed when it has insisted too much.

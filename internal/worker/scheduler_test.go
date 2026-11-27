@@ -144,7 +144,7 @@ func TestTheNameStaysAValidKubernetesName(t *testing.T) {
 // With no identity, the old naming survives: tests need not supply it, and a deployment that
 // has never run does not change behaviour.
 func TestWithNoIdentityTheOldNamingSurvives(t *testing.T) {
-	if got := RunName("", "build", 3); got != "mstore-build-3" {
+	if got := RunName("", "build", 3); got != "ark-build-3" {
 		t.Errorf("name with no identity: %q", got)
 	}
 }
@@ -153,13 +153,13 @@ func TestWithNoIdentityTheOldNamingSurvives(t *testing.T) {
 // customised run possible, where one fills in a parameter the pipeline knows and the dashboard
 // has not described.
 func TestAnUndeclaredParameterPassesThroughAsItIs(t *testing.T) {
-	scheduler := &Scheduler{config: map[string]string{"forge.mstore.repoUrl": "ssh://git@forge/team/mstore"}}
+	scheduler := &Scheduler{config: map[string]string{"forge.shop.repoUrl": "ssh://git@forge/team/shop"}}
 
 	pipeline := catalog.Pipeline{
 		Kind: "unit-tests",
 		Params: map[string]catalog.Param{
 			"revision": {Source: catalog.SourceInput, Required: true},
-			"repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
+			"repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
 		},
 	}
 
@@ -173,7 +173,7 @@ func TestAnUndeclaredParameterPassesThroughAsItIs(t *testing.T) {
 	if params["debug"] != "true" {
 		t.Errorf("extra parameter lost: %v", params)
 	}
-	if params["revision"] != "unstable" || params["repo-url"] != "ssh://git@forge/team/mstore" {
+	if params["revision"] != "unstable" || params["repo-url"] != "ssh://git@forge/team/shop" {
 		t.Errorf("declared parameters = %v", params)
 	}
 }
@@ -200,42 +200,42 @@ func TestAnEmptyKeyDoesNotResolveARequiredParameter(t *testing.T) {
 // `config` parameter would allow pointing a pipeline at a repository other than the one
 // intended — exactly what this separation exists to prevent.
 func TestARequestDoesNotReplaceAConfigurationParameter(t *testing.T) {
-	scheduler := &Scheduler{config: map[string]string{"forge.mstore.repoUrl": "ssh://git@forge/team/mstore"}}
+	scheduler := &Scheduler{config: map[string]string{"forge.shop.repoUrl": "ssh://git@forge/team/shop"}}
 
 	pipeline := catalog.Pipeline{
 		Kind: "unit-tests",
 		Params: map[string]catalog.Param{
-			"repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
-			"image":    {Source: catalog.SourceLiteral, Value: "reg.example.fr/mstore/ci"},
+			"repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
+			"image":    {Source: catalog.SourceLiteral, Value: "registry.example.org/team/ci"},
 		},
 	}
 
 	params, err := scheduler.resolveParams(pipeline, map[string]string{
-		"repo-url": "ssh://git@ailleurs/attaquant/mstore",
+		"repo-url": "ssh://git@ailleurs/attaquant/shop",
 		"image":    "docker.io/attaquant/ci",
 	}, scheduler.config)
 	if err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
-	if params["repo-url"] != "ssh://git@forge/team/mstore" {
+	if params["repo-url"] != "ssh://git@forge/team/shop" {
 		t.Errorf("repository = %q: a request overwrote the configuration", params["repo-url"])
 	}
-	if params["image"] != "reg.example.fr/mstore/ci" {
+	if params["image"] != "registry.example.org/team/ci" {
 		t.Errorf("image = %q: a request overwrote a literal value", params["image"])
 	}
 }
 
-// A project setting — the kustomization the Mstore plugin supplies — replaces the instance's for
+// A project setting (the kustomization the deploy plugin supplies) replaces the instance's for
 // this job, and for it alone.
 func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
-		"forge.mstoreDeploy.repoUrl": "ssh://git@forge/team/mstore-deploy",
-		"registry.project":        "reg.example.fr/team",
+		"forge.shopDeploy.repoUrl": "ssh://git@forge/team/shop-deploy",
+		"registry.project":         "registry.example.org/team",
 	}}).WithProjectSettings(func(_ context.Context, projectID int64) (map[string]string, error) {
 		if projectID != 7 {
 			return nil, nil
 		}
-		return map[string]string{"forge.mstoreDeploy.repoUrl": "ssh://git@forge/vcarroy/kustom"}, nil
+		return map[string]string{"forge.shopDeploy.repoUrl": "ssh://git@forge/vcarroy/kustom"}, nil
 	})
 
 	projectRow := int64(7)
@@ -243,15 +243,15 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if settings["forge.mstoreDeploy.repoUrl"] != "ssh://git@forge/vcarroy/kustom" {
-		t.Errorf("kustomization = %q, expected the project's", settings["forge.mstoreDeploy.repoUrl"])
+	if settings["forge.shopDeploy.repoUrl"] != "ssh://git@forge/vcarroy/kustom" {
+		t.Errorf("kustomization = %q, expected the project's", settings["forge.shopDeploy.repoUrl"])
 	}
 	// What the project does not state stays the instance's.
-	if settings["registry.project"] != "reg.example.fr/team" {
+	if settings["registry.project"] != "registry.example.org/team" {
 		t.Errorf("registry = %q", settings["registry.project"])
 	}
 	// And the instance's map has not moved: it is shared by every job.
-	if scheduler.config["forge.mstoreDeploy.repoUrl"] != "ssh://git@forge/team/mstore-deploy" {
+	if scheduler.config["forge.shopDeploy.repoUrl"] != "ssh://git@forge/team/shop-deploy" {
 		t.Error("the instance's configuration was written to")
 	}
 
@@ -260,8 +260,8 @@ func TestAProjectSettingReplacesTheInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if settings["forge.mstoreDeploy.repoUrl"] != "ssh://git@forge/team/mstore-deploy" {
-		t.Errorf("another project inherited the setting: %q", settings["forge.mstoreDeploy.repoUrl"])
+	if settings["forge.shopDeploy.repoUrl"] != "ssh://git@forge/team/shop-deploy" {
+		t.Errorf("another project inherited the setting: %q", settings["forge.shopDeploy.repoUrl"])
 	}
 }
 
@@ -279,7 +279,7 @@ func (d projectRepositories) GetProject(_ context.Context, id int64) (store.Proj
 // second project would build the first one's repository.
 func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	scheduler := (&Scheduler{config: map[string]string{
-		projectRepoKey: "ssh://git@forge/team/mstore.git",
+		projectRepoKey: "ssh://git@forge/team/shop.git",
 	}}).WithProjectRepositories(projectRepositories{
 		7: {ID: 7, Repository: "vcarroy/themes", ForgeURL: "https://forge.example.fr"},
 		// Declared before its forge was filled in.
@@ -305,13 +305,13 @@ func TestAProjectsPipelinesCloneItsRepository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if settings[projectRepoKey] != "ssh://git@forge/team/mstore.git" {
+	if settings[projectRepoKey] != "ssh://git@forge/team/shop.git" {
 		t.Errorf("repository = %q, expected the instance's", settings[projectRepoKey])
 	}
 
 	// A job with no project keeps the instance's.
 	settings, err = scheduler.settingsFor(context.Background(), store.Job{ID: 3}, catalog.Pipeline{})
-	if err != nil || settings[projectRepoKey] != "ssh://git@forge/team/mstore.git" {
+	if err != nil || settings[projectRepoKey] != "ssh://git@forge/team/shop.git" {
 		t.Errorf("job with no project: %q (%v)", settings[projectRepoKey], err)
 	}
 }
@@ -391,7 +391,7 @@ func TestALaunchRecordsThePluginVersion(t *testing.T) {
 		// Missing at launch, so the dispatch stops before reaching the cluster.
 		Params: map[string]catalog.Param{"revision": {Source: catalog.SourceInput, Required: true}},
 	}}}
-	queue := &unavailableQueue{job: store.Job{ID: 6, Kind: "php/unit-tests", RunName: "mstore-x-6"}}
+	queue := &unavailableQueue{job: store.Job{ID: 6, Kind: "php/unit-tests", RunName: "ark-x-6"}}
 	scheduler := NewSchedulerFromCatalog(queue, nil, pipelines, nil, slog.New(slog.DiscardHandler)).
 		WithPluginVersions(func(plugin string) string { return map[string]string{"php": "1.0.0"}[plugin] })
 
@@ -431,21 +431,21 @@ func TestAJobOfASwitchedOffPluginIsRefused(t *testing.T) {
 // A parameter the catalogue declares overridable takes a step's non-empty value; an empty one
 // leaves the configuration's.
 func TestAnOverridableParameterTakesTheStepsValue(t *testing.T) {
-	scheduler := &Scheduler{config: map[string]string{"forge.mstoreDeploy.revision": "unstable"}}
+	scheduler := &Scheduler{config: map[string]string{"forge.shopDeploy.revision": "unstable"}}
 	pipeline := catalog.Pipeline{
-		Kind: "mstore/integration-tests",
+		Kind: "deploy/integration-tests",
 		Params: map[string]catalog.Param{
-			"mstore-deploy-revision": {Source: catalog.SourceConfig, Key: "forge.mstoreDeploy.revision", Overridable: true},
+			"shop-deploy-revision": {Source: catalog.SourceConfig, Key: "forge.shopDeploy.revision", Overridable: true},
 		},
 	}
 
 	for supplied, expected := range map[string]string{"feature/x": "feature/x", "": "unstable"} {
-		params, err := scheduler.resolveParams(pipeline, map[string]string{"mstore-deploy-revision": supplied}, scheduler.config)
+		params, err := scheduler.resolveParams(pipeline, map[string]string{"shop-deploy-revision": supplied}, scheduler.config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if params["mstore-deploy-revision"] != expected {
-			t.Errorf("supplied %q: got %q, expected %q", supplied, params["mstore-deploy-revision"], expected)
+		if params["shop-deploy-revision"] != expected {
+			t.Errorf("supplied %q: got %q, expected %q", supplied, params["shop-deploy-revision"], expected)
 		}
 	}
 }

@@ -1,8 +1,8 @@
 -- +goose Up
 -- Les dépôts que le dashboard pilote, et ce qu'il sait en construire.
 
--- Ces dépôts étaient écrits dans la configuration : `FORGE_MSTORE_REPO_URL`,
--- `FORGE_MSTORE_DEPLOY_REPO_URL`, `FORGE_TEKTON_REPO_URL`, `MSTORE_DOCKERFILE`. Trois
+-- Ces dépôts étaient écrits dans la configuration, une variable d'environnement par dépôt et
+-- par Dockerfile. Trois
 -- conséquences.
 --
 -- En déclarer un de plus demandait de modifier un ConfigMap, donc de reconstruire
@@ -25,7 +25,7 @@ create table projects (
     -- fois, et rien ne dirait laquelle fait foi.
     repository text not null unique,
 
-    -- Le libellé affiché. Distinct du dépôt : `team/mstore` se lit « Portail Mstore »
+    -- Le libellé affiché. Distinct du dépôt : `team/shop` se lit « Boutique »
     -- sur un écran, et le nom du dépôt n'a pas à porter cette charge.
     label text not null,
 
@@ -33,8 +33,8 @@ create table projects (
     -- ailleurs reste décrivable sans que la table suppose une forge unique.
     forge_url text not null,
 
-    -- Ce que le projet sait produire. Vide : il est piloté sans être construit —
-    -- `mstore-deploy` et `mstore-pipelines` sont clonés par l'audit sans jamais donner
+    -- Ce que le projet sait produire. Vide : il est piloté sans être construit,
+    -- comme un dépôt de kustomizations ou de pipelines, cloné sans jamais donner
     -- d'image.
     dockerfile    text not null default '',
     build_context text not null default '.',

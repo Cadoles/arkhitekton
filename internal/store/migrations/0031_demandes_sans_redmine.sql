@@ -3,7 +3,7 @@
 -- Suite de la migration 0030, qui a fait le même travail sur les versions. Les
 -- demandes portaient encore `redmine_id` — un entier dont le nom disait de quel
 -- produit il venait, et dont le **type** supposait que tout outil numérote.
--- Jira écrit `MSTORE-1234` (doc 12 §12.9, lot C).
+-- Jira écrit `SHOP-1234`.
 --
 -- Trois tables, une même règle : l'outil se nomme dans `tool`, son identifiant
 -- vit dans `external_id`, en texte.

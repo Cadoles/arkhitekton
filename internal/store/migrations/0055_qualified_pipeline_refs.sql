@@ -12,8 +12,6 @@ insert into kind_map (old, new) values
     ('retag', 'core/retag'),
     ('static-tests', 'php/static-tests'),
     ('unit-tests', 'php/unit-tests'),
-    ('integration-tests', 'mstore/integration-tests'),
-    ('e2e-tests', 'mstore/e2e-tests'),
     ('security-audit', 'security/security-audit'),
     ('load-tests', 'k6/load');
 
@@ -59,8 +57,6 @@ insert into kind_map (old, new) values
     ('core/retag', 'retag'),
     ('php/static-tests', 'static-tests'),
     ('php/unit-tests', 'unit-tests'),
-    ('mstore/integration-tests', 'integration-tests'),
-    ('mstore/e2e-tests', 'e2e-tests'),
     ('security/security-audit', 'security-audit'),
     ('k6/load', 'load-tests');
 

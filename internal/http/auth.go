@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	sessionCookieName = "mstore_session"
-	csrfCookieName    = "mstore_csrf"
+	sessionCookieName = "arkhitekton_session"
+	csrfCookieName    = "arkhitekton_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
 )
 

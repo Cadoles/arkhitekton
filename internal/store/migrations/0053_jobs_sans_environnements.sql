@@ -1,7 +1,7 @@
 -- Le noyau ne référence plus la table des environnements.
 --
 -- `jobs.environment_id` portait une clé étrangère vers `environments`, qui
--- appartient désormais au plugin Mstore (doc 16 §16.17). Une table du noyau ne peut
+-- appartient désormais au plugin qui déploie. Une table du noyau ne peut
 -- pas dépendre d'une table de plugin : la colonne reste, en texte.
 
 -- +goose Up

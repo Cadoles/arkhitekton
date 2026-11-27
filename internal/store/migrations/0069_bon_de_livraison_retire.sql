@@ -1,4 +1,4 @@
--- Le bon de livraison quitte le cœur : il appartient au plugin Mstore, qui le produit et le garde
+-- Le bon de livraison quitte le cœur : il appartient au plugin qui livre, qui le produit et le garde
 -- dans ses propres tables.
 --
 -- Les bons produits jusqu'ici l'étaient sous une mise en page provisoire, marquée comme telle sur

@@ -36,14 +36,14 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 	}
 	defer db.Close()
 
-	var mstore, kustom int64
+	var shop, kustom int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, created_by, dockerfile, build_context,
 		                       image_registry, registry_secret, multi_stage, targets)
-		 values ('mstore', 'team/mstore', 'Mstore', 'https://forge.example', 'test', './misc/Dockerfile', '.',
-		         'reg.example/mstore', 'regcred-mstore', true,
+		 values ('shop', 'team/shop', 'Shop', 'https://forge.example', 'test', './misc/Dockerfile', '.',
+		         'reg.example/team', 'regcred-shop', true,
 		         '[{"stage": "web", "image": "portal"}, {"stage": "dev", "image": "portal-dev", "promote": false}]')
-		 returning id`).Scan(&mstore); err != nil {
+		 returning id`).Scan(&shop); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Pool().QueryRow(ctx,
@@ -55,7 +55,7 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 	// A docker row left by 0074, switched off.
 	if _, err := db.Pool().Exec(ctx,
 		`insert into project_plugins (project_id, plugin_id, enabled, config) values ($1, 'docker', false, '{}')`,
-		mstore); err != nil {
+		shop); err != nil {
 		t.Fatal(err)
 	}
 	const plan = `{"stages": [{"role": "build", "gestes": [
@@ -64,19 +64,19 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 		{"kind": "pipeline", "ref": "docker/build", "label": "portal-dev",
 		 "params": {"image-name": "portal-dev", "target": "dev"}}]}]}`
 	if _, err := db.Pool().Exec(ctx,
-		`insert into release_automations (project_id, plan) values ($1, $2)`, mstore, plan); err != nil {
+		`insert into release_automations (project_id, plan) values ($1, $2)`, shop, plan); err != nil {
 		t.Fatal(err)
 	}
 	var run int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into plan_runs (trigger, event_key, plan, project_id) values ('builtin:release', 'k', $1, $2)
-		 returning id`, plan, mstore).Scan(&run); err != nil {
+		 returning id`, plan, shop).Scan(&run); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Pool().Exec(ctx,
 		`insert into plan_artifacts (run_id, stage, position, name, kind, reference) values
-		 ($1, 0, 0, 'image', 'image', 'reg.example/mstore/portal:1.0.0-rc.1'),
-		 ($1, 0, 1, 'image', 'image', 'registry:5000/mstore/portal-dev:1.0.0-rc.1')`, run); err != nil {
+		 ($1, 0, 0, 'image', 'image', 'reg.example/team/portal:1.0.0-rc.1'),
+		 ($1, 0, 1, 'image', 'image', 'registry:5000/team/portal-dev:1.0.0-rc.1')`, run); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,11 +87,11 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 	var config map[string]string
 	var enabled bool
 	if err := db.Pool().QueryRow(ctx,
-		`select config, enabled from project_plugins where project_id = $1 and plugin_id = 'docker'`, mstore).
+		`select config, enabled from project_plugins where project_id = $1 and plugin_id = 'docker'`, shop).
 		Scan(&config, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if !enabled || config["dockerfile"] != "./misc/Dockerfile" || config["registrySecret"] != "regcred-mstore" ||
+	if !enabled || config["dockerfile"] != "./misc/Dockerfile" || config["registrySecret"] != "regcred-shop" ||
 		len(config) != 2 {
 		t.Errorf("docker settings = %v, enabled %v: the context is the default, the registry was never read", config, enabled)
 	}
@@ -103,7 +103,7 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 
 	var declared string
 	if err := db.Pool().QueryRow(ctx,
-		`select plan::text from release_automations where project_id = $1`, mstore).Scan(&declared); err != nil {
+		`select plan::text from release_automations where project_id = $1`, shop).Scan(&declared); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{`"{docker.dockerfile}"`, `"{docker.buildContext}"`, `"promote": false`} {
@@ -139,11 +139,11 @@ func TestDockerSettingsMoveToThePlugin(t *testing.T) {
 	var dockerfile, buildContext, secret, targets string
 	var multi bool
 	if err := db.Pool().QueryRow(ctx,
-		`select dockerfile, build_context, registry_secret, targets::text, multi_stage from projects where id = $1`, mstore).
+		`select dockerfile, build_context, registry_secret, targets::text, multi_stage from projects where id = $1`, shop).
 		Scan(&dockerfile, &buildContext, &secret, &targets, &multi); err != nil {
 		t.Fatal(err)
 	}
-	if dockerfile != "./misc/Dockerfile" || buildContext != "." || secret != "regcred-mstore" || !multi ||
+	if dockerfile != "./misc/Dockerfile" || buildContext != "." || secret != "regcred-shop" || !multi ||
 		!strings.Contains(targets, `"image": "portal-dev"`) || !strings.Contains(targets, `"promote": false`) {
 		t.Errorf("restored: %q %q %q %v %s", dockerfile, buildContext, secret, multi, targets)
 	}
@@ -172,7 +172,7 @@ func TestTheRetagModeBecomesFromSource(t *testing.T) {
 	var id int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, created_by, release_kinds)
-		 values ('mstore', 'team/mstore', 'Mstore', 'https://forge.example', 'test',
+		 values ('shop', 'team/shop', 'Shop', 'https://forge.example', 'test',
 		         '[{"id": "rc", "mode": "build"}, {"id": "ga", "mode": "retag", "source": "rc"}]')
 		 returning id`).Scan(&id); err != nil {
 		t.Fatal(err)

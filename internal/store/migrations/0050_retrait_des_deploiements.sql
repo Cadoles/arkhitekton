@@ -10,5 +10,5 @@ drop table if exists deployments;
 
 -- +goose Down
 -- Rien à recréer : `deployments` n'est plus créée par 0003, et elle référençait
--- `environments`, qui appartient au plugin Mstore (doc 16 §16.17).
+-- `environments`, qui appartient au plugin qui déploie.
 select 1;

@@ -56,8 +56,7 @@ spec:
         RC=$?
         set -e
 
-        # The same reason as the one pipelines-manager applies to the integration tests: a single
-        # reading rule for both families.
+        # One reading rule for the unit and the integration tests, whoever runs the latter.
         SUMMARY=$(grep -E '^[[:space:]]*(OK \(|OK, but|Tests: )' "${OUT}/phpunit.log" \
           | tail -n1 | sed 's/^[[:space:]]*//' || true)
 

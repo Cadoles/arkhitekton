@@ -20,7 +20,6 @@ update test_results set
     fact_group = family,
     producer = case
         when tool in ('phpunit', 'phpstan', 'cs-fixer') then 'php@0.0.0-legacy'
-        when tool in ('phpunit-integration', 'cypress') then 'mstore@0.0.0-legacy'
         when tool = 'security-audit' then 'security@0.0.0-legacy'
         when tool = 'k6' then 'k6@0.0.0-legacy'
         else 'legacy@0.0.0-legacy'

@@ -4,8 +4,8 @@
 -- B8 et B17 posaient l'invariant « nom de version Redmine = tag de release ».
 -- L'instance réelle porte quatre conventions simultanées dans le même projet :
 --
---   MSTORE3-1.5 … MSTORE3-1.21   treize versions closes — convention historique
---   Mstore 3.1.0 … Mstore 3.1.2  trois versions closes
+--   SHOP3-1.5 … SHOP3-1.21   treize versions closes, convention historique
+--   SHOP 3.1.0 … SHOP 3.1.2  trois versions closes
 --   v3.1.1 … v3.2.0        quatre versions ouvertes — convention courante
 --
 -- Le nom reste stocké tel quel : l'identité d'une version est son `redmine_id`, et
@@ -22,7 +22,7 @@ alter table versions add column normalized_name text;
 -- n'ayant jamais tourné.
 update versions set normalized_name = trim(name) where normalized_name is null;
 
--- **Index non unique, à dessein.** `Mstore 3.1.2` et `v3.1.2` se réduisent tous deux à
+-- **Index non unique, à dessein.** `SHOP 3.1.2` et `v3.1.2` se réduisent tous deux à
 -- `3.1.2` et coexistent réellement, l'une close et l'autre ouverte. Une contrainte
 -- d'unicité ferait échouer la synchronisation sur des données parfaitement
 -- légitimes côté client. L'ambiguïté est signalée dans l'écran d'administration,

@@ -5,8 +5,7 @@
 -- `synced_at` — et `releases.version_id` est `not null` : toute release pend donc
 -- d'une ligne qu'un outil externe est censé confirmer.
 --
--- Deux projets réels n'en ont pas. `mstore-theme` et
--- `mstore-admin-theme` versionnent par tags Git, sans Redmine ni
+-- Des projets réels n'en ont pas : ils versionnent par tags Git, sans Redmine ni
 -- équivalent. Pour eux, `EnsureVersion` fabriquait une version provisoire à
 -- `redmine_id` négatif, en attente d'une adoption qui ne serait jamais venue :
 -- l'état d'anomalie devenait l'état normal, et l'écran des versions aurait

@@ -1,7 +1,11 @@
+-- La promotion devenait un fait du plugin qui déploie : les réactions déclarées sur l'ancien type le
+-- suivaient.
+--
+-- Ce plugin est depuis installé à part : une base neuve n'a aucune réaction à reprendre ici. Le
+-- numéro reste pour que les bases qui l'ont déjà appliquée gardent un historique continu.
+
 -- +goose Up
--- La promotion est un fait du plugin Mstore (doc 16 §16.7). Les réactions déclarées
--- sur l'ancien type le suivent ; les faits déjà écrits restent tels quels.
-update reactions set event_type = 'mstore.release.promoted' where event_type = 'release.promoted';
+select 1;
 
 -- +goose Down
-update reactions set event_type = 'release.promoted' where event_type = 'mstore.release.promoted';
+select 1;

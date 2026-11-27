@@ -1,5 +1,5 @@
 -- +goose Up
--- Releases et images. Les promotions appartiennent au plugin Mstore (doc 16 §16.17).
+-- Releases et images. Les promotions appartiennent au plugin qui déploie.
 
 create table releases (
     id          bigserial primary key,
@@ -13,7 +13,7 @@ create table releases (
     -- Une release finale réutilise l'image de la RC validée (re-tag) : ce qui
     -- part en production est bit pour bit ce qui a été validé en pré-production.
     -- Le version.txt embarqué reste donc celui de la RC, et c'est cette valeur
-    -- que AppData rapportera. Comparer AppData.version à `tag` échouerait
+    -- que l'application rapportera. Comparer la version rapportée à `tag` échouerait
     -- systématiquement sur toute release finale.
     image_version     text   not null,
     source_release_id bigint references releases (id),

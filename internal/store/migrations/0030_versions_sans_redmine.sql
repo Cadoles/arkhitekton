@@ -18,7 +18,7 @@
 --                 différents dans une même requête sont une faute qu'on ne voit
 --                 qu'en la relisant à froid.
 --   `external_id` est l'identifiant **dans** cet outil, en texte : Redmine
---                 numérote, Jira écrit `MSTORE-1234`, et un entier fermait la porte
+--                 numérote, Jira écrit `SHOP-1234`, et un entier fermait la porte
 --                 au second sans qu'aucune erreur ne le dise.
 --
 -- `external_id` est **nul** pour une version que le dashboard s'est donnée. C'est

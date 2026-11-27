@@ -1,9 +1,9 @@
 -- Trois réglages du projet quittent le noyau.
 --
 -- `tracker_project` doublait le réglage « Identifiant du projet » du plugin de suivi, qui le lisait
--- en premier : sa valeur y est recopiée quand il ne la porte pas encore. `version_file` est un
--- usage de Mstore : sa valeur devient le réglage `versionFile` du plugin Mstore, qui donne le fichier au
--- lancement d'une release. `stack` choisissait une bibliothèque de pipelines que les plugins
+-- en premier : sa valeur y est recopiée quand il ne la porte pas encore. `version_file` nommait le
+-- fichier qu'un plugin commitait au lancement d'une release : ce plugin, installé à part, garde
+-- désormais ce réglage. `stack` choisissait une bibliothèque de pipelines que les plugins
 -- installent désormais eux-mêmes : plus rien ne le lisait.
 --
 -- Une ligne créée ici est allumée : sans ligne, le projet suit déjà l'instance, et un plugin éteint
@@ -17,14 +17,6 @@ where btrim(tracker_project) <> ''
 on conflict (project_id, plugin_id) do update
 set config = project_plugins.config || excluded.config
 where coalesce(btrim(project_plugins.config->>'project'), '') = '';
-
-insert into project_plugins (project_id, plugin_id, enabled, config)
-select id, 'mstore', true, jsonb_build_object('versionFile', btrim(version_file))
-from projects
-where btrim(version_file) <> ''
-on conflict (project_id, plugin_id) do update
-set config = project_plugins.config || excluded.config
-where coalesce(btrim(project_plugins.config->>'versionFile'), '') = '';
 
 alter table projects drop column if exists tracker_project;
 alter table projects drop column if exists version_file;
@@ -40,7 +32,3 @@ set tracker_project = coalesce(pp.config->>'project', '')
 from project_plugins pp
 where pp.project_id = p.id and pp.plugin_id = 'redmine';
 
-update projects p
-set version_file = coalesce(pp.config->>'versionFile', '')
-from project_plugins pp
-where pp.project_id = p.id and pp.plugin_id = 'mstore';

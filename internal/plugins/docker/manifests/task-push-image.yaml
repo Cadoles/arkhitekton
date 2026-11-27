@@ -15,7 +15,7 @@ spec:
         "true" for a registry served over plain HTTP: a local one, never a shared one.
   steps:
     - name: push-image-tar
-      image: registry.example.org/team/go-containerregistry/crane/debug:v0.20.3
+      image: gcr.io/go-containerregistry/crane/debug:v0.20.3
       script: |
         #!/busybox/sh
         set -eu -o pipefail

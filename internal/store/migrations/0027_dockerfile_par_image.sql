@@ -1,13 +1,13 @@
 -- Permet à une étape de nommer son propre Dockerfile.
 --
 -- Le modèle ne savait dire qu'une chose : « telle **étape** du Dockerfile du
--- projet produit telle image ». C'est la forme du dépôt de Mstore — un Dockerfile
--- multi-étapes, une image par cible — et elle a été prise pour une vérité
+-- projet produit telle image ». C'est la forme d'un dépôt, un Dockerfile
+-- multi-étapes, une image par cible, et elle a été prise pour une vérité
 -- générale.
 --
--- Deux projets réels disent le contraire. `mstore-admin-theme` porte
--- `Dockerfile.dev` et `Dockerfile.prod` à sa racine : deux fichiers, deux images,
--- aucune étape. `mstore-theme` n'en porte qu'un, sans étape non plus.
+-- D'autres dépôts disent le contraire. L'un porte `Dockerfile.dev` et
+-- `Dockerfile.prod` à sa racine : deux fichiers, deux images, aucune étape. Un autre
+-- n'en porte qu'un, sans étape non plus.
 --
 -- La colonne n'est pas ajoutée : `targets` est du JSON, et un champ y apparaît
 -- sans migration. Ce fichier existe pour la **contrainte** — une étape doit
