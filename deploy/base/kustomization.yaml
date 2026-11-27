@@ -72,5 +72,5 @@ configMapGenerator:
 images:
   # Substituted by each overlay. `latest` is deliberately wrong: an overlay that forgot to set the
   # tag would deploy a non-deterministic image, and it is better that this shows.
-  - name: reg.cadoles.com/vcarroy/arkhitekton
+  - name: ghcr.io/cadoles/arkhitekton
     newTag: latest

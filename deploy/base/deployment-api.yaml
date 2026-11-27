@@ -45,7 +45,7 @@ spec:
                     app.kubernetes.io/component: api
       containers:
         - name: api
-          image: reg.cadoles.com/vcarroy/arkhitekton:latest
+          image: ghcr.io/cadoles/arkhitekton:latest
           args: ["api"]
           ports:
             - name: http

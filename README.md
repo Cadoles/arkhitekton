@@ -63,7 +63,7 @@ Fill in `dashboard.env`: at least the database DSN, the object store keys, the O
 `SECRETS_KEY`, and `BOOTSTRAP_ADMINS` with the account that will hold the first administrator
 role. Remove from the overlay what only serves the local kind cluster, set `PUBLIC_URL` and the
 Tekton namespace, bind your pipelines in `deploy/base/config/catalog.yaml`, point `images:` at a
-released tag of `reg.cadoles.com/vcarroy/arkhitekton`, then:
+released tag of `ghcr.io/cadoles/arkhitekton`, then:
 
 ```bash
 kubectl apply -k deploy/overlays/mysite

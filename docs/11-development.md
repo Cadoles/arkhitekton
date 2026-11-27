@@ -175,10 +175,10 @@ was expected of the system, not which assertion tripped.
 
 ## 11.8 Continuous integration
 
-`.gitea/workflows/ci.yaml` runs on pushes to `main`, `master`, `develop` and `dashboard`, on
-`v*` tags and on pull requests. Its jobs run the same `make` targets against service
-containers: `lint` and `test-ci` (PostgreSQL and MinIO), `vuln`, `web-check` and `web`,
-`manifests`, and an image build outside tags. A green CI is therefore `make check` plus
+`.github/workflows/ci.yaml` runs on pushes to `main`, on `v*` tags and on pull requests. Its jobs
+run the same `make` targets as a workstation: `lint` and `test-integration` (which starts
+PostgreSQL and MinIO), `vuln`, `web-check` and `web`, `manifests`, and an image build outside
+tags. A green CI is therefore `make check` plus
 `make test-integration`, `make vuln`, `make web`, `make manifests` and `make image`. Go is the latest patch of the line
 the image builds with, not go.mod's minimum: govulncheck judges the toolchain that runs it.
 
@@ -186,11 +186,11 @@ A `v*` tag releases, once every check has passed:
 
 | What | Where |
 |---|---|
-| The image, `linux/amd64` and `linux/arm64` | `reg.cadoles.com/vcarroy/arkhitekton:<tag>`, plus `v<major>.<minor>`, `v<major>` and `latest` for a final version |
-| The binaries and `SHA256SUMS` (`make binaries`) | Attached to the forge's release for the tag |
+| The image, `linux/amd64` and `linux/arm64` | `ghcr.io/cadoles/arkhitekton:<tag>`, plus `v<major>.<minor>`, `v<major>` and `latest` for a final version |
+| The binaries and `SHA256SUMS` (`make binaries`) | Attached to the GitHub release for the tag |
 | The notes | The release's body: the image's digest and the commits since the previous version tag |
 
-The registry account comes from the repository's Actions secrets `REGISTRY_USERNAME` and
-`REGISTRY_TOKEN`; the forge's release uses the job's own token. A tag with a suffix (`v1.2.0-rc.1`)
+The image goes to the GitHub Container Registry and the release to the repository, both with the
+job's own token (`GITHUB_TOKEN`): no secret is to be declared. A tag with a suffix (`v1.2.0-rc.1`)
 is a pre-release and moves no tag of the image. Replaying the job updates the release and replaces
 its files.

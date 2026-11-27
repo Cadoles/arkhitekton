@@ -4,13 +4,16 @@ name: Continuous integration
 # depend on the checks. Two separate workflows cannot wait for each other, and a tag would then
 # put an image on the registry with no test having run.
 #
-# The trigger is the integration branches and the pull requests, not every branch pushed. Covering `**` would double every run as soon as a PR is opened.
+# The trigger is `main`, the version tags and the pull requests, not every branch pushed: covering
+# `**` would double every run as soon as a pull request is opened.
 on:
   push:
-    # `dashboard` is the project's working branch as long as no merge has happened.
-    branches: [main, master, develop, dashboard]
+    branches: [main]
     tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
 
 env:
   # The latest patch of the line the image builds with (`golang:1.26-alpine`), not go.mod's
@@ -23,39 +26,13 @@ env:
   KUBE_LINTER_VERSION: "0.8.3"
   KUBE_LINTER_SHA256: "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df"
   BUILDKIT_IMAGE: moby/buildkit:v0.23.2
-  IMAGE: reg.cadoles.com/vcarroy/arkhitekton
+  IMAGE: ghcr.io/cadoles/arkhitekton
   IMAGE_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   go:
     name: Formatting, static analysis and tests
     runs-on: ubuntu-latest
-
-    # PostgreSQL and MinIO are real: applying a schema, SigV4 signing and reading by range are not
-    # usefully simulated.
-    services:
-      postgres:
-        image: postgres:17-alpine
-        # A throwaway server: durability only slows the tests down, and autovacuum workers make
-        # dropping a test's database wait for them.
-        cmd: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "autovacuum=off"]
-        env:
-          POSTGRES_PASSWORD: t3st
-          POSTGRES_DB: arkhitekton
-        options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d arkhitekton"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 30
-
-      minio:
-        # The image `make test-integration` runs. MinIO no longer publishes its own, and this one
-        # has no default command: `cmd` is a Gitea extension GitHub Actions does not have.
-        image: cgr.dev/chainguard/minio:latest
-        cmd: ["server", "/data"]
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
 
     steps:
       - name: Check out the sources
@@ -71,26 +48,11 @@ jobs:
       - name: Formatting and static analysis
         run: make lint
 
-      # `services` guarantees that the container runs, not that the server accepts requests, and
-      # the image has no probe to declare.
-      - name: Wait for MinIO
-        run: |
-          set -eu
-          for _ in $(seq 1 60); do
-            if curl -sf http://minio:9000/minio/health/live > /dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "MinIO did not answer within 60 s" >&2
-          exit 1
-
+      # PostgreSQL and MinIO are real: applying a schema, SigV4 signing and reading by range are not
+      # usefully simulated. The target starts them itself, as on a workstation: a service container
+      # cannot be given its command, and the MinIO image has none.
       - name: Tests
-        env:
-          TEST_DATABASE_URL: postgres://postgres:t3st@postgres:5432/arkhitekton?sslmode=disable
-          TEST_MINIO_ENDPOINT: minio:9000
-          TEST_MINIO_BUCKET: arkhitekton-test
-        run: make test-ci
+        run: make test-integration
 
   vuln:
     name: Dependency vulnerabilities
@@ -211,6 +173,9 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [go, vuln, web, manifests]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Check out the sources
         uses: actions/checkout@v4
@@ -240,9 +205,9 @@ jobs:
       - name: Log in to the registry
         uses: docker/login-action@v3
         with:
-          registry: reg.cadoles.com
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -282,6 +247,9 @@ jobs:
           platforms: ${{ env.IMAGE_PLATFORMS }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          # Links the package to the repository, whose visibility and permissions it then takes.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             VERSION=${{ github.ref_name }}
             REVISION=${{ github.sha }}
@@ -304,14 +272,21 @@ jobs:
           } > "${RUNNER_TEMP}/notes.md"
           cat "${RUNNER_TEMP}/notes.md"
 
-      # Last, so that a release on the forge always has its image. Replayed, it updates the
-      # release and replaces its files.
+      # Last, so that a release always has its image. Replayed, it updates the release and replaces
+      # its files.
       - name: Publish the release
-        uses: https://gitea.com/actions/gitea-release-action@v1
-        with:
-          name: ${{ github.ref_name }}
-          body_path: ${{ runner.temp }}/notes.md
-          prerelease: ${{ steps.tags.outputs.prerelease }}
-          files: |
-            dist/arkhitekton-linux-*
-            dist/SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.tags.outputs.prerelease }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "${tag}" > /dev/null 2>&1; then
+            gh release edit "${tag}" --title "${tag}" --notes-file "${RUNNER_TEMP}/notes.md" \
+              --prerelease="${PRERELEASE}"
+            gh release upload "${tag}" dist/arkhitekton-linux-* dist/SHA256SUMS --clobber
+          else
+            gh release create "${tag}" --verify-tag --title "${tag}" \
+              --notes-file "${RUNNER_TEMP}/notes.md" --prerelease="${PRERELEASE}" \
+              dist/arkhitekton-linux-* dist/SHA256SUMS
+          fi

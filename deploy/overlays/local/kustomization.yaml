@@ -56,8 +56,8 @@ secretGenerator:
       - secrets/dashboard.env
 
 images:
-  - name: reg.cadoles.com/vcarroy/arkhitekton
-    newName: reg.cadoles.com/vcarroy/arkhitekton
+  - name: ghcr.io/cadoles/arkhitekton
+    newName: ghcr.io/cadoles/arkhitekton
     # The tag carries the commit the image comes from. Republishing under the same tag would not be
     # enough to make the cluster take the image again: the pods set no `imagePullPolicy`, so
     # `IfNotPresent` applies as soon as the tag is not `latest`. To iterate without committing, pin

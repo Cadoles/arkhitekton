@@ -83,7 +83,7 @@ format is described in [05 — Pipeline catalogue](05-pipeline-catalogue.md). A 
 does not parse stops the process at start-up, deliberately.
 
 **5. Point the image** at a released version (`images:` in the overlay): every version tag
-publishes `reg.cadoles.com/vcarroy/arkhitekton:<tag>` for `linux/amd64` and `linux/arm64`, with
+publishes `ghcr.io/cadoles/arkhitekton:<tag>` for `linux/amd64` and `linux/arm64`, with
 `v<major>.<minor>`, `v<major>` and `latest` following final versions. To run your own build,
 push it to your registry and point `images:` at the `dev-<commit>` tag it prints:
 

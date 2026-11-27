@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: reg.cadoles.com/vcarroy/arkhitekton:latest
+          image: ghcr.io/cadoles/arkhitekton:latest
           args: ["worker"]
           envFrom:
             - configMapRef:

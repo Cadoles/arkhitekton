@@ -17,7 +17,7 @@ metadata:
 
 build:
   # The local daemon, with no registry. Skaffold recognises a kind context and injects the image
-  # into the nodes: the round trip through reg.cadoles.com would largely dominate the time of an
+  # into the nodes: the round trip through a registry would largely dominate the time of an
   # iteration.
   local:
     push: false
@@ -26,7 +26,7 @@ build:
   artifacts:
     # The name must be the one the overlay produces, otherwise Skaffold would not recognise the
     # image to substitute in the rendered manifests.
-    - image: reg.cadoles.com/vcarroy/arkhitekton
+    - image: ghcr.io/cadoles/arkhitekton
       docker:
         dockerfile: Dockerfile
         buildArgs:

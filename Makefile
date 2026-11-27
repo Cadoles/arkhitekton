@@ -10,9 +10,9 @@ GO     ?= go
 GO_PKGS := ./app/... ./cmd/... ./host/... ./internal/... ./sdk/... ./rpc/...
 GO_DIRS := app cmd host internal sdk rpc
 
-# A personal registry during development: the dashboard's images do not go into a shared project
-# until the project is deliverable.
-IMAGE_REPO ?= reg.cadoles.com/vcarroy/arkhitekton
+# The name the releases publish under. A build of one's own goes to another registry:
+# `make image-push IMAGE_REPO=registry.example.com/team/arkhitekton`.
+IMAGE_REPO ?= ghcr.io/cadoles/arkhitekton
 # The tag carries the commit: republishing under the same tag would not be enough to make the
 # cluster take the image again, the pods setting no `imagePullPolicy`.
 IMAGE_TAG  ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -38,7 +38,7 @@ CONFIG_STREAM = find $(DIR) -name '*.yaml' | sort | while read -r file; do echo 
 PG_TEST_NAME := pg-arkhitekton-test
 PG_TEST_PORT := 15432
 PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/arkhitekton?sslmode=disable
-# A throwaway server, as in CI: durability only slows the tests down, and autovacuum workers make
+# A throwaway server: durability only slows the tests down, and autovacuum workers make
 # dropping a test's database wait for them.
 PG_TEST_FLAGS := postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c autovacuum=off
 
@@ -132,9 +132,8 @@ test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 		$(GO) test -p 1 -count=1 $(GO_PKGS) ; status=$$? ; \
 		docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 ; exit $$status
 
-# A variant for an environment that already supplies PostgreSQL and MinIO — continuous
-# integration services, or containers started by hand. The flags are thus defined in a single
-# place: CI and the workstation run the same thing.
+# A variant for an environment that already supplies PostgreSQL and MinIO, containers started by
+# hand for instance. Continuous integration runs `test-integration`, as the workstation does.
 test-ci: ## Integration tests against services already started
 	$(GO) test -p 1 -count=1 $(GO_PKGS)
 
