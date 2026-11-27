@@ -278,6 +278,20 @@ type TektonConfig struct {
 	// simply hides the link; requiring it would force deploying a component this
 	// dashboard does not need.
 	DashboardURL string
+	// ImageMirrors send the images the installed Tekton definitions name through other registries:
+	// a pull-through cache, for a cluster that is to reach no public registry directly.
+	ImageMirrors []ImageMirror
+	// imageMirrorsProblem is why PIPELINE_IMAGE_MIRRORS did not read, reported by the worker's
+	// validation: ignoring it would have the pipelines pull from the registry it was meant to avoid.
+	imageMirrorsProblem error
+}
+
+// ImageMirror sends the images of one registry through another.
+type ImageMirror struct {
+	// Registry is the host the definitions name: `ghcr.io`.
+	Registry string
+	// Mirror is the reference prefix that replaces it: `registry.example.org/ghcr`.
+	Mirror string
 }
 
 // Load reads the configuration from the environment and validates it for the
@@ -372,8 +386,35 @@ func Load(role Role) (Config, error) {
 			Timeout:    durationOr("FORGE_TIMEOUT", 10*time.Second),
 		},
 	}
+	cfg.Tekton.ImageMirrors, cfg.Tekton.imageMirrorsProblem = imageMirrors("PIPELINE_IMAGE_MIRRORS")
 
 	return cfg, cfg.validate()
+}
+
+// imageMirrors reads comma-separated `registry=mirror` pairs.
+func imageMirrors(key string) ([]ImageMirror, error) {
+	var mirrors []ImageMirror
+	seen := map[string]bool{}
+	for _, part := range strings.Split(os.Getenv(key), ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		registry, mirror, ok := strings.Cut(part, "=")
+		registry = strings.TrimSpace(registry)
+		mirror = strings.TrimSuffix(strings.TrimSpace(mirror), "/")
+		switch {
+		case !ok || registry == "" || mirror == "":
+			return nil, fmt.Errorf("%s: %q is not registry=mirror", key, part)
+		case strings.Contains(registry, "/") || strings.Contains(mirror, "://"):
+			return nil, fmt.Errorf("%s: %q: the registry is a bare host, and the mirror carries no scheme", key, part)
+		case seen[registry]:
+			return nil, fmt.Errorf("%s: %s is mirrored twice", key, registry)
+		}
+		seen[registry] = true
+		mirrors = append(mirrors, ImageMirror{Registry: registry, Mirror: mirror})
+	}
+	return mirrors, nil
 }
 
 // oidcCallbackPath is where the provider sends the browser back: the route is the dashboard's own.
@@ -498,6 +539,9 @@ func (c Config) validate() error {
 		}
 		if strings.TrimSpace(c.Tekton.LeaseNamespace) == "" {
 			problems = append(problems, errors.New("POD_NAMESPACE is required (namespace of the leader lease)"))
+		}
+		if c.Tekton.imageMirrorsProblem != nil {
+			problems = append(problems, c.Tekton.imageMirrorsProblem)
 		}
 	default:
 		problems = append(problems, fmt.Errorf(

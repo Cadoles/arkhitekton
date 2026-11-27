@@ -226,3 +226,66 @@ func TestADefinitionNamesItsPlugin(t *testing.T) {
 		t.Errorf("labels %v, %v", posed.GetLabels(), err)
 	}
 }
+
+// A deployment that pulls through a cache has the definitions name the cache: the images of the
+// steps and those passed as parameters alike, the other registries' untouched, and a script's text
+// kept.
+func TestTheImagesOfAMirroredRegistryArePulledThroughTheMirror(t *testing.T) {
+	client, installer := installerFor(t)
+	installer.WithImageMirrors([]ImageMirror{{Registry: "ghcr.io", Mirror: "registry.example.org/ghcr"}})
+
+	resources := []Resource{
+		{Kind: "Pipeline", Name: "build", Manifest: []byte(`apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build
+spec:
+  tasks:
+    - name: clone
+      params:
+        - name: gitInitImage
+          value: ghcr.io/tektoncd/git-init:v0.29.0
+`)},
+		{Kind: "Task", Name: "scan", Manifest: []byte(`apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: scan
+spec:
+  steps:
+    - name: leaks
+      image: ghcr.io/gitleaks/gitleaks:v8.24.0
+      script: echo pulled from ghcr.io/gitleaks
+    - name: report
+      image: docker.io/library/alpine:3.22
+`)},
+	}
+	if _, err := installer.InstallResources(context.Background(), resources); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	pipeline, err := client.Resource(pipelineGVR).Namespace(namespace).Get(context.Background(), "build", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	tasks, _, _ := unstructured.NestedSlice(pipeline.Object, "spec", "tasks")
+	params, _, _ := unstructured.NestedSlice(tasks[0].(map[string]any), "params")
+	if got := params[0].(map[string]any)["value"]; got != "registry.example.org/ghcr/tektoncd/git-init:v0.29.0" {
+		t.Errorf("parameter = %v, expected the image through the mirror", got)
+	}
+
+	task, err := client.Resource(taskGVR).Namespace(namespace).Get(context.Background(), "scan", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	steps, _, _ := unstructured.NestedSlice(task.Object, "spec", "steps")
+	leaks, report := steps[0].(map[string]any), steps[1].(map[string]any)
+	if leaks["image"] != "registry.example.org/ghcr/gitleaks/gitleaks:v8.24.0" {
+		t.Errorf("step image = %v, expected the image through the mirror", leaks["image"])
+	}
+	if leaks["script"] != "echo pulled from ghcr.io/gitleaks" {
+		t.Errorf("script = %v, a script's text is not a reference", leaks["script"])
+	}
+	if report["image"] != "docker.io/library/alpine:3.22" {
+		t.Errorf("image of another registry = %v, expected untouched", report["image"])
+	}
+}

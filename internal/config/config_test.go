@@ -297,3 +297,54 @@ func TestTheNewVocabularyIsAccepted(t *testing.T) {
 		t.Errorf("tracker URL = %q", cfg.Tracker.URL)
 	}
 }
+
+func workerEnv(mirrors string) map[string]string {
+	return map[string]string{
+		"DATABASE_DSN":           "postgres://u:p@db:5432/arkhitekton",
+		"MINIO_ENDPOINT":         "s3.example.org",
+		"MINIO_ACCESS_KEY":       "ak",
+		"MINIO_SECRET_KEY":       "sk",
+		"TEKTON_NAMESPACE":       "pipelines",
+		"PIPELINE_IMAGE_MIRRORS": mirrors,
+	}
+}
+
+func TestLoadWorkerReadsTheImageMirrors(t *testing.T) {
+	setEnv(t, workerEnv(" ghcr.io = registry.example.org/ghcr/ , quay.io=registry.example.org/quay"))
+
+	cfg, err := Load(RoleWorker)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	expected := []ImageMirror{
+		{Registry: "ghcr.io", Mirror: "registry.example.org/ghcr"},
+		{Registry: "quay.io", Mirror: "registry.example.org/quay"},
+	}
+	if len(cfg.Tekton.ImageMirrors) != len(expected) {
+		t.Fatalf("mirrors = %v", cfg.Tekton.ImageMirrors)
+	}
+	for index, mirror := range expected {
+		if cfg.Tekton.ImageMirrors[index] != mirror {
+			t.Errorf("mirror %d = %v, expected %v", index, cfg.Tekton.ImageMirrors[index], mirror)
+		}
+	}
+}
+
+// A mirror that does not read stops the worker: ignored, it would have the pipelines pull from the
+// registry the deployment meant them to avoid.
+func TestLoadWorkerRefusesAnImageMirrorThatDoesNotRead(t *testing.T) {
+	for _, value := range []string{
+		"ghcr.io",
+		"ghcr.io=",
+		"https://ghcr.io=registry.example.org/ghcr",
+		"ghcr.io=https://registry.example.org/ghcr",
+		"ghcr.io=registry.example.org/a,ghcr.io=registry.example.org/b",
+	} {
+		t.Run(value, func(t *testing.T) {
+			setEnv(t, workerEnv(value))
+			if _, err := Load(RoleWorker); err == nil || !strings.Contains(err.Error(), "PIPELINE_IMAGE_MIRRORS") {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}

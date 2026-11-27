@@ -52,10 +52,18 @@ type Installer struct {
 	dynamic   dynamic.Interface
 	mapper    meta.RESTMapper
 	namespace string
+	mirrors   []ImageMirror
 }
 
 func NewInstaller(client dynamic.Interface, mapper meta.RESTMapper, namespace string) *Installer {
 	return &Installer{dynamic: client, mapper: mapper, namespace: namespace}
+}
+
+// WithImageMirrors has the definitions it installs pull the images of these registries through
+// their mirrors.
+func (i *Installer) WithImageMirrors(mirrors []ImageMirror) *Installer {
+	i.mirrors = mirrors
+	return i
 }
 
 // InstallResources puts the given definitions in place.
@@ -90,6 +98,9 @@ func (i *Installer) apply(ctx context.Context, resource Resource) (string, error
 	}
 
 	object.SetNamespace(i.namespace)
+	if spec, ok := object.Object["spec"]; ok && len(i.mirrors) > 0 {
+		object.Object["spec"] = mirrorImages(spec, i.mirrors)
+	}
 	labels := object.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}

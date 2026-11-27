@@ -1298,6 +1298,10 @@ func libraryInstaller(
 		return nil, fmt.Errorf("discovering the cluster's APIs: %w", err)
 	}
 
+	mirrors := make([]pipelinelib.ImageMirror, 0, len(cfg.Tekton.ImageMirrors))
+	for _, mirror := range cfg.Tekton.ImageMirrors {
+		mirrors = append(mirrors, pipelinelib.ImageMirror{Registry: mirror.Registry, Mirror: mirror.Mirror})
+	}
 	return pipelinelib.NewInstaller(dynamicClient,
-		restmapper.NewDiscoveryRESTMapper(resources), cfg.Tekton.Namespace), nil
+		restmapper.NewDiscoveryRESTMapper(resources), cfg.Tekton.Namespace).WithImageMirrors(mirrors), nil
 }

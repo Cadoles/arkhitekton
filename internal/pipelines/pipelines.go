@@ -22,8 +22,10 @@ type Resource struct {
 	Name string
 	// Kind is `Pipeline` or `Task`.
 	Kind string
-	// Manifest is the YAML as it is. Not rewritten: the dashboard installs what the plugin declares,
-	// and a manifest modified on the fly would be a definition nobody has reviewed.
+	// Manifest is the YAML as it is. Not rewritten, but for the image mirrors the deployment
+	// declares: the dashboard installs what the plugin declares, and a manifest modified on the fly
+	// would be a definition nobody has reviewed. A mirror changes where an image is pulled from, not
+	// which image it is.
 	Manifest []byte
 	// Plugin is the plugin that ships it, set on the object as a label: what lets the dashboard
 	// withdraw a plugin's definitions once it is uninstalled.
