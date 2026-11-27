@@ -12,7 +12,7 @@ func valid() Schedule {
 	return Schedule{
 		ID: 3, Name: "Intégration trois fois par jour", Cron: "0 8,12,16 * * 1-5", Timezone: "Europe/Paris",
 		Ref: "migration-symfony", Enabled: true,
-		Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "mstore/integration-tests"}}}}},
+		Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GestePipeline, Ref: "deploy/integration-tests"}}}}},
 	}
 }
 

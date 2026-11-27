@@ -58,15 +58,15 @@ func newProvidersServer(t *testing.T) *providersServer {
 	merged := "2026-10-20T10:00:00Z"
 	opened := "2026-10-27T09:30:00Z"
 	routes := map[string]any{
-		"/projects/mstore-dev/versions.json": json.RawMessage(fixture("versions.json")),
-		"/issues.json":                    json.RawMessage(fixture("issues_page1.json")),
-		"/issues.json?offset=5":           json.RawMessage(fixture("issues_page2.json")),
-		"/users/current.json":             map[string]any{"user": map[string]any{"id": 4, "login": "bot", "admin": false}},
-		"/api/v1/repos/team/app":          map[string]any{"default_branch": "develop"},
-		"/api/v1/repos/team/app/branches": []any{map[string]any{"name": "develop", "commit": map[string]any{"id": "c1"}}},
-		"/api/v1/repos/team/app/tags":     []any{map[string]any{"name": "v1", "commit": map[string]any{"sha": "c0"}}},
-		"/api/v1/repos/team/app/commits":  []any{map[string]any{"sha": "c1"}},
-		"/api/v1/user":                    map[string]any{"login": "forge-bot", "is_admin": true},
+		"/projects/shop-dev/versions.json": json.RawMessage(fixture("versions.json")),
+		"/issues.json":                     json.RawMessage(fixture("issues_page1.json")),
+		"/issues.json?offset=5":            json.RawMessage(fixture("issues_page2.json")),
+		"/users/current.json":              map[string]any{"user": map[string]any{"id": 4, "login": "bot", "admin": false}},
+		"/api/v1/repos/team/app":           map[string]any{"default_branch": "develop"},
+		"/api/v1/repos/team/app/branches":  []any{map[string]any{"name": "develop", "commit": map[string]any{"id": "c1"}}},
+		"/api/v1/repos/team/app/tags":      []any{map[string]any{"name": "v1", "commit": map[string]any{"sha": "c0"}}},
+		"/api/v1/repos/team/app/commits":   []any{map[string]any{"sha": "c1"}},
+		"/api/v1/user":                     map[string]any{"login": "forge-bot", "is_admin": true},
 		"/api/v1/repos/team/app/pulls?closed": []any{
 			map[string]any{"number": 42, "title": "Feature #9001", "body": "", "merged": true, "merged_at": merged},
 			map[string]any{"number": 41, "title": "Abandoned", "merged": false},
@@ -207,9 +207,9 @@ func TestANativeTrackerReadsAsTheCompiledOne(t *testing.T) {
 
 	settings := func(native bool) capability.Settings {
 		if native {
-			return capability.Settings{"tracker_url": server.URL + "/", "tracker_api_key": "key", "project": "mstore-dev"}
+			return capability.Settings{"tracker_url": server.URL + "/", "tracker_api_key": "key", "project": "shop-dev"}
 		}
-		return capability.Settings{"url": server.URL + "/", "api_key": "key", "project": "mstore-dev"}
+		return capability.Settings{"url": server.URL + "/", "api_key": "key", "project": "shop-dev"}
 	}
 	connect := func(native bool) (provider.Tracker, error) {
 		target := capability.Target{Project: "app", Settings: settings(native), Timeout: 5 * time.Second}
@@ -228,10 +228,10 @@ func TestANativeTrackerReadsAsTheCompiledOne(t *testing.T) {
 	}
 
 	versions := same(t, "versions", func(native bool) ([]provider.Version, error) {
-		return trackers[native].ListVersions(ctx, "mstore-dev")
+		return trackers[native].ListVersions(ctx, "shop-dev")
 	})
 	issues := same(t, "issues", func(native bool) ([]provider.Issue, error) {
-		return trackers[native].ListIssues(ctx, provider.IssueQuery{Project: "mstore-dev"})
+		return trackers[native].ListIssues(ctx, provider.IssueQuery{Project: "shop-dev"})
 	})
 	same(t, "account", func(native bool) (provider.Account, error) { return trackers[native].CheckAccess(ctx) })
 	if len(versions) == 0 || len(issues) == 0 {

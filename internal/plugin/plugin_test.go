@@ -44,7 +44,7 @@ func TestAPluginSwitchedOffRequiresNothing(t *testing.T) {
 // field means a screen saying "saved" over a value nothing reads back, and the typo
 // surfaces weeks later as a synchronisation that never did anything.
 func TestAnUndeclaredSettingIsRefused(t *testing.T) {
-	err := Validate(tracker, ScopeProject, Values{"project": "mstore", "project_id": "mstore"}, nil)
+	err := Validate(tracker, ScopeProject, Values{"project": "shop", "project_id": "shop"}, nil)
 	if err == nil {
 		t.Fatal("unknown setting accepted")
 	}
@@ -63,7 +63,7 @@ func TestTheRequirementBearsOnTheResolvedValue(t *testing.T) {
 	}
 
 	// Provided by the wider scope: accepted, although nothing was typed.
-	err := Validate(tracker, ScopeProject, Values{}, Values{"project": "mstore"})
+	err := Validate(tracker, ScopeProject, Values{}, Values{"project": "shop"})
 	if err != nil {
 		t.Errorf("inherited value refused: %v", err)
 	}
@@ -73,14 +73,14 @@ func TestTheRequirementBearsOnTheResolvedValue(t *testing.T) {
 // then every call fails with a message that does not point at it.
 func TestFormatsAreCheckedOnInput(t *testing.T) {
 	for _, value := range []string{"redmine.example.fr", "/redmine", "n'importe quoi"} {
-		err := Validate(tracker, ScopeProject, Values{"project": "mstore", "url": value}, nil)
+		err := Validate(tracker, ScopeProject, Values{"project": "shop", "url": value}, nil)
 		if err == nil {
 			t.Errorf("URL %q accepted", value)
 		}
 	}
 
 	if err := Validate(tracker, ScopeProject,
-		Values{"project": "mstore", "url": "https://redmine.example.fr"}, nil); err != nil {
+		Values{"project": "shop", "url": "https://redmine.example.fr"}, nil); err != nil {
 		t.Errorf("valid URL refused: %v", err)
 	}
 }
@@ -103,7 +103,7 @@ func TestAPluginWithoutSettingsValidatesRequiringNothing(t *testing.T) {
 func TestAnEmptyFieldDoesNotEraseTheInstances(t *testing.T) {
 	resolved := Resolve(
 		Values{"url": "https://redmine.example.fr", "api_key": "globale"},
-		Values{"url": "", "project": "mstore"},
+		Values{"url": "", "project": "shop"},
 	)
 
 	if resolved["url"] != "https://redmine.example.fr" {
@@ -112,7 +112,7 @@ func TestAnEmptyFieldDoesNotEraseTheInstances(t *testing.T) {
 	if resolved["api_key"] != "globale" {
 		t.Errorf("resolved key = %q", resolved["api_key"])
 	}
-	if resolved["project"] != "mstore" {
+	if resolved["project"] != "shop" {
 		t.Errorf("resolved project = %q", resolved["project"])
 	}
 }

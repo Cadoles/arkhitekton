@@ -9,7 +9,7 @@ import { ProjectKey } from './ProjectForm'
  */
 
 const project = {
-  id: 8, slug: 'mstore', uid: '3f2b9c1e-7a4d-4e8b-9c0a-5d6e7f8a9b0c', deploy_key_active: false,
+  id: 8, slug: 'shop', uid: '3f2b9c1e-7a4d-4e8b-9c0a-5d6e7f8a9b0c', deploy_key_active: false,
 } as unknown as Project
 
 describe('ProjectKey', () => {

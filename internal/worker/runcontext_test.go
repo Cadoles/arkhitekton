@@ -19,7 +19,7 @@ type contextStore struct {
 }
 
 func (s contextStore) GetProject(context.Context, int64) (store.Project, error) {
-	return store.Project{Slug: "mstore", VersionScheme: "semver"}, nil
+	return store.Project{Slug: "shop", VersionScheme: "semver"}, nil
 }
 
 func (s contextStore) GetReleaseByID(_ context.Context, id int64) (store.Release, error) {
@@ -68,7 +68,7 @@ func TestARunReadsItsReleasesVariables(t *testing.T) {
 	if got["docker.dockerfile"] != "./misc/Dockerfile" || got["docker.buildContext"] != "." {
 		t.Errorf("plugin variables %q %q", got["docker.dockerfile"], got["docker.buildContext"])
 	}
-	if got[contextReleaseURL] != "https://dash/releases/1.0.0-rc1?project=mstore" {
+	if got[contextReleaseURL] != "https://dash/releases/1.0.0-rc1?project=shop" {
 		t.Errorf("url %q", got[contextReleaseURL])
 	}
 	if got[contextPrerelease] != "true" {
@@ -119,12 +119,12 @@ func TestAFactsRunBearsOnTheReleaseItNames(t *testing.T) {
 		}), quietLogger())
 		source := contextStore{
 			release: store.Release{ID: 7, ProjectID: 3, Tag: "1.0.0"},
-			reactions: []reaction.Reaction{{Name: "notify", EventType: "mstore.release.promoted",
+			reactions: []reaction.Reaction{{Name: "notify", EventType: "deploy.release.promoted",
 				Plan: plan.Plan{Stages: []plan.Stage{{Gestes: []plan.Geste{{Kind: plan.GesteAction, Ref: "rocketchat.message"}}}}}}},
 		}
 		projectID := tc.project
 		NewDispatcher(source, engine, quietLogger()).Dispatch(context.Background(), event.Event{
-			Type: "mstore.release.promoted", ProjectID: &projectID, DedupKey: "k",
+			Type: "deploy.release.promoted", ProjectID: &projectID, DedupKey: "k",
 			Payload: map[string]string{"release_id": "7", "environment": "unstable"},
 		})
 		run, err := base.PlanRunByID(context.Background(), 1)

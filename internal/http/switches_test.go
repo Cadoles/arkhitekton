@@ -44,7 +44,7 @@ func (s *switchStore) SetReleaseAutomationEnabled(_ context.Context, _ int64, en
 
 func switchRequestTo(handler stdhttp.HandlerFunc, path, body string, values map[string]string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(stdhttp.MethodPut, path, strings.NewReader(body))
-	request.SetPathValue("project", "mstore")
+	request.SetPathValue("project", "shop")
 	request = request.WithContext(ContextWithIdentity(request.Context(),
 		auth.Identity{Subject: "alice", Username: "alice", Role: auth.RoleAdmin}))
 	for key, value := range values {
@@ -61,7 +61,7 @@ func TestAReactionIsSwitchedWithoutBeingSavedAgain(t *testing.T) {
 	fixture := &switchStore{reactions: map[int64]bool{}}
 	handler := NewAutomationsHandler(fixture, roleCatalogue(), testRegistry, quietLogger())
 
-	recorder := switchRequestTo(handler.SwitchReaction, "/projects/mstore/reactions/3/enabled",
+	recorder := switchRequestTo(handler.SwitchReaction, "/projects/shop/reactions/3/enabled",
 		`{"enabled": false}`, map[string]string{"reaction": "3"})
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("%d: %s", recorder.Code, recorder.Body)
@@ -73,7 +73,7 @@ func TestAReactionIsSwitchedWithoutBeingSavedAgain(t *testing.T) {
 		t.Errorf("audited %v", fixture.audited)
 	}
 
-	recorder = switchRequestTo(handler.SwitchReaction, "/projects/mstore/reactions/9/enabled",
+	recorder = switchRequestTo(handler.SwitchReaction, "/projects/shop/reactions/9/enabled",
 		`{"enabled": true}`, map[string]string{"reaction": "9"})
 	if recorder.Code != stdhttp.StatusNotFound {
 		t.Errorf("unknown reaction: %d, expected 404", recorder.Code)
@@ -86,7 +86,7 @@ func TestASwitchWithoutItsStateIsRefused(t *testing.T) {
 	handler := NewAutomationsHandler(fixture, roleCatalogue(), testRegistry, quietLogger())
 
 	for _, body := range []string{`{}`, `{"enabled": "no"}`, ``} {
-		recorder := switchRequestTo(handler.SwitchReaction, "/projects/mstore/reactions/3/enabled",
+		recorder := switchRequestTo(handler.SwitchReaction, "/projects/shop/reactions/3/enabled",
 			body, map[string]string{"reaction": "3"})
 		if recorder.Code != stdhttp.StatusBadRequest {
 			t.Errorf("%q: %d, expected 400", body, recorder.Code)
@@ -103,14 +103,14 @@ func TestAnUndeclaredAutomationIsNotSwitched(t *testing.T) {
 	fixture := &switchStore{}
 	handler := NewAutomationsHandler(fixture, roleCatalogue(), testRegistry, quietLogger())
 
-	recorder := switchRequestTo(handler.SwitchAutomation, "/projects/mstore/automation/enabled",
+	recorder := switchRequestTo(handler.SwitchAutomation, "/projects/shop/automation/enabled",
 		`{"enabled": false}`, nil)
 	if recorder.Code != stdhttp.StatusConflict {
 		t.Errorf("%d, expected 409: %s", recorder.Code, recorder.Body)
 	}
 
 	fixture.declared = true
-	recorder = switchRequestTo(handler.SwitchAutomation, "/projects/mstore/automation/enabled",
+	recorder = switchRequestTo(handler.SwitchAutomation, "/projects/shop/automation/enabled",
 		`{"enabled": false}`, nil)
 	if recorder.Code != stdhttp.StatusOK || fixture.automaton == nil || *fixture.automaton {
 		t.Errorf("%d, switched %v", recorder.Code, fixture.automaton)
@@ -126,7 +126,7 @@ func TestASwitchedScheduleFiresNextFromNow(t *testing.T) {
 	fixture := &scheduleStore{}
 	handler := NewAutomationsHandler(fixture, roleCatalogue(), testRegistry, quietLogger()).WithSchedules(fixture)
 
-	recorder := switchRequestTo(handler.SwitchSchedule, "/projects/mstore/schedules/4/enabled",
+	recorder := switchRequestTo(handler.SwitchSchedule, "/projects/shop/schedules/4/enabled",
 		`{"enabled": true}`, map[string]string{"schedule": "4"})
 	if recorder.Code != stdhttp.StatusOK || len(fixture.next) != 1 {
 		t.Fatalf("%d: %s", recorder.Code, recorder.Body)
@@ -135,13 +135,13 @@ func TestASwitchedScheduleFiresNextFromNow(t *testing.T) {
 		t.Errorf("next = %v", next)
 	}
 
-	switchRequestTo(handler.SwitchSchedule, "/projects/mstore/schedules/4/enabled",
+	switchRequestTo(handler.SwitchSchedule, "/projects/shop/schedules/4/enabled",
 		`{"enabled": false}`, map[string]string{"schedule": "4"})
 	if len(fixture.next) != 2 || fixture.next[1] != nil || fixture.switched[1] {
 		t.Errorf("switched %v, next %v", fixture.switched, fixture.next)
 	}
 
-	recorder = switchRequestTo(handler.SwitchSchedule, "/projects/mstore/schedules/8/enabled",
+	recorder = switchRequestTo(handler.SwitchSchedule, "/projects/shop/schedules/8/enabled",
 		`{"enabled": true}`, map[string]string{"schedule": "8"})
 	if recorder.Code != stdhttp.StatusNotFound {
 		t.Errorf("unknown schedule: %d, expected 404", recorder.Code)

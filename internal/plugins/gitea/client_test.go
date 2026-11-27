@@ -14,7 +14,7 @@ import (
 
 func clientFor(t *testing.T, serverURL string) *Client {
 	t.Helper()
-	client, err := New(Options{URL: serverURL, Token: "test-token", Repository: "team/mstore"})
+	client, err := New(Options{URL: serverURL, Token: "test-token", Repository: "team/shop"})
 	if err != nil {
 		t.Fatalf("building: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestNoWriteReachesTheNetwork(t *testing.T) {
 	client := clientFor(t, server.URL)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		request, _ := http.NewRequestWithContext(context.Background(), method,
-			server.URL+"/api/v1/repos/team/mstore/tags", nil)
+			server.URL+"/api/v1/repos/team/shop/tags", nil)
 		if _, err := client.http.Do(request); !errors.Is(err, ErrWriteForbidden) {
 			t.Errorf("%s: error %v, expected ErrWriteForbidden", method, err)
 		}
@@ -140,8 +140,8 @@ func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 	for _, options := range []Options{
 		{},
 		{URL: "https://forge.example.org", Token: "x"},
-		{URL: "https://forge.example.org", Repository: "team/mstore"},
-		{Token: "x", Repository: "team/mstore"},
+		{URL: "https://forge.example.org", Repository: "team/shop"},
+		{Token: "x", Repository: "team/shop"},
 	} {
 		if _, err := New(options); !errors.Is(err, ErrNotConfigured) {
 			t.Errorf("%+v: error %v, expected ErrNotConfigured", options, err)
@@ -149,7 +149,7 @@ func TestWithoutConfigurationNoClientIsBuilt(t *testing.T) {
 	}
 
 	// A repository without an owner is a malformed value, distinct from an absent one.
-	if _, err := New(Options{URL: "https://forge.example.org", Token: "x", Repository: "mstore"}); err == nil {
+	if _, err := New(Options{URL: "https://forge.example.org", Token: "x", Repository: "shop"}); err == nil {
 		t.Error("a repository without an owner should be refused")
 	}
 }

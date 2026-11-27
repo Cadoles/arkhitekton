@@ -41,7 +41,7 @@ func TestTheSameFactCarriesTheSameKey(t *testing.T) {
 // would not re-observe its whole history.
 func TestAVersionKeyCarriesTheLocalLine(t *testing.T) {
 	redmine := VersionCreatedAt(instant, 805, "v3.2.0", "open", "redmine", "412", nil)
-	other := VersionCreatedAt(instant, 805, "v3.2.0", "open", "jira", "MSTORE-9", nil)
+	other := VersionCreatedAt(instant, 805, "v3.2.0", "open", "jira", "SHOP-9", nil)
 
 	if redmine.DedupKey != other.DedupKey {
 		t.Errorf("keys %q and %q — the same version would be observed twice",
@@ -134,7 +134,7 @@ func TestEveryConstructorProducesAValidFact(t *testing.T) {
  * The rule is not checkable by a machine; the **count** is. This test does not say that a fifth
  * fact would be wrong, it says that it must not arrive without having been decided.
  *
- * `release.promoted` left in its turn: it is the Mstore plugin that defines what a promotion is, so
+ * `release.promoted` left in its turn: it is the deploy plugin that defines what a promotion is, so
  * it is the plugin that observes it.
  *
  * `release.drafted` came in: drafting is someone's act, which no plan causes, and launching the

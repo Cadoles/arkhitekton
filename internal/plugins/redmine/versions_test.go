@@ -23,7 +23,7 @@ import (
  * reason to have fixtures:
  *
  *   - four version naming conventions, including two distinct names for what appears to be the
- *     same version (`Mstore 3.1.2` closed and `v3.1.2` open);
+ *     same version (`SHOP 3.1.2` closed and `v3.1.2` open);
  *   - two anomaly trackers (`Anomalie` and `Anomalie (SDN4)`);
  *   - two statuses differing only in case (`En Standby`, `En StandBy`);
  *   - `Ré-ouvert` declared closed by Redmine;
@@ -59,10 +59,10 @@ func fixtureServer(t *testing.T, routes map[string]string) *httptest.Server {
 
 func TestVersionsDecodeWithTheirFourConventions(t *testing.T) {
 	server := fixtureServer(t, map[string]string{
-		"/projects/mstore-dev/versions.json": "versions.json",
+		"/projects/shop-dev/versions.json": "versions.json",
 	})
 
-	versions, err := clientFor(t, server.URL).ListVersions(context.Background(), "mstore-dev")
+	versions, err := clientFor(t, server.URL).ListVersions(context.Background(), "shop-dev")
 	if err != nil {
 		t.Fatalf("versions: %v", err)
 	}
@@ -77,14 +77,14 @@ func TestVersionsDecodeWithTheirFourConventions(t *testing.T) {
 		byID[version.ID] = version
 	}
 
-	if byID["801"].Name != "MSTORE3-1.5" || byID["803"].Name != "Mstore 3.1.2" || byID["805"].Name != "v3.2.0" {
+	if byID["801"].Name != "SHOP3-1.5" || byID["803"].Name != "SHOP 3.1.2" || byID["805"].Name != "v3.2.0" {
 		t.Errorf("names altered: %q %q %q", byID["801"].Name, byID["803"].Name, byID["805"].Name)
 	}
 
 	// Two distinct versions carry the same number under two conventions. They must stay two rows:
 	// merging them would invent data.
 	if byID["803"].ID == byID["804"].ID {
-		t.Error("Mstore 3.1.2 et v3.1.2 doivent rester distinctes")
+		t.Error("SHOP 3.1.2 et v3.1.2 doivent rester distinctes")
 	}
 	if byID["803"].Status != "closed" || byID["804"].Status != "open" {
 		t.Errorf("statuses: 803=%q 804=%q", byID["803"].Status, byID["804"].Status)
@@ -109,7 +109,7 @@ func TestRequestsDecodeAcrossSeveralPages(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		provider.IssueQuery{Project: "mstore-dev"})
+		provider.IssueQuery{Project: "shop-dev"})
 	if err != nil {
 		t.Fatalf("issues: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestARequestWithNoVersionStaysWithout(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		provider.IssueQuery{Project: "mstore-dev"})
+		provider.IssueQuery{Project: "shop-dev"})
 	if err != nil {
 		t.Fatalf("issues: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestTheClosedFlagIsTakenWithoutJudgement(t *testing.T) {
 	})
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		provider.IssueQuery{Project: "mstore-dev"})
+		provider.IssueQuery{Project: "shop-dev"})
 	if err != nil {
 		t.Fatalf("issues: %v", err)
 	}
@@ -203,14 +203,14 @@ func TestTheRequestAsksForEveryStatusAndAStableSort(t *testing.T) {
 	defer server.Close()
 
 	if _, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		provider.IssueQuery{Project: "mstore-dev", Since: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
+		provider.IssueQuery{Project: "shop-dev", Since: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatalf("issues: %v", err)
 	}
 
 	for _, expected := range []string{
 		"status_id=%2A",
 		"sort=updated_on",
-		"project_id=mstore-dev",
+		"project_id=shop-dev",
 		"updated_on=%3E%3D2026-08-01T00%3A00%3A00Z",
 	} {
 		if !strings.Contains(query, expected) {
@@ -230,7 +230,7 @@ func TestAnEmptyPageStopsThePagination(t *testing.T) {
 	defer server.Close()
 
 	issues, err := clientFor(t, server.URL).ListIssues(context.Background(),
-		provider.IssueQuery{Project: "mstore-dev"})
+		provider.IssueQuery{Project: "shop-dev"})
 	if err != nil {
 		t.Fatalf("issues: %v", err)
 	}

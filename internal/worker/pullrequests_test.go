@@ -261,12 +261,12 @@ func TestADraftLeavesItsDraftAsAFact(t *testing.T) {
 
 	s.set(4, provider.PullOpen, "eeeeeeeeee")
 	s.forge.pulls[len(s.forge.pulls)-1].Draft = true
-	s.forge.pulls[len(s.forge.pulls)-1].Body = "Correctif.\n\nmstore-deploy: feature/branche\nRefs: #12"
+	s.forge.pulls[len(s.forge.pulls)-1].Body = "Correctif.\n\nshop-deploy: feature/branche\nRefs: #12"
 	facts := s.pass()
 	if types(facts) != string(event.PullRequestOpened) || facts[0].Payload["draft"] != "true" {
 		t.Fatalf("opened as a draft: %s %v", types(facts), facts)
 	}
-	if facts[0].Payload["trailer.mstore-deploy"] != "feature/branche" || facts[0].Payload["trailer.refs"] != "#12" {
+	if facts[0].Payload["trailer.shop-deploy"] != "feature/branche" || facts[0].Payload["trailer.refs"] != "#12" {
 		t.Errorf("trailers %v", facts[0].Payload)
 	}
 
@@ -278,8 +278,8 @@ func TestADraftLeavesItsDraftAsAFact(t *testing.T) {
 }
 
 func TestTrailersAreTheBodysKeyValueLines(t *testing.T) {
-	got := Trailers("Titre\n\nMstore-Deploy:  release/3.2 \nmstore-deploy: autre\nune phrase: avec deux points\n:vide\n")
-	if got["mstore-deploy"] != "release/3.2" || len(got) != 1 {
+	got := Trailers("Titre\n\nShop-Deploy:  release/3.2 \nshop-deploy: autre\nune phrase: avec deux points\n:vide\n")
+	if got["shop-deploy"] != "release/3.2" || len(got) != 1 {
 		t.Errorf("trailers %v", got)
 	}
 }

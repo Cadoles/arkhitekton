@@ -55,10 +55,10 @@ func tileCatalogue() *catalog.Catalog {
 	}
 	return &catalog.Catalog{Pipelines: []catalog.Pipeline{
 		pipeline("php/unit-tests", "Tests unitaires", "unit"),
-		pipeline("mstore/e2e-tests", "Tests E2E", "e2e"),
+		pipeline("deploy/e2e-tests", "Tests E2E", "e2e"),
 		pipeline("docker/scan", "Scan d'image", "security"),
-		pipeline("mstore/security-audit", "Audit de sécurité", "security"),
-		pipeline("mstore/rgaa-audit", "Audit RGAA", "accessibility"),
+		pipeline("deploy/security-audit", "Audit de sécurité", "security"),
+		pipeline("deploy/rgaa-audit", "Audit RGAA", "accessibility"),
 		pipeline("review/pull-request", "Revue IA", "review"),
 		{Kind: "docker/build", PipelineRef: "build", Produces: []catalog.Product{catalog.ProductImage}},
 	}}
@@ -100,7 +100,7 @@ func TestNothingLaunchedHasNoTile(t *testing.T) {
 // again add none.
 func TestEachPipelineLaunchedAddsOneTile(t *testing.T) {
 	source := &tileStore{jobs: []store.ReleaseJob{
-		job("mstore/rgaa-audit", 9, "running"),
+		job("deploy/rgaa-audit", 9, "running"),
 		job("php/unit-tests", 5, "succeeded"),
 		job("review/pull-request", 3, "succeeded"),
 		job("php/unit-tests", 1, "failed"),
@@ -112,7 +112,7 @@ func TestEachPipelineLaunchedAddsOneTile(t *testing.T) {
 		result("php/unit-tests", "unit", "phpunit", 2, 10, 5),
 	}
 	keys, labels, value, measured := score(t, source, reports)
-	if len(keys) != 2 || keys[0] != "pipeline:php/unit-tests" || keys[1] != "pipeline:mstore/rgaa-audit" {
+	if len(keys) != 2 || keys[0] != "pipeline:php/unit-tests" || keys[1] != "pipeline:deploy/rgaa-audit" {
 		t.Fatalf("tiles = %v", keys)
 	}
 	if labels[1] != "Audit RGAA" {
@@ -128,7 +128,7 @@ func TestEachPipelineLaunchedAddsOneTile(t *testing.T) {
 // same; a weight set wins over both.
 func TestATileWeighsWhatWasSetForItsPipeline(t *testing.T) {
 	reports := []store.TestResult{
-		result("mstore/rgaa-audit", "accessibility", "pa11y", 3, 10, 10),
+		result("deploy/rgaa-audit", "accessibility", "pa11y", 3, 10, 10),
 		result("php/unit-tests", "unit", "phpunit", 2, 10, 0),
 	}
 	source := &tileStore{}
@@ -143,7 +143,7 @@ func TestATileWeighsWhatWasSetForItsPipeline(t *testing.T) {
 		t.Errorf("an out-of-score tile keeps its value: %+v", rgaa)
 	}
 
-	source.weights = map[string]float64{"mstore/rgaa-audit": 25}
+	source.weights = map[string]float64{"deploy/rgaa-audit": 25}
 	if breakdown, _ = computeScore(context.Background(), source, store.ReleaseScope(1), reports, tileCatalogue()); breakdown.Score != 50 {
 		t.Errorf("weighted alike, a failed audit halves the score: %d", breakdown.Score)
 	}
@@ -157,12 +157,12 @@ func TestATileWeighsWhatWasSetForItsPipeline(t *testing.T) {
 // Two pipelines auditing into one group are each graded on their own audit.
 func TestTwoSecurityPipelinesReadTheirOwnAudit(t *testing.T) {
 	reports := []store.TestResult{
-		{Capability: "mstore/security-audit", Group: "security", Shape: "findings", Tool: "security-audit", CreatedAt: origin.Add(2 * time.Minute)},
+		{Capability: "deploy/security-audit", Group: "security", Shape: "findings", Tool: "security-audit", CreatedAt: origin.Add(2 * time.Minute)},
 		{Capability: "docker/scan", Group: "security", Shape: "findings", Tool: "trivy", CreatedAt: origin},
 	}
 	source := &tileStore{audits: map[string]store.SecurityAudit{
-		"docker/scan":        {Critical: 0, High: 0, Total: 1},
-		"mstore/security-audit": {Critical: 2, Total: 2},
+		"docker/scan":           {Critical: 0, High: 0, Total: 1},
+		"deploy/security-audit": {Critical: 2, Total: 2},
 	}}
 	breakdown, err := computeScore(context.Background(), source, store.ReleaseScope(1), reports, tileCatalogue())
 	if err != nil {

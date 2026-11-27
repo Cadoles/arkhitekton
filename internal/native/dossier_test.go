@@ -13,7 +13,7 @@ import (
 )
 
 func TestARoleWithoutDossiersSaysSo(t *testing.T) {
-	_, err := NewHost(HostDeps{}, "mstore").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
+	_, err := NewHost(HostDeps{}, "deploy").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
 	if status.Code(err) != codes.Unimplemented {
 		t.Errorf("err = %v", err)
 	}
@@ -28,7 +28,7 @@ func TestADossierCarriesTheScreensVerdicts(t *testing.T) {
 			Audit: &store.SecurityAudit{Total: 2, FailedScanners: []string{"trivy"}},
 		}, nil
 	}}
-	dossier, err := NewHost(deps, "mstore").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
+	dossier, err := NewHost(deps, "deploy").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestAMissingReleaseIsNotFoundForThePlugin(t *testing.T) {
 	deps := HostDeps{Dossier: func(context.Context, int64, string) (Dossier, error) {
 		return Dossier{}, store.ErrReleaseNotFound
 	}}
-	_, err := NewHost(deps, "mstore").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
+	_, err := NewHost(deps, "deploy").GetReleaseDossier(context.Background(), &pluginv1.ReleaseByTag{Tag: "1.0.0"})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("err = %v", err)
 	}

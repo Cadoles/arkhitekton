@@ -33,7 +33,7 @@ func runningRecord(name string) RunRecord {
 	started := time.Now().Add(-2 * time.Minute)
 	return RunRecord{
 		Name:      name,
-		Namespace: "mstore-pipelines",
+		Namespace: "shop-pipelines",
 		Pipeline:  "php-static-tests",
 		Status:    "running",
 		Reason:    "Running",
@@ -214,7 +214,7 @@ func TestUnfinishedRunsExcludesTerminalOnes(t *testing.T) {
 		}
 	}
 
-	unfinished, err := db.UnfinishedRuns(ctx, "mstore-pipelines")
+	unfinished, err := db.UnfinishedRuns(ctx, "shop-pipelines")
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

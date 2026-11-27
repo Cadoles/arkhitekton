@@ -1147,7 +1147,7 @@ func TestAProjectWithoutATrackerProducesDefinitiveVersions(t *testing.T) {
 	var untracked int64
 	if err := db.Pool().QueryRow(ctx,
 		`insert into projects (slug, repository, label, forge_url, created_by)
-		 values ('theme', 'team/mstore-theme', 'Theme', 'https://forge.example', 'test')
+		 values ('theme', 'team/shop-theme', 'Theme', 'https://forge.example', 'test')
 		 returning id`).Scan(&untracked); err != nil {
 		t.Fatalf("project with no tracker: %v", err)
 	}
@@ -1263,7 +1263,7 @@ func TestTwoToolsMayShareAnIdentifier(t *testing.T) {
 	// refused it with no message saying why.
 	if _, err := db.UpsertTrackedVersion(ctx, TrackedVersion{
 		ProjectID: testProjectID, Tool: "jira", ExternalID: "42",
-		Name: "MSTORE-42", Normalized: "MSTORE-42", Status: "open",
+		Name: "SHOP-42", Normalized: "SHOP-42", Status: "open",
 	}); err != nil {
 		t.Fatalf("version Jira: %v", err)
 	}

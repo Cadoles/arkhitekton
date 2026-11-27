@@ -2,7 +2,7 @@
   "versions": [
     {
       "id": 801,
-      "name": "MSTORE3-1.5",
+      "name": "SHOP3-1.5",
       "description": "convention historique, close",
       "status": "closed",
       "due_date": "2025-04-14",
@@ -10,7 +10,7 @@
     },
     {
       "id": 802,
-      "name": "MSTORE3-1.20",
+      "name": "SHOP3-1.20",
       "description": "",
       "status": "closed",
       "due_date": null,
@@ -18,7 +18,7 @@
     },
     {
       "id": 803,
-      "name": "Mstore 3.1.2",
+      "name": "SHOP 3.1.2",
       "description": "deuxieme convention, avec espace",
       "status": "closed",
       "due_date": "2026-08-03",

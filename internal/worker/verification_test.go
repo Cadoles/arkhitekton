@@ -40,7 +40,7 @@ func verificationCatalog() *catalog.Catalog {
 			{
 				Kind: "static-tests", Verification: true, Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
-					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
+					"repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
 				},
 			},
 			// The unit tests have their own pipeline: two distinct questions, two signals the score weighs
@@ -48,7 +48,7 @@ func verificationCatalog() *catalog.Catalog {
 			{
 				Kind: "unit-tests", Verification: true, Params: map[string]catalog.Param{
 					"revision": {Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
-					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
+					"repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
 				},
 			},
 			{
@@ -65,16 +65,16 @@ func verificationCatalog() *catalog.Catalog {
 					"consumer-image": {
 						Source: catalog.SourceInput, Required: true,
 						Suggest: catalog.SuggestImage, Image: "portal-cli"},
-					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
+					"app-repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
 				},
 			},
 			// The deployment infrastructure's revision comes from the configuration: that is what makes
 			// this pipeline chainable. While it was an input, the dashboard did not know how to fill it in.
 			{
 				Kind: "integration-tests", Verification: true, Params: map[string]catalog.Param{
-					"mstore-revision": {
+					"shop-revision": {
 						Source: catalog.SourceInput, Required: true, Suggest: catalog.SuggestGitRef},
-					"mstore-deploy-revision": {Source: catalog.SourceConfig, Key: "forge.mstoreDeploy.revision"},
+					"shop-deploy-revision": {Source: catalog.SourceConfig, Key: "forge.shopDeploy.revision"},
 					// The pipeline deploys images already published: it receives their tag, never what is needed to
 					// rebuild them.
 					"image-tag": {
@@ -117,7 +117,7 @@ func openPlan(
 ) int {
 	t.Helper()
 
-	projectRow := store.Project{ID: 1, Slug: "mstore"}
+	projectRow := store.Project{ID: 1, Slug: "shop"}
 
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(),
@@ -171,7 +171,7 @@ func (a testAutomation) ReleaseAutomation(
 func TestASwitchedOffAutomationOpensNothing(t *testing.T) {
 	fake := &fakeVerificationStore{}
 	pipelines := verificationCatalog()
-	projectRow := store.Project{ID: 1, Slug: "mstore"}
+	projectRow := store.Project{ID: 1, Slug: "shop"}
 	planner := NewReleasePlanner(
 		NewEngine(newFakePlanStore(), NewReleaseRunner(pipelines, fake, quietLogger()), quietLogger()),
 		pipelines,
@@ -214,15 +214,15 @@ func TestTheVerificationBearsOnTheCommitBuilt(t *testing.T) {
 	if !ok {
 		t.Error("integration-tests should be launched")
 	}
-	// The integration pipeline names its revision `mstore-revision`. It is still the commit built: the
+	// The integration pipeline names its revision `shop-revision`. It is still the commit built: the
 	// deployment it exercises must be the release's, not that of the branch it came from.
-	if integration.Params["mstore-revision"] != "abc123def456" {
+	if integration.Params["shop-revision"] != "abc123def456" {
 		t.Errorf("params of integration-tests: %v", integration.Params)
 	}
-	// `mstore-deploy-revision` comes from the configuration, not from the chaining: the scheduler
+	// `shop-deploy-revision` comes from the configuration, not from the chaining: the scheduler
 	// resolves it at launch, and supplying it here would freeze it at the moment of the build.
-	if _, present := integration.Params["mstore-deploy-revision"]; present {
-		t.Error("mstore-deploy-revision must not be filled in by the chaining")
+	if _, present := integration.Params["shop-deploy-revision"]; present {
+		t.Error("shop-deploy-revision must not be filled in by the chaining")
 	}
 	// The tag of the images to deploy is the release's: they are the ones its build has just
 	// published, and not a rebuild.
@@ -236,7 +236,7 @@ func TestTheVerificationBearsOnTheCommitBuilt(t *testing.T) {
 	}
 
 	// The audit names its revision `app-revision`. Without that name, it fell back to its default
-	// and scanned `team/mstore` at `k8s-unstable` — therefore something other than the release,
+	// and scanned `team/shop` at `k8s-unstable`, therefore something other than the release,
 	// returning a verdict attributed to the wrong thing.
 	audit := kinds["security-audit"]
 	if audit.Params["app-revision"] != "abc123def456" {
@@ -247,8 +247,8 @@ func TestTheVerificationBearsOnTheCommitBuilt(t *testing.T) {
 	if got := audit.Params["portal-image"]; got != "reg.cadoles.com/vcarroy/portal:3.2.0-rc1" {
 		t.Errorf("image portal %q", got)
 	}
-	// `portal-cli` since `mstore`'s FrankenPHP migration: the Dockerfile's `consumer` target
-	// disappeared, replaced by `cli`, and the image it publishes was renamed with it.
+	// `portal-cli`: the Dockerfile's `consumer` target became `cli`, and the image it publishes
+	// was renamed with it.
 	if got := audit.Params["consumer-image"]; got != "reg.cadoles.com/vcarroy/portal-cli:3.2.0-rc1" {
 		t.Errorf("image consumer %q", got)
 	}
@@ -348,7 +348,7 @@ func TestABuildLaunchesItsVerificationsOnlyOnce(t *testing.T) {
 	fake := &fakeVerificationStore{state: "building"}
 	pipelines := verificationCatalog()
 
-	projectRow := store.Project{ID: 1, Slug: "mstore"}
+	projectRow := store.Project{ID: 1, Slug: "shop"}
 
 	// A single planner, therefore a single plan store: it is what carries the uniqueness per
 	// (trigger, fact), like the `plan_runs` table.
@@ -389,7 +389,7 @@ func TestARunOfAnotherDatabaseConcludesNoJob(t *testing.T) {
 	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
 
 	disowned := sink.disown(tekton.Run{
-		Name: "mstore-static-tests-7", JobID: 7, Instance: "",
+		Name: "ark-static-tests-7", JobID: 7, Instance: "",
 		Status: tekton.StatusFailed, Reason: "Failed",
 	})
 
@@ -401,7 +401,7 @@ func TestARunOfAnotherDatabaseConcludesNoJob(t *testing.T) {
 	}
 	// The run stays projected: it existed, its logs have value, and hiding it would make what the
 	// cluster still holds disappear from the history.
-	if disowned.Name != "mstore-static-tests-7" || disowned.Status != tekton.StatusFailed {
+	if disowned.Name != "ark-static-tests-7" || disowned.Status != tekton.StatusFailed {
 		t.Errorf("the run was altered beyond the attachment: %+v", disowned)
 	}
 }
@@ -412,7 +412,7 @@ func TestARunOfTheCurrentDatabaseStaysAttached(t *testing.T) {
 	sink := &runSink{logger: quietLogger(), instance: "1d82ae"}
 
 	run := tekton.Run{
-		Name: "mstore-1d82ae-static-tests-7", JobID: 7, Instance: "1d82ae",
+		Name: "ark-1d82ae-static-tests-7", JobID: 7, Instance: "1d82ae",
 		Status: tekton.StatusSucceeded,
 	}
 	if got := sink.disown(run); got.JobID != 7 || got.Observed {

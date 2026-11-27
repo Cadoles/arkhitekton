@@ -20,17 +20,17 @@ const files: Attachment[] = [
 ]
 
 describe('AttachmentList', () => {
-  setProjects([{ slug: 'mstore', label: 'Mstore' }])
+  setProjects([{ slug: 'shop', label: 'Shop' }])
 
   it('montre une capture et une vidéo depuis le projet, sous le rôle du lecteur', () => {
     const { container } = render(<AttachmentList subject={releaseSubject('1.0.0')} attachments={files} />)
 
     expect(screen.getByAltText('fails.png')).toHaveAttribute(
       'src',
-      '/api/v1/projects/mstore/releases/1.0.0/attachments/1',
+      '/api/v1/projects/shop/releases/1.0.0/attachments/1',
     )
     const video = container.querySelector('video')
-    expect(video).toHaveAttribute('src', '/api/v1/projects/mstore/releases/1.0.0/attachments/2')
+    expect(video).toHaveAttribute('src', '/api/v1/projects/shop/releases/1.0.0/attachments/2')
     expect(video).toHaveAttribute('preload', 'metadata')
   })
 
@@ -52,6 +52,6 @@ describe('AttachmentList', () => {
 
     const frame = container.querySelector('iframe')
     expect(frame).toHaveAttribute('sandbox', '')
-    expect(frame).toHaveAttribute('src', '/api/v1/projects/mstore/releases/1.0.0/attachments/3')
+    expect(frame).toHaveAttribute('src', '/api/v1/projects/shop/releases/1.0.0/attachments/3')
   })
 })

@@ -3,7 +3,7 @@ import { currentProject, setProjects } from './project'
 
 const projects = [
   { slug: 'arkhitekton', label: 'Arkhitekton' },
-  { slug: 'mstore', label: 'Mstore' },
+  { slug: 'shop', label: 'Shop' },
 ]
 
 describe('setProjects', () => {
@@ -13,9 +13,9 @@ describe('setProjects', () => {
   })
 
   it("retient le projet qu'un lien nomme", () => {
-    window.history.replaceState(null, '', '/releases/1.0.0?project=mstore')
+    window.history.replaceState(null, '', '/releases/1.0.0?project=shop')
     setProjects(projects)
-    expect(currentProject()).toBe('mstore')
+    expect(currentProject()).toBe('shop')
   })
 
   it('ignore un projet inconnu', () => {

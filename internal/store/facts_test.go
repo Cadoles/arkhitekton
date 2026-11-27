@@ -93,7 +93,7 @@ func TestAttachmentsAreKeptWithTheirResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := InterpretedRun{
-		RunID: runID, Producer: facts.Producer{Plugin: "mstore", Version: "1.0.0"}, Capability: "mstore/e2e-tests",
+		RunID: runID, Producer: facts.Producer{Plugin: "deploy", Version: "1.0.0"}, Capability: "deploy/e2e-tests",
 		Sets: []facts.Set{
 			{Shape: facts.ShapeCases, Group: "e2e", Tool: "cypress",
 				Attributes: map[string]string{"browser": "chrome"},

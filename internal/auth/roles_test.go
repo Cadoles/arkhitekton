@@ -3,7 +3,7 @@ package auth
 import "testing"
 
 func testAuthorizer() *Authorizer {
-	return NewAuthorizer(ProjectPolicies{"mstore": {
+	return NewAuthorizer(ProjectPolicies{"shop": {
 		"unstable": {Sensitive: false},
 		"qualif":   {Sensitive: false},
 		"preprod":  {Sensitive: true},
@@ -71,7 +71,7 @@ func TestDeployRequiresReleaserOnSensitiveEnvironments(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := a.CanDeploy(identity(c.role), 0, "mstore", c.env); got != c.allowed {
+		if got := a.CanDeploy(identity(c.role), 0, "shop", c.env); got != c.allowed {
 			t.Errorf("Can(%s, deploy:%s) = %v, expected %v", c.role, c.env, got, c.allowed)
 		}
 	}
@@ -83,7 +83,7 @@ func TestDeployRequiresReleaserOnSensitiveEnvironments(t *testing.T) {
 func TestDeployOnUnknownEnvironmentFailsClosed(t *testing.T) {
 	a := testAuthorizer()
 
-	if a.CanDeploy(identity(RoleOperator), 0, "mstore", "nouveau-env") {
+	if a.CanDeploy(identity(RoleOperator), 0, "shop", "nouveau-env") {
 		t.Error("an unknown environment must not be deployable by an operator")
 	}
 	if a.CanDeploy(identity(RoleOperator), 0, "other-project", "unstable") {
@@ -92,7 +92,7 @@ func TestDeployOnUnknownEnvironmentFailsClosed(t *testing.T) {
 	if a.Can(identity(RoleOperator), PermDeploy("unstable")) {
 		t.Error("without a project the sensitivity is unknown: an operator does not promote")
 	}
-	if !a.CanDeploy(identity(RoleReleaser), 0, "mstore", "nouveau-env") {
+	if !a.CanDeploy(identity(RoleReleaser), 0, "shop", "nouveau-env") {
 		t.Error("a releaser must be able to deploy an unknown environment")
 	}
 }
@@ -129,7 +129,7 @@ func TestParseRole(t *testing.T) {
 func TestEmptyAuthorizerFailsClosed(t *testing.T) {
 	a := NewAuthorizer(nil)
 
-	if a.CanDeploy(identity(RoleOperator), 0, "mstore", "unstable") {
+	if a.CanDeploy(identity(RoleOperator), 0, "shop", "unstable") {
 		t.Error("an empty configuration must allow an operator no promotion")
 	}
 	if !a.Can(identity(RoleOperator), PermPipelineRun) {
@@ -187,14 +187,14 @@ func TestAProjectRoleCanRestrictTheGlobalRole(t *testing.T) {
 
 // Promoting is the costliest gesture: it must be checked inside the project.
 func TestPromotionIsCheckedInItsProject(t *testing.T) {
-	authorizer := NewAuthorizer(ProjectPolicies{"mstore": {"prod": {Sensitive: true}}})
+	authorizer := NewAuthorizer(ProjectPolicies{"shop": {"prod": {Sensitive: true}}})
 
 	identity := Identity{Subject: "121", Projects: map[int64]Role{1: RoleReleaser}}
 
-	if !authorizer.CanDeploy(identity, 1, "mstore", "prod") {
+	if !authorizer.CanDeploy(identity, 1, "shop", "prod") {
 		t.Error("the releaser on project 1 must be able to promote there")
 	}
-	if authorizer.CanDeploy(identity, 2, "mstore", "prod") {
+	if authorizer.CanDeploy(identity, 2, "shop", "prod") {
 		t.Error("they must be able to promote nothing on project 2")
 	}
 }
@@ -203,13 +203,13 @@ func TestPromotionIsCheckedInItsProject(t *testing.T) {
 // sensitivity is read from the project's declaration.
 func TestSensitivityIsReadFromTheProject(t *testing.T) {
 	authorizer := NewAuthorizer(ProjectPolicies{
-		"mstore":    {"qualif": {Sensitive: false}},
+		"shop":   {"qualif": {Sensitive: false}},
 		"themes": {"qualif": {Sensitive: true}},
 	})
 	operator := identity(RoleOperator)
 
-	if !authorizer.CanDeploy(operator, 0, "mstore", "qualif") || authorizer.Sensitive("mstore", "qualif") {
-		t.Error("qualif on project mstore is not sensitive")
+	if !authorizer.CanDeploy(operator, 0, "shop", "qualif") || authorizer.Sensitive("shop", "qualif") {
+		t.Error("qualif on project shop is not sensitive")
 	}
 	if authorizer.CanDeploy(operator, 0, "themes", "qualif") || !authorizer.Sensitive("themes", "qualif") {
 		t.Error("qualif on project themes is sensitive")

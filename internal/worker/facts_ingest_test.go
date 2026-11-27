@@ -143,11 +143,11 @@ func finished(id int64, name, pipeline string, job *int64, release *int64, tasks
 func TestALaunchedRunIsReadByItsCapability(t *testing.T) {
 	job, release := int64(3), int64(9)
 	db := &factStore{
-		snapshots: map[int64]store.RunSnapshot{1: finished(1, "mstore-x-php-unit-tests-3", "php-unit-tests", &job, &release,
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-php-unit-tests-3", "php-unit-tests", &job, &release,
 			store.TaskSnapshot{Name: "run-unit-tests", Status: "failed"})},
 		jobs: map[int64]store.Job{3: {ID: 3, Kind: "php/unit-tests", Capability: "php/unit-tests", PluginVersion: "2.0.0"}},
 	}
-	objects := memoryObjects{"raw/mstore-x-php-unit-tests-3/unit-tests.tar.gz": tarball(t, map[string]string{
+	objects := memoryObjects{"raw/ark-x-php-unit-tests-3/unit-tests.tar.gz": tarball(t, map[string]string{
 		"test-results/unit/junit.xml": junitReport, "test-results/unit/notes.txt": "ignored",
 	})}
 
@@ -165,7 +165,7 @@ func TestALaunchedRunIsReadByItsCapability(t *testing.T) {
 		t.Errorf("run = %+v", saved)
 	}
 	if len(saved.Sets) != 1 || saved.Sets[0].Verdict() != facts.StatusFail ||
-		saved.Sets[0].RawObject != "raw/mstore-x-php-unit-tests-3/unit-tests.tar.gz" {
+		saved.Sets[0].RawObject != "raw/ark-x-php-unit-tests-3/unit-tests.tar.gz" {
 		t.Errorf("sets = %+v", saved.Sets)
 	}
 
@@ -266,7 +266,7 @@ func (r videoReader) Interpret(_ context.Context, _ capability.RunState, records
 
 func videoRegistry(t *testing.T, reader capability.Interpreter, members ...capability.Member) *capabilities.Registry {
 	t.Helper()
-	registry, err := capabilities.New(capability.Plugin{ID: "mstore", Version: "1.0.0", APIVersion: sdk.APIVersion,
+	registry, err := capabilities.New(capability.Plugin{ID: "deploy", Version: "1.0.0", APIVersion: sdk.APIVersion,
 		Pipelines: []capability.Pipeline{{
 			Name: "e2e-tests", Interpreter: reader,
 			Spec: capability.PipelineSpec{
@@ -289,14 +289,14 @@ func videoRegistry(t *testing.T, reader capability.Interpreter, members ...capab
 func TestAnArchivedVideoIsKeptAsAnAttachment(t *testing.T) {
 	job := int64(3)
 	db := &factStore{
-		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-mstore-e2e-tests-3", "e2e-test", &job, nil)},
-		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "mstore/e2e-tests", Capability: "mstore/e2e-tests"}},
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-deploy-e2e-tests-3", "e2e-test", &job, nil)},
+		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "deploy/e2e-tests", Capability: "deploy/e2e-tests"}},
 	}
 	objects := memoryObjects{
-		"raw/ark-x-mstore-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
+		"raw/ark-x-deploy-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
 			"videos/login.cy.js.mp4": "not really a video", "videos/notes.txt": "ignored",
 		}),
-		"raw/ark-x-mstore-e2e-tests-3/e2e-screenshots.tar.gz": []byte("not even an archive"),
+		"raw/ark-x-deploy-e2e-tests-3/e2e-screenshots.tar.gz": []byte("not even an archive"),
 	}
 
 	ingester := NewFactIngester(db, objects, videoRegistry(t, videoReader{},
@@ -310,7 +310,7 @@ func TestAnArchivedVideoIsKeptAsAnAttachment(t *testing.T) {
 	}
 	video := db.saved[0].Sets[0].Attachments[0]
 	if video.Name != "login.cy.js.mp4" || video.MediaType != "video/mp4" || video.Size != 18 ||
-		!strings.HasPrefix(video.Object, "attachments/ark-x-mstore-e2e-tests-3/") {
+		!strings.HasPrefix(video.Object, "attachments/ark-x-deploy-e2e-tests-3/") {
 		t.Errorf("video = %+v", video)
 	}
 	if string(objects[video.Object]) != "not really a video" || string(objects[video.Object+"#type"]) != "video/mp4" {
@@ -323,10 +323,10 @@ func TestAnArchivedVideoIsKeptAsAnAttachment(t *testing.T) {
 func TestAnAttachmentOfAnotherObjectIsRefused(t *testing.T) {
 	job := int64(3)
 	db := &factStore{
-		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-mstore-e2e-tests-3", "e2e-test", &job, nil)},
-		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "mstore/e2e-tests", Capability: "mstore/e2e-tests"}},
+		snapshots: map[int64]store.RunSnapshot{1: finished(1, "ark-x-deploy-e2e-tests-3", "e2e-test", &job, nil)},
+		jobs:      map[int64]store.Job{3: {ID: 3, Kind: "deploy/e2e-tests", Capability: "deploy/e2e-tests"}},
 	}
-	objects := memoryObjects{"raw/ark-x-mstore-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
+	objects := memoryObjects{"raw/ark-x-deploy-e2e-tests-3/e2e-videos.tar.gz": tarball(t, map[string]string{
 		"videos/login.cy.js.mp4": "video",
 	})}
 

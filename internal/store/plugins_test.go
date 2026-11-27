@@ -74,7 +74,7 @@ func TestAProjectsSettingsLayerWithoutErasing(t *testing.T) {
 	if err := db.SetProjectPluginSettings(ctx, testProjectID, PluginSettings{
 		PluginID: "redmine", Enabled: true,
 		// An empty URL means "nothing particular to say", not "erase it".
-		Config: map[string]string{"project": "mstore-dev", "url": ""},
+		Config: map[string]string{"project": "shop-dev", "url": ""},
 	}, "alice"); err != nil {
 		t.Fatalf("project setting: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestAProjectsSettingsLayerWithoutErasing(t *testing.T) {
 	if resolved.Config["api_key"] != "sealed" {
 		t.Errorf("resolved key = %q", resolved.Config["api_key"])
 	}
-	if resolved.Config["project"] != "mstore-dev" {
+	if resolved.Config["project"] != "shop-dev" {
 		t.Errorf("resolved project = %q", resolved.Config["project"])
 	}
 }

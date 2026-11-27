@@ -49,7 +49,7 @@ describe('le menu principal', () => {
       withMain({
         home: '/environments',
         items: [
-          { id: 'mstore.environments', label: 'Environnements', icon: 'server', to: '/environments' },
+          { id: 'deploy.environments', label: 'Environnements', icon: 'server', to: '/environments' },
           { id: 'core.releases', label: 'Releases', icon: 'doc', to: '/releases' },
         ],
       }),

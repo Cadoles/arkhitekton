@@ -13,7 +13,7 @@ import (
 )
 
 /*
- * The readings the PHP and Mstore plugins wrote in Go before declaring them, kept as the oracle their
+ * The readings the PHP and deploy plugins wrote in Go before declaring them, kept as the oracle their
  * declarations are checked against.
  */
 

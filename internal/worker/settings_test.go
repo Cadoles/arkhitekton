@@ -35,7 +35,7 @@ func schedulerWith(keys ProjectKeys) *Scheduler {
 		config: map[string]string{
 			"pipeline.gitSecret":      "git-credentials",
 			"pipeline.registrySecret": "regcred",
-			"tekton.namespace":        "mstore-pipelines",
+			"tekton.namespace":        "shop-pipelines",
 		},
 		logger: quietLogger(),
 	}
@@ -55,21 +55,21 @@ var cloning = catalog.Pipeline{Kind: "php/unit-tests", Workspaces: []catalog.Wor
 }}
 
 // elsewhere is a pipeline that clones another repository with the deployment's credential.
-var elsewhere = catalog.Pipeline{Kind: "mstore/e2e-tests", Workspaces: []catalog.Workspace{
+var elsewhere = catalog.Pipeline{Kind: "deploy/e2e-tests", Workspaces: []catalog.Workspace{
 	{Name: "git-credentials", Secret: &catalog.SecretSource{ConfigKey: "pipeline.gitSecret"}},
 }}
 
 // A project's key replaces the deployment's, and the rest of the configuration passes through
 // untouched.
 func TestTheProjectsKeyReplacesTheDeploymentsOne(t *testing.T) {
-	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "arkhitekton-project-mstore-git"})
+	scheduler := schedulerWith(&fakeProjectSecrets{deployKey: "arkhitekton-project-shop-git"})
 
 	settings, err := scheduler.settingsFor(context.Background(), jobOf(7), cloning)
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
 
-	if settings[ProjectDeployKey] != "arkhitekton-project-mstore-git" {
+	if settings[ProjectDeployKey] != "arkhitekton-project-shop-git" {
 		t.Errorf("project key = %q", settings[ProjectDeployKey])
 	}
 	// The deployment's clone credential stays what it is: the project's key opens only its own
@@ -77,7 +77,7 @@ func TestTheProjectsKeyReplacesTheDeploymentsOne(t *testing.T) {
 	if settings["pipeline.gitSecret"] != "git-credentials" {
 		t.Errorf("deployment's credential = %q", settings["pipeline.gitSecret"])
 	}
-	if settings["tekton.namespace"] != "mstore-pipelines" {
+	if settings["tekton.namespace"] != "shop-pipelines" {
 		t.Errorf("the rest of the configuration was lost: %v", settings)
 	}
 }

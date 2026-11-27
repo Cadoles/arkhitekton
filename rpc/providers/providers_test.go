@@ -53,7 +53,7 @@ func (fakeTrackerClient) ListIssues(_ context.Context, query provider.IssueQuery
 		return nil, fmt.Errorf("since = %v", query.Since)
 	}
 	version := "12"
-	return []provider.Issue{{ID: "MSTORE-1", VersionID: &version, Subject: "Fix", StatusClosed: true}}, nil
+	return []provider.Issue{{ID: "SHOP-1", VersionID: &version, Subject: "Fix", StatusClosed: true}}, nil
 }
 
 func (c fakeTrackerClient) CheckAccess(context.Context) (provider.Account, error) {
@@ -222,11 +222,11 @@ func TestATrackerIsReadThroughTheProgram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	versions, err := client.ListVersions(context.Background(), "mstore")
-	if err != nil || len(versions) != 1 || versions[0].Name != "mstore 3.4" || !versions[0].DueDate.Equal(due) {
+	versions, err := client.ListVersions(context.Background(), "shop")
+	if err != nil || len(versions) != 1 || versions[0].Name != "shop 3.4" || !versions[0].DueDate.Equal(due) {
 		t.Errorf("versions = %+v, %v", versions, err)
 	}
-	issues, err := client.ListIssues(context.Background(), provider.IssueQuery{Project: "mstore", Since: due})
+	issues, err := client.ListIssues(context.Background(), provider.IssueQuery{Project: "shop", Since: due})
 	if err != nil || len(issues) != 1 || *issues[0].VersionID != "12" || !issues[0].StatusClosed {
 		t.Errorf("issues = %+v, %v", issues, err)
 	}
@@ -248,7 +248,7 @@ func TestTheTrackersLinksAreFilledWithTheIdentifier(t *testing.T) {
 	if link := tracker.VersionURL(settings, "3 4"); link != "https://tracker.test/versions/3%204" {
 		t.Errorf("version link = %q", link)
 	}
-	if link := tracker.IssueURL(settings, "MSTORE-1"); link != "https://tracker.test/issues/MSTORE-1" {
+	if link := tracker.IssueURL(settings, "SHOP-1"); link != "https://tracker.test/issues/SHOP-1" {
 		t.Errorf("issue link = %q", link)
 	}
 	if link := tracker.VersionURL(capability.Settings{}, "1"); link != "" {

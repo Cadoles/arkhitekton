@@ -112,7 +112,7 @@ describe('les réglages d’un plugin', () => {
   it("montre l'adresse du webhook d'un plugin qui en reçoit", () => {
     render(
       <PluginSettings
-        plugin={{ ...redmine, webhook_path: '/api/v1/hooks/gitea/projects/mstore' }}
+        plugin={{ ...redmine, webhook_path: '/api/v1/hooks/gitea/projects/shop' }}
         scope="project"
         saving={false}
         onSave={vi.fn()}
@@ -120,7 +120,7 @@ describe('les réglages d’un plugin', () => {
     )
 
     expect(screen.getByLabelText('Adresse du webhook')).toHaveValue(
-      `${window.location.origin}/api/v1/hooks/gitea/projects/mstore`,
+      `${window.location.origin}/api/v1/hooks/gitea/projects/shop`,
     )
   })
 

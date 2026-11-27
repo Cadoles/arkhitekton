@@ -160,9 +160,9 @@ func TestMigrationsRollBackCleanly(t *testing.T) {
 // The DSN carries the password and pgx readily quotes it in its errors, which end up in
 // logs, in tickets, in screenshots.
 func TestRedactErrorHidesPasswordKeepsMessage(t *testing.T) {
-	dsn := "postgres://mstore:s3cr3t@db.example.fr:5432/mstore"
+	dsn := "postgres://arkhitekton:s3cr3t@db.example.fr:5432/arkhitekton"
 	err := redactError(
-		errorString("connection failure with postgres://mstore:s3cr3t@db.example.fr:5432/mstore"), dsn)
+		errorString("connection failure with postgres://arkhitekton:s3cr3t@db.example.fr:5432/arkhitekton"), dsn)
 
 	if got := err.Error(); strings.Contains(got, "s3cr3t") {
 		t.Errorf("the password leaks: %s", got)
@@ -174,7 +174,7 @@ func TestRedactErrorHidesPasswordKeepsMessage(t *testing.T) {
 
 func TestRedactErrorPassesThroughWhenNoPassword(t *testing.T) {
 	original := errorString("connection refused")
-	if got := redactError(original, "postgres://mstore@db:5432/mstore"); got != original {
+	if got := redactError(original, "postgres://arkhitekton@db:5432/arkhitekton"); got != original {
 		t.Errorf("error needlessly rewritten: %v", got)
 	}
 }

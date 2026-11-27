@@ -11,7 +11,7 @@ import (
 func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) {
 	non, oui := false, true
 	authorizer := auth.NewAuthorizer((&Catalog{Projects: map[string]ProjectDeclaration{
-		"mstore": {Environments: []Environment{
+		"shop": {Environments: []Environment{
 			{ID: "qualif", Sensitive: &non},
 			{ID: "prod", Sensitive: &oui},
 			{ID: "oublie"},
@@ -20,14 +20,14 @@ func TestSensitivityComesFromTheCatalogueAndForgettingIsSensitive(t *testing.T) 
 
 	operator := auth.Identity{Subject: "s", Role: auth.RoleOperator}
 	for environment, expected := range map[string]bool{"qualif": true, "prod": false, "oublie": false, "unknown": false} {
-		if got := authorizer.CanDeploy(operator, 0, "mstore", environment); got != expected {
+		if got := authorizer.CanDeploy(operator, 0, "shop", environment); got != expected {
 			t.Errorf("operator to %s: %v, expected %v", environment, got, expected)
 		}
 	}
 	if authorizer.CanDeploy(operator, 0, "other", "qualif") {
 		t.Error("a project with no section returns no environment an operator can promote to")
 	}
-	if authorizer.Sensitive("mstore", "qualif") || !authorizer.Sensitive("mstore", "oublie") {
+	if authorizer.Sensitive("shop", "qualif") || !authorizer.Sensitive("shop", "oublie") {
 		t.Error("sensitivity wrongly returned to the interface")
 	}
 }

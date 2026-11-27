@@ -32,14 +32,14 @@ import (
  *     -e GITEA__security__INSTALL_LOCK=true -e GITEA__database__DB_TYPE=sqlite3 \
  *     gitea/gitea:1.22
  *   docker exec -u git gitea-live gitea admin user create --admin \
- *     --username mstore --password … --email mstore@example.invalid
+ *     --username team --password … --email team@example.invalid
  *   docker exec -u git gitea-live gitea admin user generate-access-token \
- *     -u mstore --scopes write:repository --raw
+ *     -u team --scopes write:repository --raw
  *
  * then, once the repository and its commit are created through the API:
  *
  *   TEST_DATABASE_URL=… GITEA_LIVE=1 GITEA_URL=http://127.0.0.1:3080 \
- *     GITEA_TOKEN=… GITEA_REPO=mstore/mstore-demo GITEA_COMMIT=… \
+ *     GITEA_TOKEN=… GITEA_REPO=team/shop GITEA_COMMIT=… \
  *     go test -count=1 -run TestLiveACommitStatus ./internal/worker/ -v
  *
  * # What a 201 does not prove

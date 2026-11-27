@@ -29,7 +29,7 @@ func (u *updateSources) RecordUpdateCheck(_ context.Context, pluginID string, ch
 // be read records why, and one with nothing newer records nothing found.
 func TestPluginsAreCheckedForANewerVersion(t *testing.T) {
 	sources := &updateSources{recorded: map[string]store.UpdateCheck{}, due: []store.PluginSource{
-		{PluginID: "mstore", Repository: "forge.example/mstore", ActiveVersion: "2.4.0"},
+		{PluginID: "deploy", Repository: "forge.example/deploy", ActiveVersion: "2.4.0"},
 		{PluginID: "k6", Repository: "forge.example/k6", ActiveVersion: "1.0.0", Pinned: true},
 		{PluginID: "down", Repository: "forge.example/down", ActiveVersion: "1.0.0"},
 		{PluginID: "fresh", Repository: "forge.example/fresh", ActiveVersion: "3.0.0"},
@@ -49,8 +49,8 @@ func TestPluginsAreCheckedForANewerVersion(t *testing.T) {
 
 	NewPluginUpdateChecker(sources, latest, time.Hour, slog.New(slog.DiscardHandler)).Pass(context.Background())
 
-	if got := sources.recorded["mstore"]; got.LatestVersion != "9.0.0" || got.LatestDigest != "sha256:new" {
-		t.Errorf("mstore = %+v", got)
+	if got := sources.recorded["deploy"]; got.LatestVersion != "9.0.0" || got.LatestDigest != "sha256:new" {
+		t.Errorf("deploy = %+v", got)
 	}
 	if got := sources.recorded["k6"]; got.LatestVersion != "9.0.0" {
 		t.Errorf("a pinned plugin is checked too: %+v", got)

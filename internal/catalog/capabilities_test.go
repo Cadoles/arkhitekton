@@ -21,18 +21,18 @@ func (noFacts) Interpret(context.Context, capability.RunState, []parse.Record) (
 
 func deployRegistry(t *testing.T) *capabilities.Registry {
 	t.Helper()
-	registry, err := capabilities.New(capability.Plugin{ID: "mstore", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
+	registry, err := capabilities.New(capability.Plugin{ID: "deploy", Version: "1", APIVersion: sdk.APIVersion, Pipelines: []capability.Pipeline{{
 		Name: "integration-tests", Label: "Tests d'intégration", Interpreter: noFacts{},
 		Spec: capability.PipelineSpec{
-			PipelineRef: "php-integration-test", Exclusive: true, Lock: "mstore-pipeline", Verification: true, Group: "integration",
+			PipelineRef: "php-integration-test", Exclusive: true, Lock: "deploy-pipeline", Verification: true, Group: "integration",
 			Produces: []capability.Product{capability.ProductResults},
 			Params: map[string]capability.Param{
-				"mstore-repo":  {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
+				"shop-repo": {Source: capability.ParamBinding, DefaultKey: "project.repoUrl"},
 				"image-tag": {Source: capability.ParamInput, Required: true, Suggest: SuggestReleaseTag},
 			},
 			Workspaces: []capability.Workspace{
 				{Name: "git-credentials", Need: capability.NeedSourceRead},
-				{Name: "mstore", Volume: &capability.Volume{Storage: "1Gi"}},
+				{Name: "shop", Volume: &capability.Volume{Storage: "1Gi"}},
 			},
 			Needs: []capability.Need{{Name: capability.NeedSourceRead}, {Name: capability.NeedClusterDeploy}},
 			Artifacts: []capability.Artifact{{
@@ -50,42 +50,42 @@ func deployRegistry(t *testing.T) *capabilities.Registry {
 func TestABindingResolvesIntoAPipeline(t *testing.T) {
 	parsed, err := Parse([]byte(`
 capabilities:
-  - ref: mstore/integration-tests
+  - ref: deploy/integration-tests
     timeout: 45m
     params:
-      mstore-repo: { key: forge.mstore.repoUrl }
+      shop-repo: { key: forge.shop.repoUrl }
     needs:
       cluster-deploy: { serviceAccountName: tekton-kubectl }
       source-read:    { secret: { configKey: pipeline.gitSecret } }
     volumes:
-      mstore: { storageClassName: standard, storage: 2Gi }
+      shop: { storageClassName: standard, storage: 2Gi }
 `), WithCapabilities(deployRegistry(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	pipeline, found := parsed.Find("mstore/integration-tests")
+	pipeline, found := parsed.Find("deploy/integration-tests")
 	if !found {
 		t.Fatalf("kinds = %v", parsed.Kinds())
 	}
-	if pipeline.Capability != "mstore/integration-tests" || pipeline.Unavailable != "" {
+	if pipeline.Capability != "deploy/integration-tests" || pipeline.Unavailable != "" {
 		t.Errorf("pipeline = %+v", pipeline)
 	}
 	if pipeline.ServiceAccountName != "tekton-kubectl" || pipeline.MaxConcurrent != 1 || pipeline.Timeout != "45m" {
 		t.Errorf("instantiation = %+v", pipeline)
 	}
-	if pipeline.Params["mstore-repo"].Key != "forge.mstore.repoUrl" || pipeline.Params["image-tag"].Source != SourceInput {
+	if pipeline.Params["shop-repo"].Key != "forge.shop.repoUrl" || pipeline.Params["image-tag"].Source != SourceInput {
 		t.Errorf("params = %+v", pipeline.Params)
 	}
-	// The plugin's id qualifies the lock: another plugin's `mstore-pipeline` is another lock.
-	if pipeline.Lock != "mstore/mstore-pipeline" || parsed.Locks()["mstore/integration-tests"] != "mstore/mstore-pipeline" {
+	// The plugin's id qualifies the lock: another plugin's `deploy-pipeline` is another lock.
+	if pipeline.Lock != "deploy/deploy-pipeline" || parsed.Locks()["deploy/integration-tests"] != "deploy/deploy-pipeline" {
 		t.Errorf("lock = %q, locks = %v", pipeline.Lock, parsed.Locks())
 	}
 	if pipeline.Uploads["results"].Group != "integration" {
 		t.Errorf("uploads = %+v", pipeline.Uploads)
 	}
 	for _, workspace := range pipeline.Workspaces {
-		if workspace.Name == "mstore" && (workspace.VolumeClaimTemplate.Storage != "2Gi" ||
+		if workspace.Name == "shop" && (workspace.VolumeClaimTemplate.Storage != "2Gi" ||
 			workspace.VolumeClaimTemplate.StorageClassName != "standard") {
 			t.Errorf("volume = %+v", workspace.VolumeClaimTemplate)
 		}
@@ -97,14 +97,14 @@ capabilities:
 func TestAnUnboundNeedMakesThePipelineUnavailable(t *testing.T) {
 	parsed, err := Parse([]byte(`
 capabilities:
-  - ref: mstore/integration-tests
+  - ref: deploy/integration-tests
     needs:
       source-read: { secret: { configKey: pipeline.gitSecret } }
 `), WithCapabilities(deployRegistry(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pipeline, _ := parsed.Find("mstore/integration-tests")
+	pipeline, _ := parsed.Find("deploy/integration-tests")
 	if !strings.Contains(pipeline.Unavailable, "cluster-deploy") {
 		t.Errorf("unavailable = %q", pipeline.Unavailable)
 	}
@@ -115,7 +115,7 @@ capabilities:
 func TestOnlyDeployingTakesAServiceAccount(t *testing.T) {
 	_, err := Parse([]byte(`
 capabilities:
-  - ref: mstore/integration-tests
+  - ref: deploy/integration-tests
     needs:
       cluster-deploy: { serviceAccountName: tekton-kubectl }
       source-read:    { serviceAccountName: admin, secret: { secretName: git } }
@@ -127,11 +127,11 @@ capabilities:
 
 func TestABindingNamesOnlyWhatTheCapabilityDeclares(t *testing.T) {
 	for name, source := range map[string]string{
-		"unknown capability": "  - ref: mstore/unknown\n",
-		"unknown param":      "  - ref: mstore/integration-tests\n    params:\n      other: { key: x }\n",
-		"input param":        "  - ref: mstore/integration-tests\n    params:\n      image-tag: { key: x }\n",
-		"undeclared need":    "  - ref: mstore/integration-tests\n    needs:\n      registry-push: { secret: { secretName: r } }\n",
-		"undeclared volume":  "  - ref: mstore/integration-tests\n    volumes:\n      other: { storage: 1Gi }\n",
+		"unknown capability": "  - ref: deploy/unknown\n",
+		"unknown param":      "  - ref: deploy/integration-tests\n    params:\n      other: { key: x }\n",
+		"input param":        "  - ref: deploy/integration-tests\n    params:\n      image-tag: { key: x }\n",
+		"undeclared need":    "  - ref: deploy/integration-tests\n    needs:\n      registry-push: { secret: { secretName: r } }\n",
+		"undeclared volume":  "  - ref: deploy/integration-tests\n    volumes:\n      other: { storage: 1Gi }\n",
 	} {
 		if _, err := Parse([]byte("capabilities:\n"+source), WithCapabilities(deployRegistry(t))); err == nil {
 			t.Errorf("%s accepted", name)
@@ -140,7 +140,7 @@ func TestABindingNamesOnlyWhatTheCapabilityDeclares(t *testing.T) {
 }
 
 func TestBindingsNeedThePlugins(t *testing.T) {
-	if _, err := Parse([]byte("capabilities:\n  - ref: mstore/integration-tests\n")); err == nil {
+	if _, err := Parse([]byte("capabilities:\n  - ref: deploy/integration-tests\n")); err == nil {
 		t.Error("bindings resolved without plugins")
 	}
 }
@@ -229,7 +229,7 @@ func TestRecordedBindingsCompleteTheFile(t *testing.T) {
 func TestABindingWaitsForItsPlugin(t *testing.T) {
 	parsed, err := Parse([]byte(`
 capabilities:
-  - ref: mstore/integration-tests
+  - ref: deploy/integration-tests
     needs:
       source-read: { secret: { configKey: pipeline.gitSecret } }
   - ref: absent/deploy

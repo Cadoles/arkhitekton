@@ -73,7 +73,7 @@ func (f *fakeQueueStore) ListReleases(context.Context, int64, int) ([]store.Rele
 func (f *fakeQueueStore) ReleasesImages(_ context.Context, releases []store.Release) (map[int64][]store.ReleaseImage, error) {
 	published := map[int64][]store.ReleaseImage{}
 	for _, release := range releases {
-		published[release.ID] = []store.ReleaseImage{{Name: "portal", Reference: "reg.example.fr/mstore/portal:" + release.Tag}}
+		published[release.ID] = []store.ReleaseImage{{Name: "portal", Reference: "registry.example.org/team/portal:" + release.Tag}}
 	}
 	return published, nil
 }
@@ -89,7 +89,7 @@ func queueHandler(fake *fakeQueueStore) *QueueHandler {
 					// Optional, and with no nature: the case that must stay free-text, and which did not
 					// appear at all before.
 					"debug":    {Source: catalog.SourceInput},
-					"repo-url": {Source: catalog.SourceConfig, Key: "forge.mstore.repoUrl"},
+					"repo-url": {Source: catalog.SourceConfig, Key: "forge.shop.repoUrl"},
 				},
 			},
 			{
@@ -159,9 +159,9 @@ func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	fake := newFakeQueueStore()
 	fake.jobs = []store.QueuedJob{
 		{Job: store.Job{ID: 1, Kind: "unit-tests", State: store.JobRunning, RequestedBy: "121"},
-			Project: "mstore", ReleaseTag: "1.8.0-rc1"},
+			Project: "shop", ReleaseTag: "1.8.0-rc1"},
 		{Job: store.Job{ID: 2, Kind: "unit-tests", State: store.JobQueued, RequestedBy: "121"},
-			Project: "mstore", PullRequest: 4},
+			Project: "shop", PullRequest: 4},
 	}
 
 	listing := listQueues(t, queueHandler(fake))
@@ -184,7 +184,7 @@ func TestEachTypeHasItsOwnQueueEvenEmpty(t *testing.T) {
 	if len(jobs) != 2 || jobs[0].ID != 1 || jobs[0].RequestedBy != "vcarroy" {
 		t.Fatalf("jobs = %+v", jobs)
 	}
-	if jobs[0].Project != "mstore" || jobs[0].ReleaseTag != "1.8.0-rc1" || jobs[1].PullRequest != 4 {
+	if jobs[0].Project != "shop" || jobs[0].ReleaseTag != "1.8.0-rc1" || jobs[1].PullRequest != 4 {
 		t.Errorf("what the jobs are about = %+v", jobs)
 	}
 
@@ -321,10 +321,10 @@ func TestTheLaunchFormIsPopulated(t *testing.T) {
 		t.Errorf("tags offered = %+v", tags)
 	}
 	images := listing.Suggestions[catalog.Input{Suggest: catalog.SuggestImage, Image: "portal"}.SuggestionKey()]
-	if len(images) != 2 || images[0].Value != "reg.example.fr/mstore/portal:3.2.0-rc3" {
+	if len(images) != 2 || images[0].Value != "registry.example.org/team/portal:3.2.0-rc3" {
 		t.Errorf("images offered = %+v", images)
 	}
-	// The environments come from the Mstore plugin: without it none is offered and the field
+	// The environments come from the deploy plugin: without it none is offered and the field
 	// stays free, even when the catalogue declares some.
 	if environments, present := listing.Suggestions[catalog.SuggestEnvironment]; present {
 		t.Errorf("environments offered with no plugin = %+v", environments)

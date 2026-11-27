@@ -177,7 +177,7 @@ describe('CreateReleaseButton', () => {
 
     expect(await screen.findByText('Alpha')).toBeInTheDocument()
     expect(screen.getByText('Livraison')).toBeInTheDocument()
-    // Le vocabulaire du Mstore ne doit plus être écrit nulle part dans l'écran.
+    // Le vocabulaire d'un ancien cycle ne doit plus être écrit nulle part dans l'écran.
     expect(screen.queryByText('Pré-release')).not.toBeInTheDocument()
   })
 })

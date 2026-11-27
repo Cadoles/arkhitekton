@@ -62,7 +62,7 @@ type fakeReleaseStore struct {
 
 // fixtureProject is the project the releases belong to.
 func fixtureProject() store.Project {
-	return store.Project{Repository: "vcarroy/mstore"}
+	return store.Project{Repository: "team/shop"}
 }
 
 // fixturePlan builds three images, one of them not promoted, then verifies.
@@ -458,7 +458,7 @@ func newReleasesHandler(t *testing.T, store *fakeReleaseStore) *ReleasesHandler 
 		// The real planner, on the same fake store. A substitute here would make these tests
 		// pass while saying nothing about what creation actually queues.
 		WithArtifactReader(store).
-		// The requested promotions, as the Mstore plugin would supply them.
+		// The requested promotions, as the deploy plugin would supply them.
 		WithPromotions(func(context.Context, int64, int64) ([]ReleasePromotion, error) {
 			return store.promotions, nil
 		}).
@@ -1859,7 +1859,7 @@ func TestAPluginThatGivesNoFilesIsACaveat(t *testing.T) {
 	forge := &versionForge{fakeForge: fakeForge{commit: "abc123def456"}}
 	handler := newReleasesHandler(t, fake).WithForges(fixedForges{resolver: forge, tagger: forge}).
 		WithReleaseFiles(func(context.Context, int64, int64, string, string) ([]ReleaseFile, []string) {
-			return nil, []string{"plugin mstore did not give its release files: unavailable"}
+			return nil, []string{"plugin deploy did not give its release files: unavailable"}
 		})
 
 	recorder := launched(t, handler, `{"tag":"3.2.0-rc1","kind":"pre","git_ref":"main"}`)

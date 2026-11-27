@@ -22,7 +22,7 @@ func spec() BootstrapSpec {
 		},
 		Projects: []Project{
 			{
-				Repository: "team/mstore", Label: "Application",
+				Repository: "team/shop", Label: "Application",
 				ForgeURL:  "https://forge.example.fr",
 				CreatedBy: "configuration",
 			},
@@ -134,7 +134,7 @@ func TestTheBootstrapNamesTheProjectInItsTracker(t *testing.T) {
 		Repository: "team/theme", Label: "Theme", ForgeURL: "https://forge.example.fr",
 		CreatedBy: "configuration",
 	})
-	seeded.Trackers = map[string]string{"team/mstore": "mstore-dev", "team/theme": "theme-dev"}
+	seeded.Trackers = map[string]string{"team/shop": "shop-dev", "team/theme": "theme-dev"}
 	seeded.TrackerPluginID = "redmine"
 
 	// The theme's tracker is already set: the step runs after the projects, so it is set between the
@@ -174,7 +174,7 @@ func TestTheBootstrapNamesTheProjectInItsTracker(t *testing.T) {
 		}
 		named[slug] = project
 	}
-	if named["mstore"] != "mstore-dev" || named["theme"] != "chosen" {
+	if named["shop"] != "shop-dev" || named["theme"] != "chosen" {
 		t.Errorf("tracker projects = %v", named)
 	}
 }

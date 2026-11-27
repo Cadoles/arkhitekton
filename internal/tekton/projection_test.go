@@ -22,7 +22,7 @@ func runWith(conditions duckv1.Conditions, started bool) *tektonv1.PipelineRun {
 	pr := &tektonv1.PipelineRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "php-static-tests-run-abc",
-			Namespace: "mstore-pipelines",
+			Namespace: "shop-pipelines",
 			Labels:    map[string]string{LabelPipeline: "php-static-tests"},
 		},
 	}

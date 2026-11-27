@@ -28,7 +28,7 @@ func TestTheExportWritesWhatWasConfigured(t *testing.T) {
 		t.Errorf("queue limits = %v", set.Instance.QueueLimits)
 	}
 	// Out of the score is a weight like another: zero is exported, not dropped.
-	if weight, recorded := set.Instance.ScoreWeights["mstore/rgaa-audit"]; !recorded || weight != 0 {
+	if weight, recorded := set.Instance.ScoreWeights["deploy/rgaa-audit"]; !recorded || weight != 0 {
 		t.Errorf("score weights = %v", set.Instance.ScoreWeights)
 	}
 

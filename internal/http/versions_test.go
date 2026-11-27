@@ -119,7 +119,7 @@ func TestAProjectWithNoTrackerDeclaresItsVersion(t *testing.T) {
 func TestATrackedProjectRefusesTheManualDeclaration(t *testing.T) {
 	projects := untracked()
 
-	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`, fixedTracker{id: "redmine", project: "mstore-dev"})
+	recorder := declareVersion(t, projects, `{"name":"1.8.0"}`, fixedTracker{id: "redmine", project: "shop-dev"})
 
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, expected 409: %s", recorder.Code, recorder.Body)
@@ -197,7 +197,7 @@ func TestTheListSaysWhetherTheProjectIsTracked(t *testing.T) {
 		tracker string
 		want    bool
 	}{
-		"tracked project":         {tracker: "mstore-dev", want: true},
+		"tracked project":         {tracker: "shop-dev", want: true},
 		"project with no tracker": {tracker: "", want: false},
 	}
 

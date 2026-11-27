@@ -25,7 +25,7 @@ type fakeStatsStore struct {
 
 func (f *fakeStatsStore) ListProjects(context.Context) ([]store.Project, error) {
 	return []store.Project{
-		{ID: 1, Slug: "mstore", Label: "Mstore", ReleaseKinds: release.Cycle{{ID: "pre", Label: "Pré-release"}}},
+		{ID: 1, Slug: "shop", Label: "Shop", ReleaseKinds: release.Cycle{{ID: "pre", Label: "Pré-release"}}},
 		{ID: 2, Slug: "theme", Label: "Thème"},
 		{ID: 3, Slug: "tekton", Label: "Tekton"},
 	}, nil
@@ -93,7 +93,7 @@ func TestTheStatisticsCountOnlyTheCallersProjects(t *testing.T) {
 		t.Errorf("a project the caller only reads: %d", code)
 	}
 	fake = &fakeStatsStore{}
-	if code, _ := statsCall(t, fake, identity, "?project=mstore"); code != http.StatusOK || !slices.Equal(fake.asked, []int64{1}) {
+	if code, _ := statsCall(t, fake, identity, "?project=shop"); code != http.StatusOK || !slices.Equal(fake.asked, []int64{1}) {
 		t.Errorf("one project: %d, asked %v", code, fake.asked)
 	}
 	if code, _ := statsCall(t, &fakeStatsStore{}, identity, "?range=1y"); code != http.StatusBadRequest {
@@ -109,7 +109,7 @@ func TestTheReleasesAreCountedWeekByWeek(t *testing.T) {
 		{Bucket: monday, Kind: "pre", State: "released", Count: 1},
 		{Bucket: monday.AddDate(0, 0, -14), Kind: "final", State: "released", Count: 1},
 	}}
-	_, listing := statsCall(t, fake, auth.Identity{Subject: "s", Role: auth.RoleOperator}, "?range=30d&project=mstore")
+	_, listing := statsCall(t, fake, auth.Identity{Subject: "s", Role: auth.RoleOperator}, "?range=30d&project=shop")
 
 	// 30 days back from Thursday the 19th is Monday 20 October's week.
 	if listing.Bucket != "week" || !listing.Since.Equal(time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)) {

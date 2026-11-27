@@ -21,10 +21,10 @@ const branchPush = `{
   "ref": "refs/heads/k8s-unstable",
   "before": "1111111111111111111111111111111111111111",
   "after": "2222222222222222222222222222222222222222",
-  "compare_url": "https://forge.example.fr/team/mstore/compare/1111...2222",
+  "compare_url": "https://forge.example.fr/team/shop/compare/1111...2222",
   "total_commits": 2,
   "head_commit": {"message": "fix: the clone\n\nLonger body."},
-  "repository": {"full_name": "team/mstore"},
+  "repository": {"full_name": "team/shop"},
   "pusher": {"login": "vcarroy"}
 }`
 
@@ -43,7 +43,7 @@ func TestAPushBecomesAFactKeyedOnWhatWasPushed(t *testing.T) {
 		"revision": "2222222222222222222222222222222222222222", "branch": "k8s-unstable",
 		"ref": "refs/heads/k8s-unstable", "before": "1111111111111111111111111111111111111111",
 		"pusher": "vcarroy", "commits": "2", "message": "fix: the clone",
-		"compare_url": "https://forge.example.fr/team/mstore/compare/1111...2222",
+		"compare_url": "https://forge.example.fr/team/shop/compare/1111...2222",
 	}
 	for key, value := range expected {
 		if fact.Payload[key] != value {
@@ -56,7 +56,7 @@ func TestAPushBecomesAFactKeyedOnWhatWasPushed(t *testing.T) {
 	if fact.Suffix != push || fact.Subject != "k8s-unstable" || !fact.OccurredAt.Equal(received) {
 		t.Errorf("fact %+v", fact)
 	}
-	if fact.Key != "team/mstore:refs/heads/k8s-unstable:2222222222222222222222222222222222222222" {
+	if fact.Key != "team/shop:refs/heads/k8s-unstable:2222222222222222222222222222222222222222" {
 		t.Errorf("key %q", fact.Key)
 	}
 }
@@ -93,9 +93,9 @@ func TestAReceivedOpeningIsThePolledOne(t *testing.T) {
 
 	observed, err := receive(t, "pull_request", `{
 	  "action": "opened",
-	  "repository": {"full_name": "team/mstore"},
+	  "repository": {"full_name": "team/shop"},
 	  "pull_request": {"number": 412, "title": "Fix the clone",
-	    "html_url": "https://forge.example.fr/team/mstore/pulls/412",
+	    "html_url": "https://forge.example.fr/team/shop/pulls/412",
 	    "user": {"login": "vcarroy"}, "head": {"ref": "fix/clone"}, "base": {"ref": "main"},
 	    "created_at": "2026-09-03T10:30:00Z"}
 	}`)
@@ -117,7 +117,7 @@ func TestAReceivedOpeningIsThePolledOne(t *testing.T) {
 func TestWhatThePluginDoesNotNameIsIgnored(t *testing.T) {
 	for event, body := range map[string]string{
 		"issues":       `{"action": "opened"}`,
-		"pull_request": `{"action": "closed", "repository": {"full_name": "team/mstore"}}`,
+		"pull_request": `{"action": "closed", "repository": {"full_name": "team/shop"}}`,
 	} {
 		if observed, err := receive(t, event, body); err != nil || len(observed) != 0 {
 			t.Errorf("%s: %v, %v", event, observed, err)
@@ -128,7 +128,7 @@ func TestWhatThePluginDoesNotNameIsIgnored(t *testing.T) {
 // A secret set for the instance signs every repository's hook alike: the signature does not say
 // which project a delivery is for, the repository does.
 func TestADeliveryAboutAnotherRepositoryIsRefused(t *testing.T) {
-	body := strings.Replace(branchPush, `"team/mstore"`, `"team/other"`, 1)
+	body := strings.Replace(branchPush, `"team/shop"`, `"team/other"`, 1)
 	if _, err := receive(t, "push", body); err == nil || !strings.Contains(err.Error(), "team/other") {
 		t.Errorf("err = %v", err)
 	}

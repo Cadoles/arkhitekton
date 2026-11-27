@@ -23,7 +23,7 @@ func TestLiveRegistry(t *testing.T) {
 	}
 
 	client, err := Open(config.RegistryConfig{
-		URL:      envOr("TEST_REGISTRY_URL", "https://reg.cadoles.com"),
+		URL:      envOr("TEST_REGISTRY_URL", "https://registry.example.org"),
 		Username: username,
 		Password: password,
 		Project:  envOr("TEST_REGISTRY_PROJECT", "registry.example.org/team"),

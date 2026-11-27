@@ -48,9 +48,9 @@ func TestEnvironmentsAreValidatedPerProject(t *testing.T) {
 	const sharedItems = `
 maxConcurrentRuns: 1
 projects:
-  mstore:
+  shop:
     environments:
-      - {id: qualif, label: Qualification, rank: 2, namespace: mstore-dev}
+      - {id: qualif, label: Qualification, rank: 2, namespace: shop-dev}
   themes:
     environments:
       - {id: qualif, label: Qualification, rank: 2, namespace: themes-dev}
@@ -64,11 +64,11 @@ pipelines:
 	const duplicates = `
 maxConcurrentRuns: 1
 projects:
-  mstore:
+  shop:
     environments:
-      - {id: qualif, label: Qualification, rank: 2, namespace: mstore-dev}
-      - {id: qualif, label: Encore, rank: 3, namespace: mstore-dev}
-      - {id: prod, label: Production, rank: 2, namespace: mstore-prod}
+      - {id: qualif, label: Qualification, rank: 2, namespace: shop-dev}
+      - {id: qualif, label: Encore, rank: 3, namespace: shop-dev}
+      - {id: prod, label: Production, rank: 2, namespace: shop-prod}
 pipelines:
   - {kind: build, pipelineRef: build-image, label: Construction, produces: [image]}
 `

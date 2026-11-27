@@ -14,7 +14,7 @@ import (
 )
 
 /*
- * The modules, and the door: an instance without the Mstore plugin stays coherent — its routes
+ * The modules, and the door: an instance without the deploy plugin stays coherent: its routes
  * answer 404 and `/me` does not announce it. A release's promotion targets are one of those
  * routes.
  */
@@ -34,17 +34,17 @@ func (l pluginReader) ProjectPluginSettings(_ context.Context, projectID int64) 
 	return l.projects[projectID], l.err
 }
 
-func modulesWith(mstore bool) *Modules {
+func modulesWith(enabled bool) *Modules {
 	return NewModules(testRegistry, pluginReader{settings: map[string]store.PluginSettings{
-		moduleID:  {PluginID: moduleID, Enabled: mstore},
+		moduleID:  {PluginID: moduleID, Enabled: enabled},
 		"redmine": {PluginID: "redmine", Enabled: true},
 	}}, quietLogger())
 }
 
 // Only plugins of kind module are announced: a switched-on tracker brings no screen.
 func TestOnlySwitchedOnModulesAreAnnounced(t *testing.T) {
-	if got := modulesWith(true).Active(context.Background()); !slices.Equal(got, []string{"mstore"}) {
-		t.Errorf("modules = %v, expected [mstore]", got)
+	if got := modulesWith(true).Active(context.Background()); !slices.Equal(got, []string{"deploy"}) {
+		t.Errorf("modules = %v, expected [deploy]", got)
 	}
 	if got := modulesWith(false).Active(context.Background()); len(got) != 0 {
 		t.Errorf("modules = %v, expected none", got)
@@ -106,8 +106,8 @@ func TestMeAnnouncesTheModules(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unreadable response: %v", err)
 	}
-	if !slices.Equal(payload.Modules, []string{"mstore"}) {
-		t.Errorf("modules = %v, expected [mstore]", payload.Modules)
+	if !slices.Equal(payload.Modules, []string{"deploy"}) {
+		t.Errorf("modules = %v, expected [deploy]", payload.Modules)
 	}
 }
 
@@ -161,9 +161,9 @@ func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
 		},
 	}, quietLogger())
 	middleware := NewMiddleware(nil, nil, quietLogger()).
-		WithProjects(slugResolver{"mstore": 1, "tekton": 2}).WithModules(modules)
+		WithProjects(slugResolver{"shop": 1, "tekton": 2}).WithModules(modules)
 
-	for slug, expected := range map[string]int{"mstore": http.StatusOK, "tekton": http.StatusNotFound} {
+	for slug, expected := range map[string]int{"shop": http.StatusOK, "tekton": http.StatusNotFound} {
 		handler := middleware.RequireModule(moduleID)(http.HandlerFunc(
 			func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		request := httptest.NewRequest(http.MethodGet, "/projects/"+slug+"/releases/1.0.0/targets", nil)
@@ -177,4 +177,4 @@ func TestAProjectRouteFollowsTheProjectsModule(t *testing.T) {
 }
 
 // moduleID is the module these tests switch: the core knows no module by name.
-const moduleID = "mstore"
+const moduleID = "deploy"

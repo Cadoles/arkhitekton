@@ -28,7 +28,7 @@ func (f statusForges) TagWriter(context.Context, int64) (provider.TagWriter, err
 type statusProjects struct{}
 
 func (statusProjects) GetProject(context.Context, int64) (store.Project, error) {
-	return store.Project{Slug: "mstore"}, nil
+	return store.Project{Slug: "shop"}, nil
 }
 
 func statusRun(statuses bool) store.PlanRun {
@@ -51,8 +51,8 @@ func TestAStepIsReportedOnItsCommit(t *testing.T) {
 	statuses.StepChanged(context.Background(), statusRun(true), build, plan.Failed)
 
 	expected := []string{
-		"abc123 pending arkhitekton/portal En cours https://dash.example/releases/1.0.0-rc1?project=mstore",
-		"abc123 failure arkhitekton/portal Échoué https://dash.example/releases/1.0.0-rc1?project=mstore",
+		"abc123 pending arkhitekton/portal En cours https://dash.example/releases/1.0.0-rc1?project=shop",
+		"abc123 failure arkhitekton/portal Échoué https://dash.example/releases/1.0.0-rc1?project=shop",
 	}
 	if strings.Join(writer.set, "\n") != strings.Join(expected, "\n") {
 		t.Errorf("statuses:\n%s", strings.Join(writer.set, "\n"))

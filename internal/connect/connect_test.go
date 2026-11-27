@@ -33,7 +33,7 @@ func (s settingsStore) PluginSettingsAll(context.Context) (map[string]store.Plug
 }
 
 func (s settingsStore) GetProject(_ context.Context, id int64) (store.Project, error) {
-	return store.Project{ID: id, Slug: "mstore", Repository: "team/mstore"}, nil
+	return store.Project{ID: id, Slug: "shop", Repository: "team/shop"}, nil
 }
 
 type opener struct{}
@@ -105,7 +105,7 @@ func TestAForgeIsConnectedWithTheProjectsSettings(t *testing.T) {
 		t.Fatalf("targets = %+v", targets)
 	}
 	target := targets[0]
-	if target.Repository != "team/mstore" || target.Settings["token"] != "secret" ||
+	if target.Repository != "team/shop" || target.Settings["token"] != "secret" ||
 		target.Settings["url"] != "https://forge.example.fr" || target.Timeout != 7 {
 		t.Errorf("target = %+v", target)
 	}

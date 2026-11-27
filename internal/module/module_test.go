@@ -28,12 +28,12 @@ func (b *switchboard) set(change func(*switchboard)) {
 func (b *switchboard) PluginSettingsAll(context.Context) (map[string]store.PluginSettings, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return map[string]store.PluginSettings{"mstore": {PluginID: "mstore", Enabled: b.enabled,
+	return map[string]store.PluginSettings{"deploy": {PluginID: "deploy", Enabled: b.enabled,
 		Config: map[string]string{"namespace": b.namespace}}}, nil
 }
 
 func (b *switchboard) ListProjects(context.Context) ([]store.Project, error) {
-	return []store.Project{{ID: 1, Slug: "mstore"}, {ID: 2, Slug: "tekton"}}, nil
+	return []store.Project{{ID: 1, Slug: "shop"}, {ID: 2, Slug: "tekton"}}, nil
 }
 
 func (b *switchboard) ResolvedPlugin(_ context.Context, projectID int64, _ string) (store.PluginSettings, error) {
@@ -52,7 +52,7 @@ type recorder struct {
 	live   int
 }
 
-func (r *recorder) Plugin() string { return "mstore" }
+func (r *recorder) Plugin() string { return "deploy" }
 
 func (r *recorder) Run(ctx context.Context, state State) error {
 	ids := make([]int64, 0, len(state.Projects))
@@ -121,7 +121,7 @@ func TestAModuleFollowsItsSwitchAndItsSettings(t *testing.T) {
 	})
 
 	// A setting edited: restarted with it.
-	board.set(func(b *switchboard) { b.namespace = "flux-mstore" })
+	board.set(func(b *switchboard) { b.namespace = "flux-shop" })
 	eventually(t, "restarted with the new setting", func() bool {
 		starts, live, _ := module.seen()
 		return starts == 3 && live == 1

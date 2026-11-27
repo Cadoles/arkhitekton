@@ -81,13 +81,13 @@ func TestReadyzDoesNotLeakErrorDetails(t *testing.T) {
 	s := testServer(ReadinessCheck{
 		Name: "postgres",
 		Check: func(context.Context) error {
-			return errors.New("dial tcp 10.42.0.7:5432: password refused for mstore_app")
+			return errors.New("dial tcp 10.42.0.7:5432: password refused for arkhitekton_app")
 		},
 	})
 
 	body := do(t, s, "/readyz").Body.String()
 
-	for _, leak := range []string{"10.42.0.7", "5432", "mstore_app", "password"} {
+	for _, leak := range []string{"10.42.0.7", "5432", "arkhitekton_app", "password"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("the response leaks %q: %s", leak, body)
 		}

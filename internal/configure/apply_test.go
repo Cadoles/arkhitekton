@@ -404,11 +404,11 @@ func TestAResolvedSecretIsWrittenOnlyWhenItChanged(t *testing.T) {
 func TestAScoreWeightIsAppliedOnce(t *testing.T) {
 	i := configured(t)
 	set := read(t, i.export(t))
-	set.Instance.ScoreWeights["mstore/rgaa-audit"] = 10
+	set.Instance.ScoreWeights["deploy/rgaa-audit"] = 10
 
 	applier := i.applier(nil)
 	ops, _ := planOps(t, applier, set, false)
-	if got := descriptions(ops); got != "~ score weight mstore/rgaa-audit: 10" {
+	if got := descriptions(ops); got != "~ score weight deploy/rgaa-audit: 10" {
 		t.Fatalf("plan:\n%s", got)
 	}
 	if err := applier.Execute(context.Background(), ops); err != nil {
@@ -418,9 +418,9 @@ func TestAScoreWeightIsAppliedOnce(t *testing.T) {
 		t.Errorf("after the change:\n%s", descriptions(again))
 	}
 
-	delete(set.Instance.ScoreWeights, "mstore/rgaa-audit")
+	delete(set.Instance.ScoreWeights, "deploy/rgaa-audit")
 	ops, _ = planOps(t, applier, set, true)
-	if got := descriptions(ops); !strings.Contains(got, "- score weight mstore/rgaa-audit") {
+	if got := descriptions(ops); !strings.Contains(got, "- score weight deploy/rgaa-audit") {
 		t.Errorf("prune plan:\n%s", got)
 	}
 }

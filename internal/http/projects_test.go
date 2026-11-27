@@ -17,8 +17,8 @@ import (
 /*
  * Declaring the repositories, seen from the API.
  *
- * Two things deserve to be held: refusing a malformed repository — an access test on `mstore` would
- * fail and read as a permission problem although it is the entry that is at fault — and the fact
+ * Two things deserve to be held: refusing a malformed repository (an access test on `shop` would
+ * fail and read as a permission problem although it is the entry that is at fault), and the fact
  * that an impossible test is not recorded as a failure.
  */
 
@@ -164,7 +164,7 @@ func createProject(t *testing.T, handler *ProjectsHandler, body string) *httptes
 func TestAMalformedRepositoryIsRefused(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore())
 
-	for _, repository := range []string{"mstore", "", "team/", "/mstore", "team/mstore/sub"} {
+	for _, repository := range []string{"shop", "", "team/", "/shop", "team/shop/sub"} {
 		body := `{"repository":"` + repository + `"}`
 		if code := createProject(t, handler, body).Code; code != http.StatusBadRequest {
 			t.Errorf("repository %q: code %d, expected 400", repository, code)
@@ -178,12 +178,12 @@ func TestTheDefaultsAreInferred(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake).WithForgeURL("https://forge.example.fr")
 
-	if code := createProject(t, handler, `{"repository":"team/mstore"}`).Code; code != http.StatusCreated {
+	if code := createProject(t, handler, `{"repository":"team/shop"}`).Code; code != http.StatusCreated {
 		t.Fatalf("code %d", code)
 	}
 
 	project := fake.projects[1]
-	if project.Label != "mstore" {
+	if project.Label != "shop" {
 		t.Errorf("label = %q, expected the repository's name", project.Label)
 	}
 	if project.ForgeURL != "https://forge.example.fr" {
@@ -194,8 +194,8 @@ func TestTheDefaultsAreInferred(t *testing.T) {
 func TestAnAlreadyDeclaredRepositoryReturns409(t *testing.T) {
 	handler := NewProjectsHandler(newFakeProjectStore())
 
-	createProject(t, handler, `{"repository":"team/mstore"}`)
-	if code := createProject(t, handler, `{"repository":"team/mstore"}`).Code; code != http.StatusConflict {
+	createProject(t, handler, `{"repository":"team/shop"}`)
+	if code := createProject(t, handler, `{"repository":"team/shop"}`).Code; code != http.StatusConflict {
 		t.Errorf("code %d, expected 409", code)
 	}
 }
@@ -214,7 +214,7 @@ func probe(t *testing.T, handler *ProjectsHandler, id string) *httptest.Response
 func TestAnImpossibleTestIsNotRecordedAsAFailure(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake)
-	createProject(t, handler, `{"repository":"team/mstore"}`)
+	createProject(t, handler, `{"repository":"team/shop"}`)
 
 	if code := probe(t, handler, "1").Code; code != http.StatusServiceUnavailable {
 		t.Errorf("code %d, expected 503", code)
@@ -228,8 +228,8 @@ func TestAnImpossibleTestIsNotRecordedAsAFailure(t *testing.T) {
 // carries the reason, which the screen displays.
 func TestAnUnreachableRepositoryIsACheck(t *testing.T) {
 	fake := newFakeProjectStore()
-	handler := NewProjectsHandler(fake).WithProbe(fakeProber{err: errors.New("gitea: 404 on /repos/team/mstore")})
-	createProject(t, handler, `{"repository":"team/mstore"}`)
+	handler := NewProjectsHandler(fake).WithProbe(fakeProber{err: errors.New("gitea: 404 on /repos/team/shop")})
+	createProject(t, handler, `{"repository":"team/shop"}`)
 
 	recorder := probe(t, handler, "1")
 	if recorder.Code != http.StatusOK {
@@ -255,7 +255,7 @@ func TestAnUnreachableRepositoryIsACheck(t *testing.T) {
 func TestASuccessfulTestRecordsTheBranch(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
-	createProject(t, handler, `{"repository":"team/mstore"}`)
+	createProject(t, handler, `{"repository":"team/shop"}`)
 
 	if code := probe(t, handler, "1").Code; code != http.StatusOK {
 		t.Fatalf("code %d", code)
@@ -274,7 +274,7 @@ func TestADeclaredRepositoryIsCheckedAtOnce(t *testing.T) {
 	fake := newFakeProjectStore()
 	handler := NewProjectsHandler(fake).WithProbe(fakeProber{})
 
-	recorder := createProject(t, handler, `{"repository":"team/mstore"}`)
+	recorder := createProject(t, handler, `{"repository":"team/shop"}`)
 	var created struct {
 		ID   int64  `json:"id"`
 		Slug string `json:"slug"`
@@ -343,7 +343,7 @@ func TestNoSharedKeyIsReturnedWithTheProjects(t *testing.T) {
 func projectWithKey(t *testing.T, fake *fakeProjectStore, active bool) {
 	t.Helper()
 	fake.projects[1] = store.Project{
-		ID: 1, Repository: "team/mstore", Slug: "mstore", Label: "mstore",
+		ID: 1, Repository: "team/shop", Slug: "shop", Label: "shop",
 		DeployKeyPublic: "ssh-ed25519 AAAAC3Nz arkhitekton",
 		DeployKeyActive: active,
 	}

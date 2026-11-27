@@ -18,7 +18,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 const etat = {
   configured: true,
-  project: 'mstore',
+  project: 'shop',
   sync: { last_run: null, last_ok: null, last_error: '' },
   unmapped: [{ status_name: 'Livré', issues: 3 }],
   ambiguous: [],
@@ -28,12 +28,12 @@ const etat = {
 
 describe('SyncPanel', () => {
   it("interroge l'état du projet consulté, et non celui de l'instance", async () => {
-    const calls = mockFetch([{ path: '/projects/mstore/sync', body: etat }])
+    const calls = mockFetch([{ path: '/projects/shop/sync', body: etat }])
 
-    render(<SyncPanel project="mstore" />)
+    render(<SyncPanel project="shop" />)
     await screen.findByText(/statut\(s\) sans projection déclarée/)
 
-    expect(calls[0]!.url).toContain('/projects/mstore/sync')
+    expect(calls[0]!.url).toContain('/projects/shop/sync')
     expect(calls[0]!.url).not.toContain('/admin/sync')
   })
 
@@ -41,20 +41,20 @@ describe('SyncPanel', () => {
   // au mauvais projet le déplacerait chez quelqu'un d'autre.
   it('déclare la projection sur le projet consulté', async () => {
     const calls = mockFetch([
-      { path: '/projects/mstore/sync', body: etat },
+      { path: '/projects/shop/sync', body: etat },
       {
-        path: '/projects/mstore/sync/tracker/mapping/',
+        path: '/projects/shop/sync/tracker/mapping/',
         method: 'PUT',
         body: { issues_moved: 3 },
       },
     ])
 
-    render(<SyncPanel project="mstore" />)
+    render(<SyncPanel project="shop" />)
     await screen.findByText(/statut\(s\) sans projection déclarée/)
     await userEvent.click(screen.getAllByRole('button', { name: 'Déclarer' })[0]!)
 
     const ecriture = calls.find((call) => call.method === 'PUT')
-    expect(ecriture?.url).toContain('/projects/mstore/sync/tracker/mapping/')
+    expect(ecriture?.url).toContain('/projects/shop/sync/tracker/mapping/')
   })
 
   // Un projet sans suivi n'est pas en panne de synchronisation : il n'en attend

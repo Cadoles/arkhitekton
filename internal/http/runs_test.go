@@ -13,11 +13,11 @@ func TestTasksNotStartedAreListed(t *testing.T) {
 	// pipeline task it runs. The second is what matches the declaration.
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
-			{Name: "mstore-unit-tests-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
-			{Name: "mstore-unit-tests-1-composer-install", DisplayName: "composer-install", Status: "running"},
+			{Name: "ark-unit-tests-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
+			{Name: "ark-unit-tests-1-composer-install", DisplayName: "composer-install", Status: "running"},
 		},
 		Declared: []store.DeclaredTask{
-			{Name: "git-clone", DisplayName: "Clone mstore"},
+			{Name: "git-clone", DisplayName: "Clone shop"},
 			{Name: "composer-install"},
 			{Name: "run-phpstan", DisplayName: "Run phpstan"},
 			{Name: "save-results", Finally: true},
@@ -29,14 +29,14 @@ func TestTasksNotStartedAreListed(t *testing.T) {
 	}
 	// The order is the graph's: an unstarted task has no date, and sorting by what it does not
 	// have would push it to the end of the list.
-	order := []string{"Clone mstore", "composer-install", "Run phpstan", "save-results"}
+	order := []string{"Clone shop", "composer-install", "Run phpstan", "save-results"}
 	for i, label := range order {
 		if tasks[i].DisplayName != label {
 			t.Errorf("position %d: %q, expected %q", i, tasks[i].DisplayName, label)
 		}
 	}
 	// The TaskRun's name is kept on what started: it is how the logs are read.
-	if tasks[0].Name != "mstore-unit-tests-1-git-clone" {
+	if tasks[0].Name != "ark-unit-tests-1-git-clone" {
 		t.Errorf("TaskRun name lost: %q", tasks[0].Name)
 	}
 	if tasks[2].Status != "pending" || tasks[3].Status != "pending" {
@@ -69,7 +69,7 @@ func TestTasksNotStartedAreListed(t *testing.T) {
 func TestAnObservedTaskOutsideTheDeclarationStaysDisplayed(t *testing.T) {
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
-			{Name: "mstore-run-1-tache-disparue", DisplayName: "tache-disparue", Status: "failed"},
+			{Name: "ark-run-1-tache-disparue", DisplayName: "tache-disparue", Status: "failed"},
 		},
 		Declared: []store.DeclaredTask{{Name: "git-clone"}},
 	})
@@ -87,7 +87,7 @@ func TestAnObservedTaskOutsideTheDeclarationStaysDisplayed(t *testing.T) {
 func TestWithoutADeclarationOnlyStartedTasksAreReturned(t *testing.T) {
 	tasks := mergeTasks(store.RunDetail{
 		Tasks: []store.TaskSummary{
-			{Name: "mstore-run-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
+			{Name: "ark-run-1-git-clone", DisplayName: "git-clone", Status: "succeeded"},
 		},
 	})
 
@@ -98,10 +98,10 @@ func TestWithoutADeclarationOnlyStartedTasksAreReturned(t *testing.T) {
 
 // The link to the Tekton dashboard, and the two cases where it must not exist.
 func TestTheTektonLinkIsOmittedWhenItWouldBeDead(t *testing.T) {
-	run := store.RunSummary{Name: "mstore-unit-tests-1", Namespace: "mstore-pipelines"}
+	run := store.RunSummary{Name: "ark-unit-tests-1", Namespace: "shop-pipelines"}
 
 	configured := NewRunsHandler(nil).WithTektonDashboard("https://tekton.example.fr/")
-	want := "https://tekton.example.fr/#/namespaces/mstore-pipelines/pipelineruns/mstore-unit-tests-1"
+	want := "https://tekton.example.fr/#/namespaces/shop-pipelines/pipelineruns/ark-unit-tests-1"
 	if got := configured.dashboardLink(run); got != want {
 		t.Errorf("link: %q, expected %q", got, want)
 	}
@@ -113,7 +113,7 @@ func TestTheTektonLinkIsOmittedWhenItWouldBeDead(t *testing.T) {
 	}
 
 	// With no namespace, the URL would open on an error page. Better to offer nothing.
-	orphan := store.RunSummary{Name: "mstore-unit-tests-1"}
+	orphan := store.RunSummary{Name: "ark-unit-tests-1"}
 	if got := configured.dashboardLink(orphan); got != "" {
 		t.Errorf("link with no namespace: %q", got)
 	}

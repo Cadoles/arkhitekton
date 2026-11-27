@@ -92,7 +92,7 @@ func (r enqueuingRunner) Run(ctx context.Context, run store.PlanRun, geste plan.
 }
 
 // A plan a push triggered carries jobs with no release, and still moves to its next stage when
-// they conclude: seen on kind-mstore, where the step stayed `running` after its pipeline succeeded.
+// they conclude: seen on a kind cluster, where the step stayed `running` after its pipeline succeeded.
 func TestLiveAPlanWithoutAReleaseAdvances(t *testing.T) {
 	db := throwawayDatabase(t)
 	ctx := context.Background()

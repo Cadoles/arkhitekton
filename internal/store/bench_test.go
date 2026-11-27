@@ -29,7 +29,7 @@ func loadFixture(t *testing.T, db *DB) (int64, int64) {
 	var runID int64
 	err = db.pool.QueryRow(ctx,
 		`insert into runs (job_id, pipeline_name, pipelinerun_name, namespace, status, started_at)
-		 values ($1, 'load-test', $2, 'mstore-pipelines', 'succeeded', now()) returning id`,
+		 values ($1, 'load-test', $2, 'shop-pipelines', 'succeeded', now()) returning id`,
 		jobID, "load-test-1").Scan(&runID)
 	if err != nil {
 		t.Fatalf("run: %v", err)

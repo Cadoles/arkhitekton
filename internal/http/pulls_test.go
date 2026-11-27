@@ -106,8 +106,8 @@ func pullCatalogue() *catalog.Catalog {
 		{Kind: "review/pull-request", PipelineRef: "review", Params: map[string]catalog.Param{
 			"number": input(true, catalog.SuggestPullRequest),
 		}},
-		{Kind: "mstore/integration-tests", PipelineRef: "integration", Verification: true, Params: map[string]catalog.Param{
-			"mstore-revision": input(true, catalog.SuggestGitRef), "portal-image": portal,
+		{Kind: "deploy/integration-tests", PipelineRef: "integration", Verification: true, Params: map[string]catalog.Param{
+			"shop-revision": input(true, catalog.SuggestGitRef), "portal-image": portal,
 		}},
 	}}
 }
@@ -153,7 +153,7 @@ func TestALaunchOnAPullRequestRunsOnItsHead(t *testing.T) {
 	if recorder := launch(`{"kind":"docker/build","params":{"revision":"main","image-name":"portal"}}`); recorder.Code != http.StatusAccepted {
 		t.Fatalf("build: %d %s", recorder.Code, recorder.Body)
 	}
-	if recorder := launch(`{"kind":"mstore/integration-tests"}`); recorder.Code != http.StatusAccepted {
+	if recorder := launch(`{"kind":"deploy/integration-tests"}`); recorder.Code != http.StatusAccepted {
 		t.Fatalf("integration: %d %s", recorder.Code, recorder.Body)
 	}
 	if len(fixture.jobs) != 2 {
@@ -164,7 +164,7 @@ func TestALaunchOnAPullRequestRunsOnItsHead(t *testing.T) {
 		build.PullRequestID == nil || *build.PullRequestID != 9 || build.ProjectID == nil || *build.ProjectID != 7 {
 		t.Errorf("build = %+v", build)
 	}
-	if tests.Params["portal-image"] != "reg.example/team/portal:pr-12-abcdef0" || tests.Params["mstore-revision"] != "abcdef0123456789" {
+	if tests.Params["portal-image"] != "reg.example/team/portal:pr-12-abcdef0" || tests.Params["shop-revision"] != "abcdef0123456789" {
 		t.Errorf("integration params = %v", tests.Params)
 	}
 

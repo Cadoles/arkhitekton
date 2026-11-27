@@ -54,8 +54,8 @@ func saveSchedule(t *testing.T, body string) (*scheduleStore, *httptest.Response
 	t.Helper()
 	fixture := &scheduleStore{}
 	handler := NewAutomationsHandler(fixture, roleCatalogue(), testRegistry, quietLogger()).WithSchedules(fixture)
-	request := httptest.NewRequest(stdhttp.MethodPost, "/projects/mstore/schedules", strings.NewReader(body))
-	request.SetPathValue("project", "mstore")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/projects/shop/schedules", strings.NewReader(body))
+	request.SetPathValue("project", "shop")
 	recorder := httptest.NewRecorder()
 	handler.SaveSchedule(recorder, request)
 	return fixture, recorder

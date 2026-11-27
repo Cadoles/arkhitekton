@@ -21,7 +21,7 @@ func TestTheCommentDoesNotDecideAKeysIdentity(t *testing.T) {
 		key + " an entirely different comment",
 		"  " + key + " with spaces  ",
 	} {
-		if !SameKey(variant, key+" arkhitekton-project-mstore-git") {
+		if !SameKey(variant, key+" arkhitekton-project-shop-git") {
 			t.Errorf("variant %q judged different", variant)
 		}
 	}

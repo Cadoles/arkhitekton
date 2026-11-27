@@ -75,7 +75,7 @@ func TestEachGenerationReturnsADistinctKey(t *testing.T) {
 // had frozen the mistake.
 func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 	kube := fake.NewSimpleClientset()
-	owner := NewOwner(kube, "mstore-pipelines")
+	owner := NewOwner(kube, "shop-pipelines")
 
 	_, public, err := owner.Create(context.Background(), projectUID, "my-project", false)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestTheSecretCarriesTheMaterialUnderTheNameSSHReads(t *testing.T) {
 		t.Fatal("the public half must be returned to the caller")
 	}
 
-	secret, err := kube.CoreV1().Secrets("mstore-pipelines").
+	secret, err := kube.CoreV1().Secrets("shop-pipelines").
 		Get(context.Background(), KindGit.Name(projectUID), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("read back: %v", err)
@@ -126,11 +126,11 @@ func TestAPreExistingSecretIsNeverAdopted(t *testing.T) {
 	kube := fake.NewSimpleClientset(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      KindGit.Name(projectUID),
-			Namespace: "mstore-pipelines",
+			Namespace: "shop-pipelines",
 		},
 		Data: map[string][]byte{corev1.SSHAuthPrivateKey: []byte("someone else's key")},
 	})
-	owner := NewOwner(kube, "mstore-pipelines")
+	owner := NewOwner(kube, "shop-pipelines")
 
 	_, _, err := owner.Create(context.Background(), projectUID, "my-project", false)
 	if !errors.Is(err, ErrNameTaken) {
@@ -138,7 +138,7 @@ func TestAPreExistingSecretIsNeverAdopted(t *testing.T) {
 	}
 
 	// And above all: the material has not moved.
-	secret, _ := kube.CoreV1().Secrets("mstore-pipelines").
+	secret, _ := kube.CoreV1().Secrets("shop-pipelines").
 		Get(context.Background(), KindGit.Name(projectUID), metav1.GetOptions{})
 	if string(secret.Data[corev1.SSHAuthPrivateKey]) != "someone else's key" {
 		t.Error("a third party's secret was overwritten")
@@ -150,7 +150,7 @@ func TestAPreExistingSecretIsNeverAdopted(t *testing.T) {
 // a read of the cluster.
 func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 	kube := fake.NewSimpleClientset()
-	owner := NewOwner(kube, "mstore-pipelines")
+	owner := NewOwner(kube, "shop-pipelines")
 	ctx := context.Background()
 
 	_, first, err := owner.Create(ctx, projectUID, "my-project", false)
@@ -166,7 +166,7 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 		t.Error("a rotation must produce a new key")
 	}
 
-	secret, _ := kube.CoreV1().Secrets("mstore-pipelines").
+	secret, _ := kube.CoreV1().Secrets("shop-pipelines").
 		Get(ctx, KindGit.Name(projectUID), metav1.GetOptions{})
 	if len(secret.Data[PrivateKeyFile]) == 0 {
 		t.Fatalf("field %q missing after the rotation: the new key would be useless",
@@ -188,7 +188,7 @@ func TestARotationReplacesTheKeyWhenTheDatabaseAttestsIt(t *testing.T) {
 // Deleting an absent key completes: deleting a project must not stay stuck on a state the
 // dashboard cannot observe anyway.
 func TestDeletingAnAbsentKeyCompletes(t *testing.T) {
-	owner := NewOwner(fake.NewSimpleClientset(), "mstore-pipelines")
+	owner := NewOwner(fake.NewSimpleClientset(), "shop-pipelines")
 
 	if err := owner.DeleteName(context.Background(), KindGit.Name("never-created")); err != nil {
 		t.Errorf("deleting an absent key: %v", err)
@@ -222,7 +222,7 @@ func TestTheSlugIsAnAnnotation(t *testing.T) {
 }
 
 // serviceAccount builds a service account already carrying the deployment's credentials, like
-// `mstore-pipelines`'s.
+// the pipelines repository's.
 func serviceAccount(secrets ...string) *corev1.ServiceAccount {
 	references := make([]corev1.ObjectReference, 0, len(secrets))
 	for _, name := range secrets {
@@ -231,7 +231,7 @@ func serviceAccount(secrets ...string) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "tekton-kubectl",
-			Namespace:   "mstore-pipelines",
+			Namespace:   "shop-pipelines",
 			Annotations: map[string]string{"kubernetes.io/enforce-mountable-secrets": "true"},
 		},
 		Secrets: references,
@@ -241,12 +241,12 @@ func serviceAccount(secrets ...string) *corev1.ServiceAccount {
 func mounterFor(t *testing.T, account *corev1.ServiceAccount) (*fake.Clientset, *Mounter) {
 	t.Helper()
 	kube := fake.NewSimpleClientset(account)
-	return kube, NewMounter(kube, "mstore-pipelines", "tekton-kubectl")
+	return kube, NewMounter(kube, "shop-pipelines", "tekton-kubectl")
 }
 
 func mountable(t *testing.T, kube *fake.Clientset) []string {
 	t.Helper()
-	account, err := kube.CoreV1().ServiceAccounts("mstore-pipelines").
+	account, err := kube.CoreV1().ServiceAccounts("shop-pipelines").
 		Get(context.Background(), "tekton-kubectl", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("re-reading the service account: %v", err)
@@ -348,17 +348,17 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 	kube := fake.NewSimpleClientset(
 		serviceAccount("regcred"),
 		&corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "mstore-pipelines"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "shop-pipelines"},
 		},
 	)
-	mounter := NewMounter(kube, "mstore-pipelines", "tekton-kubectl", "default")
+	mounter := NewMounter(kube, "shop-pipelines", "tekton-kubectl", "default")
 
 	if err := mounter.AllowKind(context.Background(), KindGit, projectUID); err != nil {
 		t.Fatalf("authorisation: %v", err)
 	}
 
 	for _, name := range []string{"tekton-kubectl", "default"} {
-		account, _ := kube.CoreV1().ServiceAccounts("mstore-pipelines").
+		account, _ := kube.CoreV1().ServiceAccounts("shop-pipelines").
 			Get(context.Background(), name, metav1.GetOptions{})
 		found := false
 		for _, reference := range account.Secrets {
@@ -376,14 +376,14 @@ func TestTheKeyIsMountableByEveryAccountOfTheCatalogue(t *testing.T) {
 // has not created yet, and losing the authorization on those that exist would make things worse.
 func TestAMissingAccountDoesNotStopTheOthers(t *testing.T) {
 	kube := fake.NewSimpleClientset(serviceAccount("regcred"))
-	mounter := NewMounter(kube, "mstore-pipelines", "tekton-kubectl", "never-created")
+	mounter := NewMounter(kube, "shop-pipelines", "tekton-kubectl", "never-created")
 
 	err := mounter.AllowKind(context.Background(), KindGit, projectUID)
 	if err == nil {
 		t.Error("a missing account must be reported")
 	}
 
-	account, _ := kube.CoreV1().ServiceAccounts("mstore-pipelines").
+	account, _ := kube.CoreV1().ServiceAccounts("shop-pipelines").
 		Get(context.Background(), "tekton-kubectl", metav1.GetOptions{})
 	if len(account.Secrets) != 2 {
 		t.Errorf("existing account %v — the authorization should have completed there", account.Secrets)
@@ -396,16 +396,16 @@ func TestAMissingAccountDoesNotStopTheOthers(t *testing.T) {
 func TestASettingsSecretIsCreatedThenReplaced(t *testing.T) {
 	ctx := context.Background()
 	kube := fake.NewSimpleClientset()
-	owner := NewOwner(kube, "mstore-pipelines")
+	owner := NewOwner(kube, "shop-pipelines")
 
-	name, err := owner.Put(ctx, KindReview, projectUID, "mstore", map[string][]byte{"api-key": []byte("first")})
+	name, err := owner.Put(ctx, KindReview, projectUID, "shop", map[string][]byte{"api-key": []byte("first")})
 	if err != nil || name != "arkhitekton-project-"+projectUID+"-review" || name == KindGit.Name(projectUID) {
 		t.Fatalf("name %q, %v", name, err)
 	}
-	if _, err := owner.Put(ctx, KindReview, projectUID, "mstore", map[string][]byte{}); err != nil {
+	if _, err := owner.Put(ctx, KindReview, projectUID, "shop", map[string][]byte{}); err != nil {
 		t.Fatalf("replacing: %v", err)
 	}
-	secret, err := kube.CoreV1().Secrets("mstore-pipelines").Get(ctx, name, metav1.GetOptions{})
+	secret, err := kube.CoreV1().Secrets("shop-pipelines").Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestASettingsSecretIsCreatedThenReplaced(t *testing.T) {
 
 	// The deploy key is not written from a setting: it is generated, and its rotation is refused on a
 	// Secret the database does not know.
-	if _, err := owner.Put(ctx, KindGit, projectUID, "mstore", nil); err == nil {
+	if _, err := owner.Put(ctx, KindGit, projectUID, "shop", nil); err == nil {
 		t.Error("a deploy key written from a setting")
 	}
 }

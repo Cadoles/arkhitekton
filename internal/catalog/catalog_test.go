@@ -15,7 +15,7 @@ pipelines:
     label: Tests statiques
     params:
       revision: { source: input, required: true }
-      repo-url: { source: config, key: forge.mstore.sshUrl }
+      repo-url: { source: config, key: forge.shop.sshUrl }
 `
 
 func TestParseAppliesTheDefaultConcurrencyCap(t *testing.T) {

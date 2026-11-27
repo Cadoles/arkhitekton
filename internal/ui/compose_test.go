@@ -47,23 +47,23 @@ spec:
   widget: { badge: { text: "{value}" } }
 `
 
-const mstoreYAML = `
+const deployYAML = `
 apiVersion: ui.arkhitekton/v1
 kind: Screen
-metadata: { name: mstore.environments }
+metadata: { name: deploy.environments }
 spec:
   path: environments
   parent: shell
   data: { environments: { source: plugin, path: environments } }
   blocks:
-    - { id: mstore.list, component: mstore/environments }
+    - { id: deploy.list, component: deploy/environments }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Screen
 metadata: { name: release }
 spec:
   blocks:
-    - id: mstore.deployment
+    - id: deploy.deployment
       after: core.artifacts
       data: { deployment: { source: plugin, path: "releases/{route.tag}/deployment" } }
       widget:
@@ -76,7 +76,7 @@ spec:
             - label: ""
               action: { label: Valider, method: PUT, path: "releases/{route.tag}/signoff" }
     - id: core.header
-      slots: { badges: [{ id: mstore.deployed, component: mstore/deployed-badges }] }
+      slots: { badges: [{ id: deploy.deployed, component: deploy/deployed-badges }] }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Navigation
@@ -84,10 +84,10 @@ metadata: { name: main }
 spec:
   home: /environments
   items:
-    - { id: mstore.environments, before: core.versions, label: Environnements, icon: server, to: /environments }
+    - { id: deploy.environments, before: core.versions, label: Environnements, icon: server, to: /environments }
 `
 
-var mstoreRoutes = []manifest.Route{
+var deployRoutes = []manifest.Route{
 	{Method: "GET", Path: "environments", Permission: "read"},
 	{Method: "GET", Path: "releases/{tag}/deployment", Permission: "read"},
 	{Method: "POST", Path: "releases/{tag}/promote/{environment}", Permission: "deploy:{environment}"},
@@ -139,41 +139,41 @@ func ids(blocks []schema.Block) []string {
 }
 
 func TestAPluginAddsToTheCoresScreensAndMenus(t *testing.T) {
-	view := compose(t, Contribution{Plugin: "mstore", Resources: read(t, mstoreYAML), Routes: mstoreRoutes}).For(everything(Viewer{}))
+	view := compose(t, Contribution{Plugin: "deploy", Resources: read(t, deployYAML), Routes: deployRoutes}).For(everything(Viewer{}))
 
 	release := screenOf(view, "release")
-	if got := ids(release.Blocks); !slices.Equal(got, []string{"core.header", "core.rebuild", "core.artifacts", "mstore.deployment", "core.notes"}) {
+	if got := ids(release.Blocks); !slices.Equal(got, []string{"core.header", "core.rebuild", "core.artifacts", "deploy.deployment", "core.notes"}) {
 		t.Errorf("release blocks = %v", got)
 	}
-	if badges := release.Blocks[0].Slots["badges"]; len(badges) != 1 || badges[0].Component != "mstore/deployed-badges" {
+	if badges := release.Blocks[0].Slots["badges"]; len(badges) != 1 || badges[0].Component != "deploy/deployed-badges" {
 		t.Errorf("badges = %+v", badges)
 	}
 	deployment := release.Blocks[3]
-	if source := deployment.Data["deployment"]; source.Plugin != "mstore" || source.Scope != "project" {
+	if source := deployment.Data["deployment"]; source.Plugin != "deploy" || source.Scope != "project" {
 		t.Errorf("source = %+v", source)
 	}
-	if action := deployment.Widget.Table.Columns[1].Action; action.Plugin != "mstore" || action.Permission != "deploy:{environment}" {
+	if action := deployment.Widget.Table.Columns[1].Action; action.Plugin != "deploy" || action.Permission != "deploy:{environment}" {
 		t.Errorf("action = %+v", action)
 	}
 
 	main := view.Navigations["main"]
-	if main.Home != "/environments" || main.Items[0].ID != "mstore.environments" {
+	if main.Home != "/environments" || main.Items[0].ID != "deploy.environments" {
 		t.Errorf("main = %+v", main)
 	}
-	if screenOf(view, "mstore.environments") == nil {
+	if screenOf(view, "deploy.environments") == nil {
 		t.Error("the plugin's screen is missing")
 	}
 }
 
 func TestWhatAnInactivePluginBringsIsLeftOut(t *testing.T) {
-	composed := compose(t, Contribution{Plugin: "mstore", Resources: read(t, mstoreYAML), Routes: mstoreRoutes})
+	composed := compose(t, Contribution{Plugin: "deploy", Resources: read(t, deployYAML), Routes: deployRoutes})
 	view := composed.For(Viewer{Active: func(string) bool { return false }, Can: func(string) bool { return true }})
 
-	if screenOf(view, "mstore.environments") != nil {
+	if screenOf(view, "deploy.environments") != nil {
 		t.Error("the screen of an inactive plugin is served")
 	}
 	release := screenOf(view, "release")
-	if got := ids(release.Blocks); slices.Contains(got, "mstore.deployment") {
+	if got := ids(release.Blocks); slices.Contains(got, "deploy.deployment") {
 		t.Errorf("release blocks = %v", got)
 	}
 	if badges := release.Blocks[0].Slots["badges"]; len(badges) != 0 {
@@ -185,7 +185,7 @@ func TestWhatAnInactivePluginBringsIsLeftOut(t *testing.T) {
 }
 
 func TestWhatTheViewerMayNotDoIsLeftOut(t *testing.T) {
-	composed := compose(t, Contribution{Plugin: "mstore", Resources: read(t, mstoreYAML), Routes: mstoreRoutes})
+	composed := compose(t, Contribution{Plugin: "deploy", Resources: read(t, deployYAML), Routes: deployRoutes})
 	view := composed.For(Viewer{Active: func(string) bool { return true }, Can: func(permission string) bool { return permission == "read" }})
 
 	release := screenOf(view, "release")
@@ -208,29 +208,29 @@ func TestWhatTheViewerMayNotDoIsLeftOut(t *testing.T) {
 
 func TestAContributionThatDoesNotComposeIsRefusedWithItsReason(t *testing.T) {
 	contribution := func(source string, routes ...manifest.Route) Contribution {
-		return Contribution{Plugin: "mstore", Resources: read(t, source), Routes: append(routes, mstoreRoutes...)}
+		return Contribution{Plugin: "deploy", Resources: read(t, source), Routes: append(routes, deployRoutes...)}
 	}
 	screen := func(name, spec string) string {
 		return "apiVersion: ui.arkhitekton/v1\nkind: Screen\nmetadata: { name: " + name + " }\nspec:\n" + spec
 	}
 	for expected, source := range map[string]string{
-		"no core screen":              screen("history", "  path: history\n  parent: shell\n  blocks: [{ id: mstore.a, component: mstore/a }]"),
-		"already defined":             screen("mstore.x", "  path: one\n  parent: shell") + "\n---\n" + screen("mstore.x", "  path: two\n  parent: shell"),
+		"no core screen":              screen("history", "  path: history\n  parent: shell\n  blocks: [{ id: deploy.a, component: deploy/a }]"),
+		"already defined":             screen("deploy.x", "  path: one\n  parent: shell") + "\n---\n" + screen("deploy.x", "  path: two\n  parent: shell"),
 		"path is owned by core":       screen("release", "  path: elsewhere"),
-		`"deploy", a block of mstore`:    screen("release", "  blocks: [{ id: deploy, component: mstore/a }]"),
-		"only its slots":              screen("release", "  blocks: [{ id: core.notes, component: mstore/a }]"),
-		`no slot "rows"`:              screen("release", "  blocks: [{ id: core.header, slots: { rows: [{ id: mstore.a, component: mstore/a }] } }]"),
-		"no such entry":               screen("release", "  blocks: [{ id: mstore.a, after: core.absent, component: mstore/a }]"),
-		"core's or its own":           screen("release", "  blocks: [{ id: mstore.a, after: other.b, component: mstore/a }]"),
-		"belongs to other":            screen("release", "  blocks: [{ id: mstore.a, component: other/a }]"),
-		"declares no such route":      screen("release", "  blocks: [{ id: mstore.a, widget: { action: { label: A, method: DELETE, path: environments } } }]"),
-		"GET nothing":                 screen("release", "  blocks: [{ id: mstore.a, data: { x: { source: plugin, path: nothing } }, component: mstore/a }]"),
-		"no role grants":              screen("release", "  blocks: [{ id: mstore.a, permission: typo, component: mstore/a }]"),
-		"same route":                  screen("mstore.a", "  path: releases/:tag\n  parent: shell"),
-		"no such screen":              screen("mstore.a", "  path: a\n  parent: absent"),
-		"no such widget":              screen("release", "  blocks: [{ id: mstore.a, widget: { use: { widget: core.absent } } }]"),
-		"parameter value is required": screen("release", "  blocks: [{ id: mstore.a, widget: { use: { widget: core.state } } }]"),
-		"no such navigation":          screen("release", "  blocks: [{ id: mstore.a, widget: { tabs: { navigation: absent } } }]"),
+		`"deploy", a block of deploy`: screen("release", "  blocks: [{ id: deploy, component: deploy/a }]"),
+		"only its slots":              screen("release", "  blocks: [{ id: core.notes, component: deploy/a }]"),
+		`no slot "rows"`:              screen("release", "  blocks: [{ id: core.header, slots: { rows: [{ id: deploy.a, component: deploy/a }] } }]"),
+		"no such entry":               screen("release", "  blocks: [{ id: deploy.a, after: core.absent, component: deploy/a }]"),
+		"core's or its own":           screen("release", "  blocks: [{ id: deploy.a, after: other.b, component: deploy/a }]"),
+		"belongs to other":            screen("release", "  blocks: [{ id: deploy.a, component: other/a }]"),
+		"declares no such route":      screen("release", "  blocks: [{ id: deploy.a, widget: { action: { label: A, method: DELETE, path: environments } } }]"),
+		"GET nothing":                 screen("release", "  blocks: [{ id: deploy.a, data: { x: { source: plugin, path: nothing } }, component: deploy/a }]"),
+		"no role grants":              screen("release", "  blocks: [{ id: deploy.a, permission: typo, component: deploy/a }]"),
+		"same route":                  screen("deploy.a", "  path: releases/:tag\n  parent: shell"),
+		"no such screen":              screen("deploy.a", "  path: a\n  parent: absent"),
+		"no such widget":              screen("release", "  blocks: [{ id: deploy.a, widget: { use: { widget: core.absent } } }]"),
+		"parameter value is required": screen("release", "  blocks: [{ id: deploy.a, widget: { use: { widget: core.state } } }]"),
+		"no such navigation":          screen("release", "  blocks: [{ id: deploy.a, widget: { tabs: { navigation: absent } } }]"),
 		"not added to":                "apiVersion: ui.arkhitekton/v1\nkind: Widget\nmetadata: { name: core.state }\nspec: { widget: { empty: { text: x } } }",
 	} {
 		err := Check(read(t, coreYAML), nil, contribution(source), options)
@@ -245,16 +245,16 @@ func TestASecondOwnerOfAFieldIsRefused(t *testing.T) {
 	home := func(plugin, to string) Contribution {
 		return Contribution{Plugin: plugin, Resources: read(t, "apiVersion: ui.arkhitekton/v1\nkind: Navigation\nmetadata: { name: main }\nspec: { home: "+to+" }")}
 	}
-	err := Check(read(t, coreYAML), []Contribution{home("mstore", "/environments")}, home("other", "/other"), options)
-	if err == nil || !strings.Contains(err.Error(), "home is owned by mstore") {
+	err := Check(read(t, coreYAML), []Contribution{home("deploy", "/environments")}, home("other", "/other"), options)
+	if err == nil || !strings.Contains(err.Error(), "home is owned by deploy") {
 		t.Errorf("err = %v", err)
 	}
 	// Another version of the same plugin replaces it rather than conflicting.
-	if err := Check(read(t, coreYAML), []Contribution{home("mstore", "/environments")}, home("mstore", "/elsewhere"), options); err != nil {
+	if err := Check(read(t, coreYAML), []Contribution{home("deploy", "/environments")}, home("deploy", "/elsewhere"), options); err != nil {
 		t.Errorf("an update conflicts with itself: %v", err)
 	}
 
-	composed, refused := Compose(read(t, coreYAML), []Contribution{home("other", "/other"), home("mstore", "/environments")}, options)
+	composed, refused := Compose(read(t, coreYAML), []Contribution{home("other", "/other"), home("deploy", "/environments")}, options)
 	var pluginError *PluginError
 	if len(refused) != 1 || !errors.As(refused[0], &pluginError) || pluginError.Plugin != "other" {
 		t.Fatalf("refused = %v", refused)

@@ -30,7 +30,7 @@ describe("le rendu d'un écran", () => {
               id: 'core.header',
               component: 'test/header',
               props: { title: 'Release' },
-              slots: { badges: [{ id: 'mstore.deployed', component: 'test/badge' }] },
+              slots: { badges: [{ id: 'deploy.deployed', component: 'test/badge' }] },
             },
             { id: 'core.notes', component: 'test/header', props: { title: 'Notes' } },
           ],

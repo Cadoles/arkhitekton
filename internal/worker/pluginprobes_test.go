@@ -45,7 +45,7 @@ func observingRegistry(t *testing.T, probe *observingProbe) *capabilities.Regist
 func TestAPluginsObservationIsNamedByTheDashboard(t *testing.T) {
 	opened := time.Date(2026, 9, 3, 10, 30, 0, 0, time.UTC)
 	probe := &observingProbe{observed: []capability.Observation{{
-		Suffix: "pull_request.opened", Subject: "#412", Key: "team/mstore:412", OccurredAt: opened,
+		Suffix: "pull_request.opened", Subject: "#412", Key: "team/shop:412", OccurredAt: opened,
 		Payload: map[string]string{"number": "412"},
 	}}}
 	probes := PluginProbes(observingRegistry(t, probe), time.Second)
@@ -54,7 +54,7 @@ func TestAPluginsObservationIsNamedByTheDashboard(t *testing.T) {
 	}
 
 	facts, cursor, err := probes[0].Poll(context.Background(),
-		store.Project{ID: 1, Slug: "mstore", Repository: "team/mstore"}, map[string]string{"url": "u"}, "")
+		store.Project{ID: 1, Slug: "shop", Repository: "team/shop"}, map[string]string{"url": "u"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,11 +62,11 @@ func TestAPluginsObservationIsNamedByTheDashboard(t *testing.T) {
 		t.Fatalf("cursor %q, facts %+v", cursor, facts)
 	}
 	fact := facts[0]
-	if fact.Type != "gitea.pull_request.opened" || fact.DedupKey != "gitea.pull_request.opened:team/mstore:412" ||
+	if fact.Type != "gitea.pull_request.opened" || fact.DedupKey != "gitea.pull_request.opened:team/shop:412" ||
 		!fact.OccurredAt.Equal(opened) || fact.Subject != "#412" {
 		t.Errorf("fact = %+v", fact)
 	}
-	if probe.target.Repository != "team/mstore" || probe.target.Settings["url"] != "u" || probe.target.Timeout != time.Second {
+	if probe.target.Repository != "team/shop" || probe.target.Settings["url"] != "u" || probe.target.Timeout != time.Second {
 		t.Errorf("target = %+v", probe.target)
 	}
 }
@@ -77,7 +77,7 @@ func TestAnUndeclaredObservationIsRefused(t *testing.T) {
 	probe := &observingProbe{observed: []capability.Observation{{Suffix: "release.deleted", Key: "x"}}}
 	probes := PluginProbes(observingRegistry(t, probe), time.Second)
 
-	_, _, err := probes[0].Poll(context.Background(), store.Project{ID: 1, Slug: "mstore"}, nil, "")
+	_, _, err := probes[0].Poll(context.Background(), store.Project{ID: 1, Slug: "shop"}, nil, "")
 	if err == nil || !strings.Contains(err.Error(), "release.deleted") {
 		t.Errorf("%v", err)
 	}

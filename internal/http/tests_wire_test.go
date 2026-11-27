@@ -15,7 +15,7 @@ import (
 type wireTestStore struct{ TestStore }
 
 func (wireTestStore) ProjectBySlug(context.Context, string) (store.Project, error) {
-	return store.Project{ID: 7, Slug: "mstore"}, nil
+	return store.Project{ID: 7, Slug: "shop"}, nil
 }
 
 func (wireTestStore) GetRelease(context.Context, int64, string) (store.Release, error) {
@@ -25,7 +25,7 @@ func (wireTestStore) GetRelease(context.Context, int64, string) (store.Release, 
 func (wireTestStore) ListReleaseTestResults(context.Context, int64) ([]store.TestResult, error) {
 	return []store.TestResult{{
 		ID: 11, Group: "unit", Shape: "cases", Producer: "php@1.0.0", Tool: "phpunit",
-		Status: "fail", Total: 2, Passed: 1, Failed: 1, RunName: "mstore-unit-3", CreatedAt: time.Now(),
+		Status: "fail", Total: 2, Passed: 1, Failed: 1, RunName: "ark-unit-3", CreatedAt: time.Now(),
 	}}, nil
 }
 
@@ -83,7 +83,7 @@ func serveTests(t *testing.T, path, pattern string, handler stdhttp.HandlerFunc)
 // The tests screen reads results by group and opens them by shape: these keys are its contract.
 func TestTheTestsResponseCarriesTheKeysTheScreenReads(t *testing.T) {
 	handler := NewTestsHandler(wireTestStore{}, nil)
-	body := serveTests(t, "/projects/mstore/releases/1.0.0/tests",
+	body := serveTests(t, "/projects/shop/releases/1.0.0/tests",
 		"GET /projects/{project}/releases/{tag}/tests", handler.Tests)
 
 	reports, _ := body["results"].([]any)
@@ -112,7 +112,7 @@ func TestTheTestsResponseCarriesTheKeysTheScreenReads(t *testing.T) {
 
 func TestTheGroupResponseCarriesTheKeysTheDetailReads(t *testing.T) {
 	handler := NewTestsHandler(wireTestStore{}, nil)
-	body := serveTests(t, "/projects/mstore/releases/1.0.0/tests/unit",
+	body := serveTests(t, "/projects/shop/releases/1.0.0/tests/unit",
 		"GET /projects/{project}/releases/{tag}/tests/{group}", handler.Group)
 
 	if body["group"] != "unit" || body["tool"] != "phpunit" {

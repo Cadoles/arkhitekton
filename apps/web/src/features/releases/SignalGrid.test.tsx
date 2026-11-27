@@ -17,7 +17,7 @@ import { releaseSubject } from './tests'
 // L'écran vit sous un projet sélectionné, que les requêtes de détail emploient.
 vi.mock('../../lib/project', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('../../lib/project')
-  return { ...actual, projectPath: (path: string) => `/projects/mstore${path}` }
+  return { ...actual, projectPath: (path: string) => `/projects/shop${path}` }
 })
 
 function composant(overrides: Partial<SignalScore> & Pick<SignalScore, 'key'>): SignalScore {

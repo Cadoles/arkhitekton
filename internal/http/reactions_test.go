@@ -134,7 +134,7 @@ func (catalogueStore) PluginSettingsAll(context.Context) (map[string]store.Plugi
 }
 
 func (catalogueStore) ProjectBySlug(context.Context, string) (store.Project, error) {
-	return store.Project{ID: 7, Slug: "mstore"}, nil
+	return store.Project{ID: 7, Slug: "shop"}, nil
 }
 
 func (catalogueStore) ReleaseAutomation(context.Context, int64) (store.ReleaseAutomation, error) {
@@ -182,8 +182,8 @@ func TestTheCatalogueCarriesTheKeysTheEditorReads(t *testing.T) {
 func TestTheAutomationCarriesThePlanTheEditorWalks(t *testing.T) {
 	handler := NewAutomationsHandler(catalogueStore{}, roleCatalogue(), testRegistry, quietLogger())
 
-	request := httptest.NewRequest(stdhttp.MethodGet, "/projects/mstore/automation", nil)
-	request.SetPathValue("project", "mstore")
+	request := httptest.NewRequest(stdhttp.MethodGet, "/projects/shop/automation", nil)
+	request.SetPathValue("project", "shop")
 	recorder := httptest.NewRecorder()
 	handler.Automation(recorder, request)
 

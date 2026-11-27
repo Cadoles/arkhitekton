@@ -33,13 +33,13 @@ func TestAProjectIsDeclaredAndReadBack(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 
 	read, err := db.GetProject(ctx, id)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if read.Repository != "team/mstore" || read.Label != "Portail" {
+	if read.Repository != "team/shop" || read.Label != "Portail" {
 		t.Errorf("project = %+v", read)
 	}
 	// No access check has happened: the absence of a verdict must be told apart from a
@@ -54,10 +54,10 @@ func TestAProjectIsDeclaredAndReadBack(t *testing.T) {
 func TestARepositoryIsNotDeclaredTwice(t *testing.T) {
 	db := migratedBare(t)
 
-	project(t, db, "team/mstore")
+	project(t, db, "team/shop")
 
 	_, err := db.CreateProject(context.Background(), Project{
-		Repository: "team/mstore", Label: "Doublon", CreatedBy: "vcarroy",
+		Repository: "team/shop", Label: "Doublon", CreatedBy: "vcarroy",
 	})
 	if !errors.Is(err, ErrProjectExists) {
 		t.Errorf("second declaration: %v, expected ErrProjectExists", err)
@@ -73,9 +73,9 @@ func TestTheAccessVerdictIsKept(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 
-	if err := recordCheck(db, ctx, id, false, "404 on /repos/team/mstore"); err != nil {
+	if err := recordCheck(db, ctx, id, false, "404 on /repos/team/shop"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
@@ -125,12 +125,12 @@ func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 
 	configured := []Project{
 		{
-			Repository: "team/mstore", Label: "Application",
+			Repository: "team/shop", Label: "Application",
 			ForgeURL:  "https://forge.example.fr",
 			CreatedBy: "configuration",
 		},
 		{
-			Repository: "team/mstore-deploy", Label: "Kustomizations",
+			Repository: "team/shop-deploy", Label: "Kustomizations",
 			ForgeURL:  "https://forge.example.fr",
 			CreatedBy: "configuration",
 		},
@@ -150,15 +150,15 @@ func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 
 	// An administrator corrects a label.
 	projects, _ := db.ListProjects(ctx)
-	var mstore Project
+	var shop Project
 	for _, project := range projects {
-		if project.Repository == "team/mstore" {
-			mstore = project
+		if project.Repository == "team/shop" {
+			shop = project
 		}
 	}
 	if err := db.UpdateProject(ctx, Project{
-		ID: mstore.ID, Repository: mstore.Repository, Label: "Portail Mstore",
-		ForgeURL: mstore.ForgeURL,
+		ID: shop.ID, Repository: shop.Repository, Label: "Portail Shop",
+		ForgeURL: shop.ForgeURL,
 	}); err != nil {
 		t.Fatalf("correction: %v", err)
 	}
@@ -173,8 +173,8 @@ func TestTheBootstrapIsReplayableAndOverwritesNothing(t *testing.T) {
 		t.Errorf("%d project(s) redeclared", declared)
 	}
 
-	read, _ := db.GetProject(ctx, mstore.ID)
-	if read.Label != "Portail Mstore" {
+	read, _ := db.GetProject(ctx, shop.ID)
+	if read.Label != "Portail Shop" {
 		t.Errorf("label = %q: the bootstrap overwrote a correction", read.Label)
 	}
 }
@@ -185,13 +185,13 @@ func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "vcarroy/mstore-test-project")
+	id := project(t, db, "team/store")
 	if err := recordCheck(db, ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
 	corrected := Project{
-		ID: id, Repository: "team/mstore", Label: "Portail",
+		ID: id, Repository: "team/shop", Label: "Portail",
 		ForgeURL: "https://forge.example.fr",
 	}
 	if err := db.UpdateProject(ctx, corrected); err != nil {
@@ -199,7 +199,7 @@ func TestCorrectingTheRepositoryClearsTheVerdict(t *testing.T) {
 	}
 
 	read, _ := db.GetProject(ctx, id)
-	if read.Repository != "team/mstore" {
+	if read.Repository != "team/shop" {
 		t.Errorf("repository = %q", read.Repository)
 	}
 	// The verdict was about something no longer driven. Keeping it would display "access
@@ -215,13 +215,13 @@ func TestACorrectionKeepingTheRepositoryKeepsTheCheck(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 	if err := recordCheck(db, ctx, id, true, "default branch: main"); err != nil {
 		t.Fatalf("check: %v", err)
 	}
 
 	if err := db.UpdateProject(ctx, Project{
-		ID: id, Repository: "team/mstore", Label: "Portail Mstore",
+		ID: id, Repository: "team/shop", Label: "Portail Shop",
 		ForgeURL: "https://forge.example.fr",
 	}); err != nil {
 		t.Fatalf("correction: %v", err)
@@ -238,9 +238,9 @@ func TestACorrectionWithoutCycleKeepsTheRecordedKinds(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 	cycle := release.Cycle{{ID: "rc", Label: "RC", Mode: release.ModeBuild}}
-	base := Project{ID: id, Repository: "team/mstore", Label: "Portail"}
+	base := Project{ID: id, Repository: "team/shop", Label: "Portail"}
 
 	declared := base
 	declared.ReleaseKinds = cycle
@@ -263,11 +263,11 @@ func TestCorrectingTowardsADeclaredRepositoryIsRefused(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	project(t, db, "team/mstore")
-	id := project(t, db, "team/mstore-deploy")
+	project(t, db, "team/shop")
+	id := project(t, db, "team/shop-deploy")
 
 	err := db.UpdateProject(ctx, Project{
-		ID: id, Repository: "team/mstore", Label: "Doublon",
+		ID: id, Repository: "team/shop", Label: "Doublon",
 		ForgeURL: "https://forge.example.fr",
 	})
 	if !errors.Is(err, ErrProjectExists) {
@@ -282,14 +282,14 @@ func TestACorrectionWithoutRepositoryIsRefused(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 
 	if err := db.UpdateProject(ctx, Project{ID: id, Label: "No repository"}); err == nil {
 		t.Fatal("an empty repository should be refused")
 	}
 
 	read, _ := db.GetProject(ctx, id)
-	if read.Repository != "team/mstore" {
+	if read.Repository != "team/shop" {
 		t.Errorf("repository = %q: it was cleared", read.Repository)
 	}
 }
@@ -300,7 +300,7 @@ func TestAProjectsSecretsFollowItsIDNotItsSlug(t *testing.T) {
 	db := migratedBare(t)
 	ctx := context.Background()
 
-	id := project(t, db, "team/mstore")
+	id := project(t, db, "team/shop")
 	other := project(t, db, "team/theme")
 	read, _ := db.GetProject(ctx, id)
 	second, _ := db.GetProject(ctx, other)

@@ -39,19 +39,19 @@ const failedReaction = run({
 
 const entries: JournalEntry[] = [
   {
-    nature: 'action', id: 1, at: '2026-11-20T10:05:00Z', project: 'mstore',
+    nature: 'action', id: 1, at: '2026-11-20T10:05:00Z', project: 'store',
     actor: 'vcarroy', action: 'release.create', target: '1.8.0-rc1', payload: { kind: 'pre' },
   },
   {
-    nature: 'event', id: 2, at: '2026-11-20T10:04:00Z', project: 'mstore', type: 'release.created', subject: '1.8.0-rc1',
+    nature: 'event', id: 2, at: '2026-11-20T10:04:00Z', project: 'store', type: 'release.created', subject: '1.8.0-rc1',
     payload: { tag: '1.8.0-rc1' },
     automations: [failedReaction, run({ id: 4 })],
   },
-  { nature: 'event', id: 3, at: '2026-11-20T10:03:00Z', project: 'mstore', type: 'gitea.push', subject: 'main', source: 'gitea' },
+  { nature: 'event', id: 3, at: '2026-11-20T10:03:00Z', project: 'store', type: 'gitea.push', subject: 'main', source: 'gitea' },
   { nature: 'event', id: 4, at: '2026-11-20T10:02:00Z', type: 'release.built', subject: '1.7.0', payload: { outcome: 'failed' } },
   { nature: 'event', id: 5, at: '2026-11-20T10:01:00Z', type: 'gitea.pull_request.opened', pending: true },
   {
-    nature: 'automation', id: 6, at: '2026-11-20T03:00:00Z', project: 'mstore',
+    nature: 'automation', id: 6, at: '2026-11-20T03:00:00Z', project: 'store',
     automations: [run({ id: 6, trigger: 'schedule:2', name: 'Tests de nuit', event_key: 'schedule:2:2026-11-20T03:00:00Z' })],
   },
 ]
@@ -59,7 +59,7 @@ const entries: JournalEntry[] = [
 function arm() {
   return mockFetch([
     { path: '/admin/journal', body: { entries } },
-    { path: '/projects', body: { projects: [{ slug: 'mstore', label: 'Mstore' }, { slug: 'shop', label: 'Shop' }] } },
+    { path: '/projects', body: { projects: [{ slug: 'store', label: 'Store' }, { slug: 'shop', label: 'Shop' }] } },
   ])
 }
 

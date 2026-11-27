@@ -313,7 +313,7 @@ func TestKindsSharingALockNeverRunTogether(t *testing.T) {
 	ctx := context.Background()
 
 	limits := caps(4, nil)
-	limits.Locks = map[string]string{"integration": "mstore/mstore-pipeline", "rgaa": "mstore/mstore-pipeline"}
+	limits.Locks = map[string]string{"integration": "deploy/deploy-pipeline", "rgaa": "deploy/deploy-pipeline"}
 
 	enqueue(t, db, "integration", 100)
 	audit := enqueue(t, db, "rgaa", 100)

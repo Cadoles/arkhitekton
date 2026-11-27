@@ -174,7 +174,7 @@ func TestAProjectWithNoTrackerIdentifierIsIgnored(t *testing.T) {
 		})
 
 	facts, cursor, err := probe.Poll(context.Background(),
-		store.Project{ID: 1, Slug: "mstore"}, map[string]string{"url": "https://r.fr"}, "cursor")
+		store.Project{ID: 1, Slug: "shop"}, map[string]string{"url": "https://r.fr"}, "cursor")
 
 	if err != nil {
 		t.Fatalf("%v — the absence of a tracker is not an outage", err)

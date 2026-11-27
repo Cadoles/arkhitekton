@@ -21,7 +21,7 @@ function stats(overrides: Partial<Stats> = {}): Stats {
     range: '30d',
     bucket: 'week',
     since: '2026-10-19T00:00:00Z',
-    projects: [{ slug: 'mstore', label: 'Mstore' }],
+    projects: [{ slug: 'shop', label: 'Shop' }],
     releases: {
       total: 4,
       by_state: [
@@ -51,8 +51,8 @@ function stats(overrides: Partial<Stats> = {}): Stats {
 }
 
 function arm(body: Stats) {
-  setProjects([{ slug: 'mstore', label: 'Mstore' }])
-  selectProject('mstore')
+  setProjects([{ slug: 'shop', label: 'Shop' }])
+  selectProject('shop')
   return mockFetch([{ path: '/stats', body }])
 }
 
@@ -114,7 +114,7 @@ describe('les statistiques', () => {
     await userEvent.click(screen.getByRole('button', { name: '12 mois' }))
 
     const urls = calls.map((call) => call.url).filter((url) => url.includes('/stats'))
-    expect(urls[0]).toContain('project=mstore')
+    expect(urls[0]).toContain('project=shop')
     expect(urls.at(-1)).toContain('range=12m')
     expect(urls.at(-1)).not.toContain('project=')
   })

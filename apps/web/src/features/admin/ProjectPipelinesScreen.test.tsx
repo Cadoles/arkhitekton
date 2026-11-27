@@ -7,16 +7,16 @@ import { render } from '../../test/render'
 import { ProjectPipelinesScreen } from './ProjectTabs'
 import type { Project } from './api'
 
-const project = { slug: 'mstore', label: 'Mstore' } as Project
+const project = { slug: 'shop', label: 'Shop' } as Project
 
 describe("les pipelines d'un projet", () => {
   beforeEach(() => vi.unstubAllGlobals())
 
   it('se retiennent ou se retirent par leur interrupteur', async () => {
     const calls = mockFetch([
-      { path: '/projects/mstore/pipelines/php%2Funit-tests', method: 'PUT', body: { kind: 'php/unit-tests', enabled: false } },
+      { path: '/projects/shop/pipelines/php%2Funit-tests', method: 'PUT', body: { kind: 'php/unit-tests', enabled: false } },
       {
-        path: '/projects/mstore/pipelines',
+        path: '/projects/shop/pipelines',
         body: { pipelines: [{ kind: 'php/unit-tests', label: 'Tests unitaires', enabled: true, verification: true }] },
       },
     ])

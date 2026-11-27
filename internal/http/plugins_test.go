@@ -38,7 +38,7 @@ func newFakePluginStore() *fakePluginStore {
 		global: map[string]store.PluginSettings{
 			"redmine": {PluginID: "redmine", Enabled: true, Config: map[string]string{}},
 			"gitea":   {PluginID: "gitea", Enabled: true, Config: map[string]string{}},
-			"mstore":     {PluginID: "mstore", Enabled: true, Config: map[string]string{}},
+			"deploy":  {PluginID: "deploy", Enabled: true, Config: map[string]string{}},
 			"k6":      {PluginID: "k6", Enabled: true, Config: map[string]string{}},
 		},
 		byProject: map[int64]map[string]store.PluginSettings{},
@@ -80,10 +80,10 @@ func (f *fakePluginStore) ClearProjectPluginSettings(_ context.Context, projectI
 }
 
 func (f *fakePluginStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
-	if slug != "mstore" {
+	if slug != "shop" {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	return store.Project{ID: 7, Slug: "mstore"}, nil
+	return store.Project{ID: 7, Slug: "shop"}, nil
 }
 
 func (f *fakePluginStore) Audit(_ context.Context, _, action, target string, _ map[string]any) error {
@@ -308,8 +308,8 @@ func TestTheProjectSeesOnlyWhatItCanDecide(t *testing.T) {
 	fake.global["k6"] = store.PluginSettings{PluginID: "k6", Enabled: false}
 	handler := pluginsHandlerWith(t, fake, testKey)
 
-	request := httptest.NewRequest(http.MethodGet, "/projects/mstore/plugins", nil)
-	request.SetPathValue("project", "mstore")
+	request := httptest.NewRequest(http.MethodGet, "/projects/shop/plugins", nil)
+	request.SetPathValue("project", "shop")
 	recorder := httptest.NewRecorder()
 	handler.ProjectList(recorder, request)
 
@@ -353,24 +353,24 @@ func TestAProjectCannotSwitchBackOnWhatTheInstanceSwitchedOff(t *testing.T) {
 	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mstore/plugins/k6", "k6", `{"enabled":true}`)
+		"/projects/shop/plugins/k6", "k6", `{"enabled":true}`)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("code %d, expected 409 — %s", recorder.Code, recorder.Body.String())
 	}
 }
 
-// The Mstore module is set per project: switched on for the instance, a project outside its
+// The deploy module is set per project: switched on for the instance, a project outside its
 // scope switches it off for itself.
 //
 // No plugin in the registry is instance-only any more; the refusal of a per-project
 // setting stays in the handler for the day one comes back.
-func TestTheMstoreModuleIsSetPerProject(t *testing.T) {
+func TestTheDeployModuleIsSetPerProject(t *testing.T) {
 	fake := newFakePluginStore()
-	fake.global["mstore"] = store.PluginSettings{PluginID: "mstore", Enabled: true}
+	fake.global["deploy"] = store.PluginSettings{PluginID: "deploy", Enabled: true}
 	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mstore/plugins/mstore", "mstore", `{"enabled":false}`)
+		"/projects/shop/plugins/deploy", "deploy", `{"enabled":false}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d, expected 200 — %s", recorder.Code, recorder.Body.String())
 	}
@@ -387,13 +387,13 @@ func TestAProjectInheritsTheInstancesValues(t *testing.T) {
 	handler := pluginsHandlerWith(t, fake, testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mstore/plugins/redmine", "redmine",
-		`{"enabled":true,"config":{"project":"mstore-dev"}}`)
+		"/projects/shop/plugins/redmine", "redmine",
+		`{"enabled":true,"config":{"project":"shop-dev"}}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d — %s", recorder.Code, recorder.Body.String())
 	}
 
-	if got := fake.byProject[7]["redmine"].Config["project"]; got != "mstore-dev" {
+	if got := fake.byProject[7]["redmine"].Config["project"]; got != "shop-dev" {
 		t.Errorf("tracker project = %q", got)
 	}
 	// The URL is not copied across: the project has nothing particular to say, and freezing
@@ -409,7 +409,7 @@ func TestARequiredFieldMissingEverywhereIsRefused(t *testing.T) {
 	handler := pluginsHandlerWith(t, newFakePluginStore(), testKey)
 
 	recorder := putPlugin(t, handler.SetProject,
-		"/projects/mstore/plugins/redmine", "redmine", `{"enabled":true,"config":{}}`)
+		"/projects/shop/plugins/redmine", "redmine", `{"enabled":true,"config":{}}`)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("code %d, expected 400 — %s", recorder.Code, recorder.Body.String())
 	}
@@ -423,15 +423,15 @@ func TestRemovalReturnsTheProjectToInheritance(t *testing.T) {
 	fake := newFakePluginStore()
 	handler := pluginsHandlerWith(t, fake, testKey)
 
-	putPlugin(t, handler.SetProject, "/projects/mstore/plugins/k6",
+	putPlugin(t, handler.SetProject, "/projects/shop/plugins/k6",
 		"k6", `{"enabled":false}`)
 	if fake.byProject[7]["k6"].Enabled {
 		t.Fatal("the switch-off was not recorded")
 	}
 
 	request := asAdmin(httptest.NewRequest(http.MethodDelete,
-		"/projects/mstore/plugins/k6", nil))
-	request.SetPathValue("project", "mstore")
+		"/projects/shop/plugins/k6", nil))
+	request.SetPathValue("project", "shop")
 	request.SetPathValue("plugin", "k6")
 	recorder := httptest.NewRecorder()
 	handler.ClearProject(recorder, request)

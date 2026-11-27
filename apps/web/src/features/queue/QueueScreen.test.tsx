@@ -47,7 +47,7 @@ const jobs: Job[] = [
     requested_at: '2026-11-20T10:00:00Z',
     started_at: '2026-11-20T10:00:05Z',
     run_name: 'build-abc',
-    project: 'mstore',
+    project: 'shop',
     release_tag: '3.3.0-rc7',
   },
   {
@@ -60,7 +60,7 @@ const jobs: Job[] = [
     requested_by: 'vcarroy',
     requested_at: '2026-11-20T10:00:00Z',
     run_name: 'e2e-abc',
-    project: 'hydra',
+    project: 'store',
     pull_request: 3,
   },
   {
@@ -73,7 +73,7 @@ const jobs: Job[] = [
     queue_reason: 'kind-busy',
     requested_by: 'vcarroy',
     requested_at: '2026-11-20T10:01:00Z',
-    project: 'mstore',
+    project: 'shop',
     pull_request: 4,
   },
   {
@@ -86,7 +86,7 @@ const jobs: Job[] = [
     queue_reason: 'kind-busy',
     requested_by: 'vcarroy',
     requested_at: '2026-11-20T10:02:00Z',
-    project: 'hydra',
+    project: 'store',
     release_tag: '1.2.0',
   },
 ]
@@ -118,7 +118,7 @@ describe("la file d'attente", () => {
 
     const runningList = screen.getByText(/^En cours/).closest('section') as HTMLElement
     expect(within(runningList).getAllByRole('listitem')).toHaveLength(2)
-    expect(row('3.3.0-rc7').getByText('mstore')).toBeInTheDocument()
+    expect(row('3.3.0-rc7').getByText('shop')).toBeInTheDocument()
     expect(row('3.3.0-rc7').getByRole('link', { name: 'build-abc' })).toBeInTheDocument()
 
     // L'attente dit ce qui la retient, et le rang est celui dans sa file.

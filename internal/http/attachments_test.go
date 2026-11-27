@@ -77,7 +77,7 @@ func serveAttachment(t *testing.T, path string, header http.Header) *httptest.Re
 // Every file is served sandboxed and unsniffed, whatever its type: an HTML report is third-party
 // markup under the dashboard's origin.
 func TestAnHTMLReportIsServedSandboxed(t *testing.T) {
-	recorder := serveAttachment(t, "/projects/mstore/releases/1.0.0/attachments/2", nil)
+	recorder := serveAttachment(t, "/projects/shop/releases/1.0.0/attachments/2", nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d", recorder.Code)
 	}
@@ -95,7 +95,7 @@ func TestAnHTMLReportIsServedSandboxed(t *testing.T) {
 
 // SVG runs script in a browser: it is never shown, only downloaded as opaque bytes.
 func TestAnSVGIsOnlyDownloaded(t *testing.T) {
-	recorder := serveAttachment(t, "/projects/mstore/releases/1.0.0/attachments/3", nil)
+	recorder := serveAttachment(t, "/projects/shop/releases/1.0.0/attachments/3", nil)
 	if recorder.Header().Get("Content-Type") != "application/octet-stream" ||
 		!strings.HasPrefix(recorder.Header().Get("Content-Disposition"), "attachment") {
 		t.Errorf("headers %v", recorder.Header())
@@ -104,7 +104,7 @@ func TestAnSVGIsOnlyDownloaded(t *testing.T) {
 
 // A video is sought into: a range is answered with the part asked for.
 func TestAVideoAnswersARange(t *testing.T) {
-	recorder := serveAttachment(t, "/projects/mstore/releases/1.0.0/attachments/1",
+	recorder := serveAttachment(t, "/projects/shop/releases/1.0.0/attachments/1",
 		http.Header{"Range": []string{"bytes=2-5"}})
 	if recorder.Code != http.StatusPartialContent || recorder.Body.String() != "2345" ||
 		recorder.Header().Get("Content-Type") != "video/mp4" {
@@ -114,7 +114,7 @@ func TestAVideoAnswersARange(t *testing.T) {
 
 // Asked for as a download, even a picture is one.
 func TestADownloadIsAsked(t *testing.T) {
-	recorder := serveAttachment(t, "/projects/mstore/releases/1.0.0/attachments/1?download=1", nil)
+	recorder := serveAttachment(t, "/projects/shop/releases/1.0.0/attachments/1?download=1", nil)
 	if !strings.HasPrefix(recorder.Header().Get("Content-Disposition"), "attachment") {
 		t.Errorf("disposition %q", recorder.Header().Get("Content-Disposition"))
 	}
@@ -123,8 +123,8 @@ func TestADownloadIsAsked(t *testing.T) {
 // Another release's file answers like a missing one: identifiers are sequential.
 func TestAnotherReleasesFileIsNotFound(t *testing.T) {
 	for _, path := range []string{
-		"/projects/mstore/releases/1.0.0/attachments/4",
-		"/projects/mstore/releases/1.0.0/attachments/99",
+		"/projects/shop/releases/1.0.0/attachments/4",
+		"/projects/shop/releases/1.0.0/attachments/99",
 	} {
 		if recorder := serveAttachment(t, path, nil); recorder.Code != http.StatusNotFound {
 			t.Errorf("%s: code %d", path, recorder.Code)

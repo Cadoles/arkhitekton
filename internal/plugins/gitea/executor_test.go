@@ -56,7 +56,7 @@ func (f *writingForge) seenParams() (string, string, map[string]string) {
 
 func writeTarget(url string) capability.Target {
 	return capability.Target{
-		Project: "mstore", Repository: "equipe/mstore", Timeout: 2 * time.Second,
+		Project: "shop", Repository: "team/shop", Timeout: 2 * time.Second,
 		Settings: capability.Settings{"url": url, "token": "forge-token"},
 	}
 }
@@ -77,7 +77,7 @@ func TestACommitStatusGoesToTheCommit(t *testing.T) {
 	if method != http.MethodPost {
 		t.Errorf("method %q", method)
 	}
-	if route != "/api/v1/repos/equipe/mstore/statuses/9f1c0deadbeef" {
+	if route != "/api/v1/repos/team/shop/statuses/9f1c0deadbeef" {
 		t.Errorf("path %q", route)
 	}
 	if payload["state"] != "success" || payload["context"] != "arkhitekton/verifications" ||
@@ -105,7 +105,7 @@ func TestACommentGoesOnTheRequestTheFactNames(t *testing.T) {
 	_, route, payload := forge.seenParams()
 	// A pull request's thread lives under the issues route: in Gitea, a request **is** an
 	// augmented issue.
-	if route != "/api/v1/repos/equipe/mstore/issues/128/comments" {
+	if route != "/api/v1/repos/team/shop/issues/128/comments" {
 		t.Errorf("path %q", route)
 	}
 	if payload["body"] != "Verified in 1.8.0-rc1." {

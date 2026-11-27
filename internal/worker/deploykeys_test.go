@@ -80,7 +80,7 @@ func (f *fakeKeyIssuer) Revoke(_ context.Context, name string) error {
 // The nominal case: every waiting project receives its key, and the public half is recorded.
 func TestEachWaitingProjectReceivesItsKey(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
-		{ID: 1, Slug: "mstore", Known: false},
+		{ID: 1, Slug: "shop", Known: false},
 		{ID: 2, Slug: "hydra-sql", Known: false},
 	}}
 	issuer := &fakeKeyIssuer{}
@@ -99,13 +99,13 @@ func TestEachWaitingProjectReceivesItsKey(t *testing.T) {
 // it to replace an existing Secret rather than refuse to adopt it.
 func TestARotationIsReportedToTheIssuer(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
-		{ID: 1, Slug: "mstore", Known: true},
+		{ID: 1, Slug: "shop", Known: true},
 	}}
 	issuer := &fakeKeyIssuer{}
 
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
-	if !issuer.known["mstore"] {
+	if !issuer.known["shop"] {
 		t.Error("the rotation was not reported: the issuer will refuse to adopt")
 	}
 }
@@ -139,9 +139,9 @@ func TestANameAlreadyTakenDoesNotBlockTheOthers(t *testing.T) {
 
 // A cluster outage records nothing either, for the same reason.
 func TestAKeyNotSetIsNotRecorded(t *testing.T) {
-	projects := &fakeKeyStore{pending: []store.PendingKey{{ID: 1, Slug: "mstore"}}}
+	projects := &fakeKeyStore{pending: []store.PendingKey{{ID: 1, Slug: "shop"}}}
 	issuer := &fakeKeyIssuer{
-		failures: map[string]error{"mstore": errors.New("API injoignable")},
+		failures: map[string]error{"shop": errors.New("API injoignable")},
 	}
 
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
@@ -176,14 +176,14 @@ func TestWhyAKeyWasNotSetIsRecorded(t *testing.T) {
 // and the former Secret is taken back.
 func TestARotationTakesBackAKeyNamedFromItsSlug(t *testing.T) {
 	projects := &fakeKeyStore{pending: []store.PendingKey{
-		{ID: 1, Slug: "mstore", UID: "u1", Known: true, Secret: "arkhitekton-project-mstore-git"},
+		{ID: 1, Slug: "shop", UID: "u1", Known: true, Secret: "arkhitekton-project-shop-git"},
 		{ID: 2, Slug: "shop", UID: "u2", Known: true, Secret: deploykeys.KindGit.Name("u2")},
 	}}
 	issuer := &fakeKeyIssuer{}
 
 	NewKeyReconciler(projects, issuer, quietLogger()).once(context.Background())
 
-	if len(issuer.revoked) != 1 || issuer.revoked[0] != "arkhitekton-project-mstore-git" {
+	if len(issuer.revoked) != 1 || issuer.revoked[0] != "arkhitekton-project-shop-git" {
 		t.Errorf("revoked %v, expected the slug's name alone", issuer.revoked)
 	}
 }

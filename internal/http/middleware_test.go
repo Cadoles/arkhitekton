@@ -350,10 +350,10 @@ func TestPluginAdministrationWritesCheckTheCSRFToken(t *testing.T) {
 		"POST /admin/plugins/installations/1/activate",
 		"POST /admin/plugins/installations/1/accept",
 		"DELETE /admin/plugins/installations/1",
-		"POST /admin/plugins/mstore/update",
-		"POST /admin/plugins/mstore/check",
-		"PUT /admin/plugins/mstore/source",
-		"POST /admin/plugins/leftovers/mstore/purge",
+		"POST /admin/plugins/deploy/update",
+		"POST /admin/plugins/deploy/check",
+		"PUT /admin/plugins/deploy/source",
+		"POST /admin/plugins/leftovers/deploy/purge",
 	} {
 		method, path, _ := strings.Cut(route, " ")
 		req := httptest.NewRequest(method, path, strings.NewReader("{}"))

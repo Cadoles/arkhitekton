@@ -51,12 +51,12 @@ func refs(t *testing.T, handler *ForgeHandler, project string) (int, map[string]
 // The references come from the project's own forge: a project with none configured falls back to
 // free-text entry, one whose forge is down says so.
 func TestTheReferencesComeFromTheProjectsForge(t *testing.T) {
-	handler := NewForgeHandler(slugResolver{"mstore": 1, "tekton": 2, "down": 3}, projectForges{
+	handler := NewForgeHandler(slugResolver{"shop": 1, "tekton": 2, "down": 3}, projectForges{
 		2: connect.ErrNotConfigured,
 		3: errors.New("connection refused"),
 	})
 
-	code, payload := refs(t, handler, "mstore")
+	code, payload := refs(t, handler, "shop")
 	if code != http.StatusOK || payload["configured"] != true || payload["default_branch"] != "main" {
 		t.Errorf("configured project: %d %v", code, payload)
 	}

@@ -62,17 +62,17 @@ func (f *fakeSyncStore) ReprojectIssues(context.Context, int64) (int64, error) {
 
 // ProjectBySlug resolves the path's project.
 func (f *fakeSyncStore) ProjectBySlug(_ context.Context, slug string) (store.Project, error) {
-	if slug != "mstore" {
+	if slug != "shop" {
 		return store.Project{}, store.ErrProjectNotFound
 	}
-	return store.Project{ID: 7, Slug: "mstore"}, nil
+	return store.Project{ID: 7, Slug: "shop"}, nil
 }
 
 // tracker is the project's tracker plugin: naming the project in it, or not, is what the screen
 // reads to say "configured".
 func (f *fakeSyncStore) tracker() fixedTracker {
 	if f.tracked {
-		return fixedTracker{id: "redmine", project: "mstore-dev"}
+		return fixedTracker{id: "redmine", project: "shop-dev"}
 	}
 	return fixedTracker{id: "redmine"}
 }
@@ -80,7 +80,7 @@ func (f *fakeSyncStore) tracker() fixedTracker {
 // syncRequest composes a request carrying the project in its path.
 func syncRequest(method, path, body string) *http.Request {
 	request := adminRequest(method, path, body)
-	request.SetPathValue("project", "mstore")
+	request.SetPathValue("project", "shop")
 	return request
 }
 
@@ -111,7 +111,7 @@ func TestTheStateCarriesTheWholeMappingAndNotOnlyTheUnknowns(t *testing.T) {
 	handler := NewSyncAdminHandler(fake, fake.tracker())
 
 	recorder := httptest.NewRecorder()
-	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mstore/sync", ""))
+	handler.State(recorder, syncRequest(http.MethodGet, "/projects/shop/sync", ""))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("code %d", recorder.Code)
@@ -157,7 +157,7 @@ func TestAProjectWithNoTrackerSaysNotConfigured(t *testing.T) {
 	handler := NewSyncAdminHandler(&fakeSyncStore{}, fixedTracker{id: "redmine"})
 
 	recorder := httptest.NewRecorder()
-	handler.State(recorder, syncRequest(http.MethodGet, "/projects/mstore/sync", ""))
+	handler.State(recorder, syncRequest(http.MethodGet, "/projects/shop/sync", ""))
 
 	var response struct {
 		Configured bool `json:"configured"`
@@ -177,7 +177,7 @@ func TestDeclaringAStatusReappliesAndReturnsTheNumberMoved(t *testing.T) {
 	fake := &fakeSyncStore{tracked: true, moved: 17}
 	handler := NewSyncAdminHandler(fake, fake.tracker())
 
-	request := syncRequest(http.MethodPut, "/projects/mstore/sync/tracker/mapping/Livr%C3%A9", `{"bucket":"done"}`)
+	request := syncRequest(http.MethodPut, "/projects/shop/sync/tracker/mapping/Livr%C3%A9", `{"bucket":"done"}`)
 	request.SetPathValue("status", "Livré")
 	recorder := httptest.NewRecorder()
 	handler.SetMapping(recorder, request)
@@ -212,7 +212,7 @@ func TestAnInventedBucketIsRefused(t *testing.T) {
 		fake := &fakeSyncStore{}
 		handler := NewSyncAdminHandler(fake, fake.tracker())
 
-		request := syncRequest(http.MethodPut, "/projects/mstore/sync/tracker/mapping/X", `{"bucket":"`+bucket+`"}`)
+		request := syncRequest(http.MethodPut, "/projects/shop/sync/tracker/mapping/X", `{"bucket":"`+bucket+`"}`)
 		request.SetPathValue("status", "X")
 		recorder := httptest.NewRecorder()
 		handler.SetMapping(recorder, request)
@@ -234,7 +234,7 @@ func TestResyncClearsTheCursorAndAnnouncesTheWait(t *testing.T) {
 	handler := NewSyncAdminHandler(fake, fake.tracker())
 
 	recorder := httptest.NewRecorder()
-	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mstore/sync/tracker/resync", ""))
+	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/shop/sync/tracker/resync", ""))
 
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("code %d", recorder.Code)
@@ -262,7 +262,7 @@ func TestResyncWithoutATrackerIsRefused(t *testing.T) {
 	handler := NewSyncAdminHandler(&fakeSyncStore{}, nil)
 
 	recorder := httptest.NewRecorder()
-	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/mstore/sync/tracker/resync", ""))
+	handler.Resync(recorder, syncRequest(http.MethodPost, "/projects/shop/sync/tracker/resync", ""))
 
 	if recorder.Code != http.StatusConflict {
 		t.Errorf("code %d, expected 409", recorder.Code)

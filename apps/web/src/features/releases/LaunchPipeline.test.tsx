@@ -12,7 +12,7 @@ const queue = {
   kinds: [
     { kind: 'php/unit-tests', label: 'Tests unitaires', inputs: [{ name: 'revision', required: true, suggest: 'git-ref' }] },
     {
-      kind: 'mstore/e2e-tests', label: 'Tests E2E',
+      kind: 'deploy/e2e-tests', label: 'Tests E2E',
       inputs: [
         { name: 'revision', required: true, suggest: 'git-ref' },
         { name: 'environment', required: true, suggest: 'environment' },
@@ -33,7 +33,7 @@ describe("le lancement d'un pipeline sur une release", () => {
     const calls = mockFetch([
       { path: '/me', body: { subject: 's', username: 'admin', role: 'admin', projects: [{ slug: 'shop', label: 'Shop' }] } },
       { path: '/queue', body: queue },
-      { path: '/releases/1.8.0/run', method: 'POST', status: 202, body: { id: 9, kind: 'mstore/e2e-tests' } },
+      { path: '/releases/1.8.0/run', method: 'POST', status: 202, body: { id: 9, kind: 'deploy/e2e-tests' } },
     ])
     render(<LaunchPipelineButton subject={releaseSubject('1.8.0')} />)
 
@@ -43,13 +43,13 @@ describe("le lancement d'un pipeline sur une release", () => {
     expect(menu.className).toContain('bg-white')
     expect(menu.className).toContain('text-zinc-900')
 
-    await userEvent.selectOptions(menu, 'mstore/e2e-tests')
+    await userEvent.selectOptions(menu, 'deploy/e2e-tests')
     expect(screen.queryByText('revision')).not.toBeInTheDocument()
     await userEvent.type(screen.getByLabelText(/environment/), 'recette')
     await userEvent.click(screen.getByRole('button', { name: 'Lancer' }))
 
     const sent = calls.find((call) => call.method === 'POST' && call.url.includes('/projects/shop/releases/1.8.0/run'))
-    expect(sent?.body).toEqual({ kind: 'mstore/e2e-tests', params: { environment: 'recette' } })
+    expect(sent?.body).toEqual({ kind: 'deploy/e2e-tests', params: { environment: 'recette' } })
   })
 
   it("se désactive sur un brouillon, qui n'a rien construit", async () => {

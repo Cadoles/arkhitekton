@@ -24,7 +24,7 @@ func TestOpenWithoutCredentialsIsDistinguishable(t *testing.T) {
 // parameters; the registry's API expects only the path.
 func TestProjectDropsTheHost(t *testing.T) {
 	client, err := Open(config.RegistryConfig{
-		URL: "https://reg.cadoles.com", Username: "u", Password: "p",
+		URL: "https://registry.example.org", Username: "u", Password: "p",
 		Project: "registry.example.org/team",
 	})
 	if err != nil {

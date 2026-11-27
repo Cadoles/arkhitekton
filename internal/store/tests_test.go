@@ -11,7 +11,7 @@ func testRun(t *testing.T, db *DB, name string) int64 {
 	var runID int64
 	err := db.pool.QueryRow(context.Background(),
 		`insert into runs (pipeline_name, pipelinerun_name, namespace, status, started_at)
-		 values ('php-static-tests', $1, 'mstore-pipelines', 'succeeded', now()) returning id`,
+		 values ('php-static-tests', $1, 'shop-pipelines', 'succeeded', now()) returning id`,
 		name).Scan(&runID)
 	if err != nil {
 		t.Fatalf("run: %v", err)

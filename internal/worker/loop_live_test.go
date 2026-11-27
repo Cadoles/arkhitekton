@@ -139,7 +139,7 @@ func newHarness(t *testing.T) harness {
 	}
 
 	projectID, err := db.CreateProject(ctx, store.Project{
-		Repository: "team/mstore", Label: "Mstore", ForgeURL: "https://forge.example.fr",
+		Repository: "team/shop", Label: "Shop", ForgeURL: "https://forge.example.fr",
 		CreatedBy: "test",
 	})
 	if err != nil {

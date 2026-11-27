@@ -67,8 +67,8 @@ func (r *chunkedReader) From(_ context.Context, _, _ string, offset, _ int64) (l
 func rawRequest(t *testing.T, reader LogReader, query string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	request := httptest.NewRequest(http.MethodGet, "/runs/mstore-run-1/tasks/git-clone/log.txt"+query, nil)
-	request.SetPathValue("run", "mstore-run-1")
+	request := httptest.NewRequest(http.MethodGet, "/runs/ark-run-1/tasks/git-clone/log.txt"+query, nil)
+	request.SetPathValue("run", "ark-run-1")
 	request.SetPathValue("task", "git-clone")
 
 	recorder := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestTheRawLogIsServedWhole(t *testing.T) {
 func TestTheDownloadNamesTheFile(t *testing.T) {
 	recorder := rawRequest(t, &chunkedReader{content: []byte("bonjour\n"), chunk: 64}, "?download=1")
 
-	want := `attachment; filename="mstore-run-1-git-clone.txt"`
+	want := `attachment; filename="ark-run-1-git-clone.txt"`
 	if got := recorder.Header().Get("Content-Disposition"); got != want {
 		t.Errorf("disposition: %q, expected %q", got, want)
 	}
@@ -133,7 +133,7 @@ func TestAReadFailureReturnsAnError(t *testing.T) {
 
 // The file name keeps only what crosses a header unharmed.
 func TestTheFileNameIsSanitised(t *testing.T) {
-	if got := sanitizeFilename(`mstore "run"/1`); got != "mstore--run--1" {
+	if got := sanitizeFilename(`ark "run"/1`); got != "ark--run--1" {
 		t.Errorf("name: %q", got)
 	}
 }

@@ -12,7 +12,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
-const namespace = "mstore-pipelines"
+const namespace = "shop-pipelines"
 
 var (
 	pipelineGVR = schema.GroupVersionResource{
@@ -65,7 +65,7 @@ func existing(kind, name string, labels map[string]string) *unstructured.Unstruc
 	object.SetNamespace(namespace)
 	object.SetLabels(labels)
 	// A recognisable mark: it is what will say whether the definition was overwritten.
-	_ = unstructured.SetNestedField(object.Object, "mstore-pipelines's", "spec", "description")
+	_ = unstructured.SetNestedField(object.Object, "maintained elsewhere", "spec", "description")
 	return object
 }
 
@@ -97,12 +97,12 @@ func TestOnAFreshClusterTheLibraryIsInstalled(t *testing.T) {
 
 // The refusal to adopt, and it is the central rule.
 //
-// On a cluster where `mstore-pipelines` has already installed its pipelines, the dashboard withdraws:
-// overwriting a definition someone else maintains would make it diverge from its repository at
-// every start-up, and the two would rewrite each other indefinitely.
+// On a cluster where a pipelines repository has already installed its pipelines, the dashboard
+// withdraws: overwriting a definition someone else maintains would make it diverge from its
+// repository at every start-up, and the two would rewrite each other indefinitely.
 func TestAThirdPartysDefinitionIsNeverOverwritten(t *testing.T) {
 	client, installer := installerFor(t,
-		existing("Pipeline", "php-unit-tests", map[string]string{"app": "mstore-pipelines"}))
+		existing("Pipeline", "php-unit-tests", map[string]string{"app": "shop-pipelines"}))
 
 	outcome, err := installer.InstallResources(context.Background(), testResources())
 	if err != nil {
@@ -123,7 +123,7 @@ func TestAThirdPartysDefinitionIsNeverOverwritten(t *testing.T) {
 	after, _ := client.Resource(pipelineGVR).Namespace(namespace).
 		Get(context.Background(), "php-unit-tests", metav1.GetOptions{})
 	description, _, _ := unstructured.NestedString(after.Object, "spec", "description")
-	if description != "mstore-pipelines's" {
+	if description != "maintained elsewhere" {
 		t.Error("a third party's definition was overwritten")
 	}
 }
@@ -153,7 +153,7 @@ func TestADefinitionOfOursIsUpdated(t *testing.T) {
 	after, _ := client.Resource(pipelineGVR).Namespace(namespace).
 		Get(context.Background(), "php-unit-tests", metav1.GetOptions{})
 	description, _, _ := unstructured.NestedString(after.Object, "spec", "description")
-	if description == "mstore-pipelines's" {
+	if description == "maintained elsewhere" {
 		t.Error("our own definition was not replaced")
 	}
 }

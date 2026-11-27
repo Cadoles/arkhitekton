@@ -23,8 +23,8 @@ func TestNormalizeVersionName(t *testing.T) {
 
 		// No other prefix is stripped. Such names exist in the tracker, on closed versions:
 		// they stay intact, and therefore attach to no tag.
-		{"Mstore 3.1.2", "Mstore 3.1.2", "deployment prefix, dropped from the rule"},
-		{"MSTORE3-1.5", "MSTORE3-1.5", "historical convention"},
+		{"SHOP 3.1.2", "SHOP 3.1.2", "deployment prefix, dropped from the rule"},
+		{"SHOP3-1.5", "SHOP3-1.5", "historical convention"},
 	}
 
 	for _, c := range cases {

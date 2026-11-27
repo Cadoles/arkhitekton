@@ -294,12 +294,12 @@ func TestWhatIsNotANamePassesThroughUnchanged(t *testing.T) {
 
 // `{name|default}` gives the default, possibly empty, to a variable the context does not carry.
 func TestAVariableMayCarryADefault(t *testing.T) {
-	values := map[string]string{"trailer.mstore-deploy": "feature/x"}
+	values := map[string]string{"trailer.shop-deploy": "feature/x"}
 	for template, expected := range map[string]string{
-		"{trailer.mstore-deploy|main}": "feature/x",
-		"{trailer.absent|main}":     "main",
-		"{trailer.absent|}":         "",
-		"{trailer.absent}":          "{trailer.absent}",
+		"{trailer.shop-deploy|main}": "feature/x",
+		"{trailer.absent|main}":      "main",
+		"{trailer.absent|}":          "",
+		"{trailer.absent}":           "{trailer.absent}",
 	} {
 		if got := Expand(template, values); got != expected {
 			t.Errorf("%s = %q, expected %q", template, got, expected)

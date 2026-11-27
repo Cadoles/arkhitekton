@@ -125,7 +125,7 @@ var redmineTracker = TrackerSource{Tool: "redmine", ClosedType: "redmine.issue.c
 func pass(t *testing.T, client *fakeRedmine, db *fakeRedmineStore) ([]event.Event, string, error) {
 	t.Helper()
 	sync := newSync(t, client, db)
-	return sync.Observe(context.Background(), 1, "mstore-dev", client, db.state.Cursor)
+	return sync.Observe(context.Background(), 1, "shop-dev", client, db.state.Cursor)
 }
 
 // The versions before the requests: a request attaches to its version by its external
@@ -161,9 +161,9 @@ func TestVersionsAreDepositedBeforeRequests(t *testing.T) {
 // identifier.
 func TestTheNameIsNormalisedForMatchingWithoutBeingRewritten(t *testing.T) {
 	client := &fakeRedmine{versions: []provider.Version{
-		{ID: "803", Name: "Mstore 3.1.2", Status: "closed"},
+		{ID: "803", Name: "SHOP 3.1.2", Status: "closed"},
 		{ID: "805", Name: "v3.2.0", Status: "open"},
-		{ID: "801", Name: "MSTORE3-1.5", Status: "closed"},
+		{ID: "801", Name: "SHOP3-1.5", Status: "closed"},
 	}}
 	db := &fakeRedmineStore{}
 
@@ -174,8 +174,8 @@ func TestTheNameIsNormalisedForMatchingWithoutBeingRewritten(t *testing.T) {
 	expected := map[string]string{
 		"v3.2.0": "3.2.0",
 		// Only `v` is stripped: the tracker's historical conventions stay intact, and attach to no tag.
-		"Mstore 3.1.2": "Mstore 3.1.2",
-		"MSTORE3-1.5":  "MSTORE3-1.5",
+		"SHOP 3.1.2": "SHOP 3.1.2",
+		"SHOP3-1.5":  "SHOP3-1.5",
 	}
 	for _, version := range db.versions {
 		if want := expected[version.Name]; version.Normalized != want {
@@ -225,7 +225,7 @@ func TestTheCursorIsTakenBeforeTheRead(t *testing.T) {
 	// The cursor is **returned** rather than written: since the migration, it is the probe loop
 	// that persists it. What the projection must hold is the instant it chooses — and it stays the
 	// one from before the read.
-	_, cursor, err := sync.Observe(context.Background(), 1, "mstore-dev", client, "")
+	_, cursor, err := sync.Observe(context.Background(), 1, "shop-dev", client, "")
 	if err != nil {
 		t.Fatalf("synchronisation: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestAFailureDoesNotAdvanceTheCursor(t *testing.T) {
 	db := &fakeRedmineStore{}
 
 	facts, cursor, err := newSync(t, client, db).
-		Observe(context.Background(), 1, "mstore-dev", client, "")
+		Observe(context.Background(), 1, "shop-dev", client, "")
 
 	if err == nil {
 		t.Fatal("a tracker outage must fail the pass")
@@ -316,7 +316,7 @@ func TestARedmineOutageIsReportedToTheLoop(t *testing.T) {
 	db := &fakeRedmineStore{}
 
 	_, _, err := newSync(t, client, db).
-		Observe(context.Background(), 1, "mstore-dev", client, "")
+		Observe(context.Background(), 1, "shop-dev", client, "")
 
 	if err == nil {
 		t.Fatal("the outage must be reported, otherwise the loop would believe the pass succeeded")

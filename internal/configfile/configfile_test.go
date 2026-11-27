@@ -16,20 +16,20 @@ spec:
       config:
         url: https://redmine.example
         api_key: {env: ARK_REDMINE_API_KEY}
-    mstore:
-      install: {reference: "registry.example/mstore@sha256:abc"}
+    deploy:
+      install: {reference: "registry.example/deploy@sha256:abc"}
       config: {overlayLocation: overlays/pipeline}
-  queueLimits: {mstore/integration-tests: 1}
+  queueLimits: {deploy/integration-tests: 1}
 ---
 apiVersion: arkhitekton.config/v1
 kind: Project
-metadata: {name: mstore-test-project}
+metadata: {name: shop}
 spec:
-  repository: vcarroy/mstore-test-project
+  repository: team/shop
   plugins:
     docker: {config: {dockerfile: ./misc/Dockerfile}}
-    mstore: {config: {deployer: flux}}
-  pipelines: {mstore/e2e-tests: false}
+    deploy: {config: {deployer: flux}}
+  pipelines: {deploy/e2e-tests: false}
   trackerStatuses: {"En cours": doing}
   releaseAutomation:
     enabled: false
@@ -44,7 +44,7 @@ spec:
       timezone: Europe/Paris
       ref: migration-symfony
       enabled: false
-      plan: {stages: [{gestes: [{kind: pipeline, ref: mstore/integration-tests}]}]}
+      plan: {stages: [{gestes: [{kind: pipeline, ref: deploy/integration-tests}]}]}
 `
 
 func TestAConfigurationIsReadWithItsDefaults(t *testing.T) {
@@ -62,12 +62,12 @@ func TestAConfigurationIsReadWithItsDefaults(t *testing.T) {
 	if key := redmine.Config["api_key"]; key.Env != "ARK_REDMINE_API_KEY" || key.Plain != "" {
 		t.Errorf("api_key = %+v, want a reference to ARK_REDMINE_API_KEY", key)
 	}
-	if set.Instance.Plugins["mstore"].Install == nil {
+	if set.Instance.Plugins["deploy"].Install == nil {
 		t.Error("the install reference was lost")
 	}
 
 	project := set.Projects[0]
-	if project.Name != "mstore-test-project" || project.Pipelines["mstore/e2e-tests"] {
+	if project.Name != "shop" || project.Pipelines["deploy/e2e-tests"] {
 		t.Errorf("project = %+v", project)
 	}
 	if project.Plugins["docker"].Config["dockerfile"].Plain != "./misc/Dockerfile" {
@@ -124,7 +124,7 @@ func TestADirectoryReadsBackAsItsSet(t *testing.T) {
 	if err := WriteDir(dir, set); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ProjectsDir, "mstore-test-project.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ProjectsDir, "shop.yaml")); err != nil {
 		t.Fatalf("project file: %v", err)
 	}
 	again, err := ReadPath(dir, nil)
@@ -182,7 +182,7 @@ func TestMistakesAreRefusedWithTheirPath(t *testing.T) {
 			want: "metadata.name",
 		},
 		"install by a name alone": {
-			yaml: "apiVersion: arkhitekton.config/v1\nkind: Instance\nspec: {plugins: {mstore: {install: {reference: 'mstore'}}}}\n",
+			yaml: "apiVersion: arkhitekton.config/v1\nkind: Instance\nspec: {plugins: {deploy: {install: {reference: 'deploy'}}}}\n",
 			want: "registry/repository",
 		},
 	}

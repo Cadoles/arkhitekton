@@ -151,9 +151,9 @@ func probeRunnerFor(t *testing.T, db *fakeProbeStore, probe Probe) *ProbeRunner 
 // It nonetheless **keeps** what it sees, and that is a fix the tracker's migration brought:
 // see the next test.
 func TestEnablingDoesNotWakeThePast(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 	probe := &fakeProbe{
-		facts:  []event.Event{probeFact("gitea.pr:mstore:410"), probeFact("gitea.pr:mstore:411")},
+		facts:  []event.Event{probeFact("gitea.pr:shop:410"), probeFact("gitea.pr:shop:411")},
 		cursor: "2026-09-03T10:00:00Z",
 	}
 
@@ -180,11 +180,11 @@ func TestEnablingDoesNotWakeThePast(t *testing.T) {
 // next round and triggered everything the bootstrap claimed to silence. "Enabling something
 // does not wake the past" was true for one round only.
 func TestASnapshotDoesNotTriggerAfterItsBootstrap(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 	// A snapshot probe: the same facts at each pass, whatever the cursor. That is exactly what
 	// reading the versions does.
 	probe := &fakeProbe{
-		facts:  []event.Event{probeFact("redmine.version:mstore:803"), probeFact("redmine.version:mstore:805")},
+		facts:  []event.Event{probeFact("redmine.version:shop:803"), probeFact("redmine.version:shop:805")},
 		cursor: "2026-09-03T10:00:00Z",
 	}
 	runner := probeRunnerFor(t, base, probe)
@@ -203,7 +203,7 @@ func TestASnapshotDoesNotTriggerAfterItsBootstrap(t *testing.T) {
 
 // The next pass does emit.
 func TestTheNextPassEmits(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
 	runner := probeRunnerFor(t, base, probe)
 
@@ -211,14 +211,14 @@ func TestTheNextPassEmits(t *testing.T) {
 	runner.sweep(context.Background(), probe)
 
 	// A pull request opens.
-	probe.facts = []event.Event{probeFact("gitea.pr:mstore:412")}
+	probe.facts = []event.Event{probeFact("gitea.pr:shop:412")}
 	probe.cursor = "2026-09-03T11:00:00Z"
 	runner.sweep(context.Background(), probe)
 
 	if len(base.facts) != 1 {
 		t.Fatalf("%d facts emitted, expected 1", len(base.facts))
 	}
-	recorded := base.facts["gitea.pr:mstore:412"]
+	recorded := base.facts["gitea.pr:shop:412"]
 	// The loop attaches the project and the source; the probe has no business doing it.
 	if recorded.ProjectID == nil || *recorded.ProjectID != 1 {
 		t.Errorf("fact's project = %v", recorded.ProjectID)
@@ -235,13 +235,13 @@ func TestTheNextPassEmits(t *testing.T) {
 // The probe re-reads an overlap window at each pass — that is what avoids losing a fact
 // straddling two seconds. With no stable key, every pass would re-notify.
 func TestASecondPassOverTheSameWindowDoesNotReNotify(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 	probe := &fakeProbe{cursor: "2026-09-03T10:00:00Z"}
 	runner := probeRunnerFor(t, base, probe)
 
 	runner.sweep(context.Background(), probe) // bootstrap
 
-	probe.facts = []event.Event{probeFact("gitea.pr:mstore:412")}
+	probe.facts = []event.Event{probeFact("gitea.pr:shop:412")}
 	runner.sweep(context.Background(), probe)
 	// The overlap window makes the same fact come round again.
 	runner.sweep(context.Background(), probe)
@@ -293,7 +293,7 @@ func TestAnUnreachableForgeDoesNotStopTheOtherProjects(t *testing.T) {
 // A switched-off plugin is not queried, and that is not an outage: reporting it at every round
 // would fill the log with a wanted state.
 func TestASwitchedOffPluginIsNotQueried(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 	base.disabled = true
 	probe := &fakeProbe{cursor: "x"}
 
@@ -309,7 +309,7 @@ func TestASwitchedOffPluginIsNotQueried(t *testing.T) {
 
 // The sealed field is opened before reaching the probe; the others pass through as they are.
 func TestSealedFieldsAreOpenedBeforeReachingTheProbe(t *testing.T) {
-	base := newFakeProbeStore(testProject(1, "mstore"))
+	base := newFakeProbeStore(testProject(1, "shop"))
 
 	var seenParams map[string]string
 	probe := &configReader{target: &seenParams}

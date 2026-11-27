@@ -11,7 +11,7 @@ import (
 	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
 )
 
-const pinned = "registry.example/mstore@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const pinned = "registry.example/deploy@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // workerFake stands for the database and the worker: a pending installation concludes the next
 // time it is read, as the worker would have pulled it meanwhile.
@@ -66,7 +66,7 @@ func (f *workerFake) PluginInstallation(_ context.Context, id int64) (store.Plug
 	}
 	if installation.State == store.InstallationPending && len(f.conclude) > 0 {
 		installation.State, f.conclude = f.conclude[0], f.conclude[1:]
-		installation.PluginID = "mstore"
+		installation.PluginID = "deploy"
 		if installation.State == store.InstallationUnrecognised {
 			installation.Error = "no signature"
 		}
@@ -130,7 +130,7 @@ func installer(fake *workerFake) Installer {
 
 func declaring(accept bool) configfile.Set {
 	return configfile.Set{Instance: &configfile.Instance{Plugins: map[string]configfile.InstancePlugin{
-		"mstore": {Install: &configfile.Install{Reference: pinned, AcceptSource: accept}},
+		"deploy": {Install: &configfile.Install{Reference: pinned, AcceptSource: accept}},
 	}}}
 }
 
@@ -189,18 +189,18 @@ func TestAFailedInstallationIsRequestedAgain(t *testing.T) {
 	}
 }
 
-const repository = "registry.example/mstore"
+const repository = "registry.example/deploy"
 
 func declaringReference(reference string) configfile.Set {
 	return configfile.Set{Instance: &configfile.Instance{Plugins: map[string]configfile.InstancePlugin{
-		"mstore": {Install: &configfile.Install{Reference: reference}},
+		"deploy": {Install: &configfile.Install{Reference: reference}},
 	}}}
 }
 
 // running is a fake whose plugin is installed and active from the repository.
 func running(follows bool) *workerFake {
 	fake := &workerFake{installations: map[int64]*store.PluginInstallation{
-		2: {ID: 2, PluginID: "mstore", Reference: pinned, Digest: pinned[len(repository)+1:], State: store.InstallationInstalled,
+		2: {ID: 2, PluginID: "deploy", Reference: pinned, Digest: pinned[len(repository)+1:], State: store.InstallationInstalled,
 			Active: true, Follows: follows},
 	}, next: 2}
 	fake.recordSource(fake.installations[2])
@@ -249,10 +249,10 @@ func TestADeclaredDigestReplacesAnotherVersion(t *testing.T) {
 	fake.conclude = []string{store.InstallationInstalled}
 	other := repository + "@sha256:" + strings.Repeat("f", 64)
 	ops, err := installer(fake).Installs(context.Background(), declaringReference(other))
-	if err != nil || len(ops) != 1 || !strings.HasPrefix(ops[0].Description, "~ update plugin mstore") {
+	if err != nil || len(ops) != 1 || !strings.HasPrefix(ops[0].Description, "~ update plugin deploy") {
 		t.Fatalf("ops = %v, %v", ops, err)
 	}
-	if pending := PendingPlugins(ops); len(pending) != 1 || pending[0] != "mstore" {
+	if pending := PendingPlugins(ops); len(pending) != 1 || pending[0] != "deploy" {
 		t.Errorf("pending = %v: the rest waits for the update", pending)
 	}
 	if err := (Applier{}).Execute(context.Background(), ops); err != nil {
@@ -268,9 +268,9 @@ func TestADeclaredDigestReplacesAnotherVersion(t *testing.T) {
 // `repository@digest`, not the repository the file names.
 func TestARepositoryAlreadyInstalledBesideIsActivated(t *testing.T) {
 	fake := running(false)
-	other := "registry.local/mstore"
+	other := "registry.local/deploy"
 	fake.installations[3] = &store.PluginInstallation{
-		ID: 3, PluginID: "mstore", Reference: other + "@sha256:" + strings.Repeat("e", 64),
+		ID: 3, PluginID: "deploy", Reference: other + "@sha256:" + strings.Repeat("e", 64),
 		Digest: "sha256:" + strings.Repeat("e", 64), State: store.InstallationInstalled, Follows: true,
 	}
 	fake.next = 3

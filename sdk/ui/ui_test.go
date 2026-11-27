@@ -24,7 +24,7 @@ const deploymentContribution = `{
   "apiVersion": "ui.arkhitekton/v1", "kind": "Screen", "metadata": {"name": "release"},
   "spec": {
     "blocks": [
-      {"id": "mstore.deployment", "after": "core.artifacts",
+      {"id": "deploy.deployment", "after": "core.artifacts",
        "data": {"deployment": {"source": "plugin", "path": "releases/{route.tag}/deployment"}},
        "widget": {"card": {"title": "Déploiement", "children": [
          {"table": {"rows": "deployment.environments", "empty": "Aucun environnement", "columns": [
@@ -37,7 +37,7 @@ const deploymentContribution = `{
                        "invalidates": ["deployment"]}}
          ]}}
        ]}}},
-      {"id": "core.header", "slots": {"badges": [{"id": "mstore.deployed", "component": "mstore/deployed-badges"}]}}
+      {"id": "core.header", "slots": {"badges": [{"id": "deploy.deployed", "component": "deploy/deployed-badges"}]}}
     ]
   }
 }`
@@ -47,9 +47,9 @@ func TestResourcesDecode(t *testing.T) {
 		"screen":       releaseScreen,
 		"contribution": deploymentContribution,
 		"navigation": `{"apiVersion": "ui.arkhitekton/v1", "kind": "Navigation", "metadata": {"name": "main"},
-		  "spec": {"home": "/environments", "items": [{"id": "mstore.environments", "before": "core.versions",
+		  "spec": {"home": "/environments", "items": [{"id": "deploy.environments", "before": "core.versions",
 		    "label": "Environnements", "icon": "server", "to": "/environments"}]}}`,
-		"widget": `{"apiVersion": "ui.arkhitekton/v1", "kind": "Widget", "metadata": {"name": "mstore.signoff"},
+		"widget": `{"apiVersion": "ui.arkhitekton/v1", "kind": "Widget", "metadata": {"name": "deploy.signoff"},
 		  "spec": {"params": {"signoff": {"required": true}},
 		    "widget": {"badge": {"text": "{signoff.state | upper}", "tone": "info"}}}}`,
 	} {
@@ -121,12 +121,12 @@ func TestAMalformedResourceIsRefusedWithItsPath(t *testing.T) {
 }
 
 func TestNamesSayTheirOwner(t *testing.T) {
-	for name, owner := range map[string]string{"mstore.environments": "mstore", "release": "release", "core.header": "core"} {
+	for name, owner := range map[string]string{"deploy.environments": "deploy", "release": "release", "core.header": "core"} {
 		if got := Owner(name); got != owner {
 			t.Errorf("%s: %s", name, got)
 		}
 	}
-	if ComponentOwner("mstore/deployed-badges") != "mstore" {
+	if ComponentOwner("deploy/deployed-badges") != "deploy" {
 		t.Error("component owner")
 	}
 }

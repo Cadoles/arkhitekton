@@ -40,10 +40,10 @@ func testForge(t *testing.T, payload string) *httptest.Server {
 }
 
 const twoRequests = `[
-  {"number":412,"title":"Fix the clone","html_url":"https://forge.example.fr/team/mstore/pulls/412",
+  {"number":412,"title":"Fix the clone","html_url":"https://forge.example.fr/team/shop/pulls/412",
    "user":{"login":"vcarroy"},"head":{"ref":"fix/clone"},"base":{"ref":"main"},
    "created_at":"2026-09-03T10:30:00Z"},
-  {"number":405,"title":"Older request","html_url":"https://forge.example.fr/team/mstore/pulls/405",
+  {"number":405,"title":"Older request","html_url":"https://forge.example.fr/team/shop/pulls/405",
    "user":{"login":"autre"},"head":{"ref":"feat/x"},"base":{"ref":"main"},
    "created_at":"2026-08-01T09:00:00Z"}
 ]`
@@ -53,7 +53,7 @@ func forgeConfig(url string) capability.Settings {
 }
 
 func target(settings capability.Settings) capability.Target {
-	return capability.Target{Project: "mstore", Repository: "team/mstore", Settings: settings, Timeout: time.Second}
+	return capability.Target{Project: "shop", Repository: "team/shop", Settings: settings, Timeout: time.Second}
 }
 
 // An opened request becomes a fact, dated from its opening and identified by its repository
@@ -84,7 +84,7 @@ func TestAnOpenedRequestBecomesAFactDatedFromItsOpening(t *testing.T) {
 	}
 	// The key carries the repository **and** the number: a number alone would repeat from one
 	// repository to the next, and two projects would steal each other's facts.
-	if first.Key != "team/mstore:412" {
+	if first.Key != "team/shop:412" {
 		t.Errorf("key = %q", first.Key)
 	}
 	for _, field := range []string{"number", "title", "author", "source_branch", "target_branch", "url"} {

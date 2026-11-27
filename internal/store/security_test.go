@@ -29,15 +29,15 @@ func auditFixture(t *testing.T, db *DB, failed []string) (int64, int64) {
 		ScannerStatus:  map[string]string{"trivy-fs": "ok"},
 		Policy:         map[string]string{"fail_on": "CRITICAL"},
 	}, []SecurityFinding{
-		{Fingerprint: "a", RunID: "r", TargetKind: "repo", TargetName: "mstore",
+		{Fingerprint: "a", RunID: "r", TargetKind: "repo", TargetName: "shop",
 			Tool: "trivy", Category: "sca", RuleID: "CVE-1", Severity: "HIGH",
 			Title: "Faille", PackageName: "guzzle", PackageInstalled: "7.4.0",
 			PackageFixed: "7.8.2", Fixable: true, Status: "new"},
-		{Fingerprint: "b", RunID: "r", TargetKind: "repo", TargetName: "mstore",
+		{Fingerprint: "b", RunID: "r", TargetKind: "repo", TargetName: "shop",
 			Tool: "semgrep", Category: "sast", RuleID: "php.sql", Severity: "MEDIUM",
 			Title: "Concatenation", Status: "existing",
 			Suppressed: true, SuppressionReason: "false positive"},
-		{Fingerprint: "c", RunID: "r", TargetKind: "repo", TargetName: "mstore",
+		{Fingerprint: "c", RunID: "r", TargetKind: "repo", TargetName: "shop",
 			Tool: "trivy", Category: "sca", RuleID: "CVE-2", Severity: "CRITICAL",
 			Title: "Critique", Status: "new"},
 	}); err != nil {

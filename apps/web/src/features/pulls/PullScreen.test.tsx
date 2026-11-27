@@ -82,7 +82,7 @@ describe("la page d'une pull request", () => {
             signals: [
               { key: 'pipeline:php/unit-tests', label: 'Tests unitaires', signal: 'unit', ref: 'php/unit-tests', group: 'unit',
                 shape: 'cases', value: 100, weight: 100, declared: 25, measured: true, detail: '7/7 passed', health: 'healthy' },
-              { key: 'pipeline:mstore/rgaa-audit', label: 'Audit RGAA', signal: '', ref: 'mstore/rgaa-audit', group: 'accessibility',
+              { key: 'pipeline:deploy/rgaa-audit', label: 'Audit RGAA', signal: '', ref: 'deploy/rgaa-audit', group: 'accessibility',
                 shape: 'cases', value: 80, weight: 0, declared: 0, measured: true, detail: '8/10 passed', health: 'warn' },
             ],
           },

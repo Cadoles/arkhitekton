@@ -40,7 +40,7 @@ var testRegistry = mustRegistry(
 		},
 	},
 	capability.Plugin{
-		ID: "mstore", Label: "Mstore", PerProject: true,
+		ID: "deploy", Label: "Deploy", PerProject: true,
 		Capabilities: []capability.Header{{Kind: capability.KindModule, Name: "module", Label: "Module"}},
 		Events:       []capability.EventSpec{{Suffix: "release.promoted", Label: "Promotion aboutie"}},
 		Global:       []capability.Field{{Name: "namespace", Label: "Namespace Flux", Type: capability.FieldText}},

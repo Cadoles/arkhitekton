@@ -67,7 +67,7 @@ func (f *fakePluginStore) ResolvedPlugin(
 }
 
 func (f *fakePluginStore) GetProject(_ context.Context, id int64) (store.Project, error) {
-	return store.Project{ID: id, Slug: "mstore", Repository: f.repo}, nil
+	return store.Project{ID: id, Slug: "shop", Repository: f.repo}, nil
 }
 
 func pluginRunner(t *testing.T, db *fakePluginStore) (*PluginActionRunner, *recordingExecutor) {
@@ -90,7 +90,7 @@ func execution() store.PlanRun {
 // The nominal path: the target comes from the plugin's configuration, the parameters from the
 // triggering fact, and the token reaches the plugin unsealed.
 func TestAPluginActionBorrowsThePluginsConnection(t *testing.T) {
-	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mstore"}
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "team/shop"}
 	runner, recorder := pluginRunner(t, db)
 
 	job, err := runner.Run(context.Background(), execution(), plan.Geste{
@@ -112,7 +112,7 @@ func TestAPluginActionBorrowsThePluginsConnection(t *testing.T) {
 	if calls != 1 || suffix != "status" {
 		t.Fatalf("%d call(s), suffix %q", calls, suffix)
 	}
-	if target.Repository != "equipe/mstore" || target.Project != "mstore" {
+	if target.Repository != "team/shop" || target.Project != "shop" {
 		t.Errorf("target %+v", target)
 	}
 	// Unsealed for the duration of the call. The step named no token: it borrows the plugin's, and
@@ -131,7 +131,7 @@ func TestAPluginActionBorrowsThePluginsConnection(t *testing.T) {
 // The configuration still exists in the database: starting with it would send a status in the
 // name of an integration one believes disabled.
 func TestASwitchedOffPluginRefusesInsteadOfStarting(t *testing.T) {
-	db := &fakePluginStore{url: "https://forge.example.fr", enabled: false, repo: "equipe/mstore"}
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: false, repo: "team/shop"}
 	runner, recorder := pluginRunner(t, db)
 
 	_, err := runner.Run(context.Background(), execution(), plan.Geste{
@@ -152,7 +152,7 @@ func TestASwitchedOffPluginRefusesInsteadOfStarting(t *testing.T) {
 // Starting on the instance's would pick a repository at random, and the status would be set on
 // someone else's.
 func TestAPluginActionWithNoProjectRefuses(t *testing.T) {
-	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "equipe/mstore"}
+	db := &fakePluginStore{url: "https://forge.example.fr", enabled: true, repo: "team/shop"}
 	runner, _ := pluginRunner(t, db)
 
 	_, err := runner.Run(context.Background(), store.PlanRun{}, plan.Geste{

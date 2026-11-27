@@ -149,7 +149,7 @@ func configured(t *testing.T) instance {
 	if err := s.QueueLimits.Set(ctx, actor, "php/static-tests", 2); err != nil {
 		t.Fatalf("queue limit: %v", err)
 	}
-	if err := s.ScoreWeights.Set(ctx, actor, "mstore/rgaa-audit", 0); err != nil {
+	if err := s.ScoreWeights.Set(ctx, actor, "deploy/rgaa-audit", 0); err != nil {
 		t.Fatalf("score weight: %v", err)
 	}
 	if _, err := s.StatusMappings.Set(ctx, actor, project, "En recette", "client-test"); err != nil {

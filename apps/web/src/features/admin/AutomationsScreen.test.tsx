@@ -114,7 +114,7 @@ function armer(reactions: unknown[], automation: unknown = automatisation, sched
   return mockFetch([
     { path: '/automations/catalogue', body: catalogue },
     { path: '/automation', body: automation },
-    { path: '/reactions', body: { reactions, project: 'mstore' } },
+    { path: '/reactions', body: { reactions, project: 'shop' } },
     { path: '/schedules', body: { schedules } },
     { path: '/schedules', method: 'POST', body: { id: 4 } },
   ])
@@ -123,7 +123,7 @@ function armer(reactions: unknown[], automation: unknown = automatisation, sched
 // L'écran vit sous la coquille d'un projet, qui lui passe celui-ci en contexte.
 vi.mock('react-router', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('react-router')
-  return { ...actual, useOutletContext: () => ({ slug: 'mstore', label: 'Mstore' }) }
+  return { ...actual, useOutletContext: () => ({ slug: 'shop', label: 'Shop' }) }
 })
 
 describe("l'éditeur d'automatisations", () => {
@@ -312,7 +312,7 @@ describe('une image promue', () => {
       { path: '/automations/catalogue', body: catalogue },
       { path: '/automation', body: automatisation },
       { path: '/automation', method: 'PUT', body: automatisation },
-      { path: '/reactions', body: { reactions: [], project: 'mstore' } },
+      { path: '/reactions', body: { reactions: [], project: 'shop' } },
       { path: '/schedules', body: { schedules: [] } },
     ])
     render(<AutomationsScreen />)
@@ -400,7 +400,7 @@ describe('les planifications', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
 
     const sent = calls.find((call) => call.method === 'POST' && call.url.includes('/schedules'))
-    expect(sent?.url).toContain('/projects/mstore/schedules')
+    expect(sent?.url).toContain('/projects/shop/schedules')
     expect(sent?.body).toMatchObject({
       name: 'Audit du lundi',
       cron: '0 5 * * MON',
@@ -434,7 +434,7 @@ describe("l'interrupteur d'une automatisation", () => {
     const calls = mockFetch([
       { path: '/automations/catalogue', body: catalogue },
       { path: '/automation', body: automatisation },
-      { path: '/reactions', body: { reactions: [reaction], project: 'mstore' } },
+      { path: '/reactions', body: { reactions: [reaction], project: 'shop' } },
       { path: '/schedules', body: { schedules: [] } },
       { path: '/reactions/3/enabled', method: 'PUT', body: { id: 3, enabled: false } },
     ])
@@ -446,7 +446,7 @@ describe("l'interrupteur d'une automatisation", () => {
     await userEvent.click(interrupteur)
 
     const sent = calls.find((call) => call.method === 'PUT')
-    expect(sent?.url).toContain('/projects/mstore/reactions/3/enabled')
+    expect(sent?.url).toContain('/projects/shop/reactions/3/enabled')
     expect(sent?.body).toEqual({ enabled: false })
   })
 
@@ -454,7 +454,7 @@ describe("l'interrupteur d'une automatisation", () => {
     const calls = mockFetch([
       { path: '/automations/catalogue', body: catalogue },
       { path: '/automation', body: { ...automatisation, enabled: false } },
-      { path: '/reactions', body: { reactions: [], project: 'mstore' } },
+      { path: '/reactions', body: { reactions: [], project: 'shop' } },
       { path: '/schedules', body: { schedules: [] } },
       { path: '/automation/enabled', method: 'PUT', body: { enabled: true } },
     ])
@@ -466,7 +466,7 @@ describe("l'interrupteur d'une automatisation", () => {
     await userEvent.click(interrupteur)
 
     const sent = calls.find((call) => call.method === 'PUT')
-    expect(sent?.url).toContain('/projects/mstore/automation/enabled')
+    expect(sent?.url).toContain('/projects/shop/automation/enabled')
     expect(sent?.body).toEqual({ enabled: true })
   })
 

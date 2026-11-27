@@ -10,19 +10,19 @@ func TestCloneURLFollowsTheConfiguredRepository(t *testing.T) {
 		url, repo, port, want string
 	}{
 		{
-			"https://forge.cadoles.com", "vcarroy/mstore-test-project", "",
-			"ssh://git@forge.cadoles.com:2222/vcarroy/mstore-test-project.git",
+			"https://forge.cadoles.com", "team/store", "",
+			"ssh://git@forge.cadoles.com:2222/team/store.git",
 		},
 		{
-			"https://forge.cadoles.com", "team/mstore", "",
-			"ssh://git@forge.cadoles.com:2222/team/mstore.git",
+			"https://forge.cadoles.com", "team/shop", "",
+			"ssh://git@forge.cadoles.com:2222/team/shop.git",
 		},
 		// A trailing slash and a `.git` suffix are tolerated: they come naturally
 		// when copying a repository URL, and refusing them would produce a double
 		// `.git` that the clone rejects without explaining.
 		{
-			"https://forge.cadoles.com/", "vcarroy/mstore-test-project.git", "",
-			"ssh://git@forge.cadoles.com:2222/vcarroy/mstore-test-project.git",
+			"https://forge.cadoles.com/", "team/store.git", "",
+			"ssh://git@forge.cadoles.com:2222/team/store.git",
 		},
 		// The port is configurable: another forge need not expose it on 2222.
 		{
@@ -64,16 +64,16 @@ func TestTheRepositoryIsFoundFromItsCloneURL(t *testing.T) {
 		repository string
 		forge      string
 	}{
-		{"ssh://git@forge.cadoles.com:2222/team/mstore.git", "team/mstore", "https://forge.cadoles.com"},
-		{"ssh://git@forge.cadoles.com:2222/vcarroy/mstore-test-project.git",
-			"vcarroy/mstore-test-project", "https://forge.cadoles.com"},
+		{"ssh://git@forge.cadoles.com:2222/team/shop.git", "team/shop", "https://forge.cadoles.com"},
+		{"ssh://git@forge.cadoles.com:2222/team/store.git",
+			"team/store", "https://forge.cadoles.com"},
 		// The short form Git also accepts: its colon separates host from path, not
 		// a port, and net/url gets it wrong.
-		{"git@forge.cadoles.com:team/mstore.git", "team/mstore", "https://forge.cadoles.com"},
-		{"https://forge.cadoles.com/team/mstore", "team/mstore", "https://forge.cadoles.com"},
+		{"git@forge.cadoles.com:team/shop.git", "team/shop", "https://forge.cadoles.com"},
+		{"https://forge.cadoles.com/team/shop", "team/shop", "https://forge.cadoles.com"},
 		// Dropped rather than truncated: fabricating a repository would give an
 		// access check that fails without saying the input was wrong.
-		{"ssh://git@forge.cadoles.com:2222/mstore.git", "", ""},
+		{"ssh://git@forge.cadoles.com:2222/shop.git", "", ""},
 		{"ssh://git@forge.cadoles.com:2222/a/b/c.git", "", ""},
 		{"", "", ""},
 	}
@@ -90,20 +90,20 @@ func TestTheRepositoryIsFoundFromItsCloneURL(t *testing.T) {
 // A project's repository gives its clone URL: that is where what its pipelines
 // clone comes from, not an instance-wide key.
 func TestCloneURLForFollowsAProjectsRepository(t *testing.T) {
-	got := CloneURLFor("https://forge.example.fr", "vcarroy/mstore-deploy", "2222")
-	if got != "ssh://git@forge.example.fr:2222/vcarroy/mstore-deploy.git" {
+	got := CloneURLFor("https://forge.example.fr", "team/shop-deploy", "2222")
+	if got != "ssh://git@forge.example.fr:2222/team/shop-deploy.git" {
 		t.Errorf("URL = %q", got)
 	}
 
 	// The SSH port cannot be derived from the HTTPS URL: without it, the constant.
-	if got := CloneURLFor("https://forge.example.fr", "vcarroy/mstore.git", ""); got !=
-		"ssh://git@forge.example.fr:"+DefaultForgeSSHPort+"/vcarroy/mstore.git" {
+	if got := CloneURLFor("https://forge.example.fr", "team/shop.git", ""); got !=
+		"ssh://git@forge.example.fr:"+DefaultForgeSSHPort+"/team/shop.git" {
 		t.Errorf("URL with no port = %q", got)
 	}
 
 	// A project declared before its forge was set yields nothing: the caller then
 	// falls back to the instance repository.
-	for _, testCases := range [][2]string{{"", "vcarroy/mstore"}, {"https://forge.example.fr", "  "}} {
+	for _, testCases := range [][2]string{{"", "team/shop"}, {"https://forge.example.fr", "  "}} {
 		if got := CloneURLFor(testCases[0], testCases[1], "2222"); got != "" {
 			t.Errorf("forge %q repository %q: %q, expected no URL", testCases[0], testCases[1], got)
 		}
