@@ -3,14 +3,14 @@ kind: Kustomization
 
 resources:
   - ../../base
-  # PostgreSQL and MinIO in the cluster: development only. In production they are CloudNativePG and
-  # `s3.example.org`, which are not described here.
+  # PostgreSQL and MinIO in the cluster: development only. In production they are a managed
+  # PostgreSQL and an S3 service, which are not described here.
   - resources/postgres.yaml
   - resources/minio.yaml
   - resources/minio-bucket.yaml
 
-# The pipelines' credentials, to exercise the chain on a test repository rather than with
-# `mstore-pipelines`'s, which target the real application. Their files are not versioned:
+# The pipelines' credentials, to exercise the chain on a test repository rather than with those of
+# a real application. Their files are not versioned:
 #
 #   make pipeline-credentials     # builds the three files
 components:
@@ -18,38 +18,24 @@ components:
 
 patches:
   - path: patches/ingress-host.yaml
-  # The kind cluster runs its pipelines where `mstore-pipelines` installed Tekton's, not in the base's
-  # namespace: the Role, its binding and the definitions follow.
-  - target: { group: tekton.dev }
-    patch: &pipelines-namespace |-
-      - op: replace
-        path: /metadata/namespace
-        value: mstore-pipelines
-  - target: { group: rbac.authorization.k8s.io, name: arkhitekton-tekton }
-    patch: *pipelines-namespace
 
 configMapGenerator:
   - name: arkhitekton-config
     namespace: arkhitekton
     behavior: merge
     literals:
-      - TEKTON_NAMESPACE=mstore-pipelines
       # The Secrets `components/pipeline-credentials` creates.
       - PIPELINE_GIT_SECRET=arkhitekton-pipeline-git
       - PIPELINE_REGISTRY_SECRET=arkhitekton-pipeline-registry
-      # The bucket `mstore-pipelines`'s MinIO carries on the kind cluster, and the rules the audit clones.
-      - PIPELINE_MINIO_BUCKET=mstore-pipeline
-      - FORGE_TEKTON_REPO_URL=ssh://git@forge.cadoles.com:2222/team/mstore-pipelines.git
       - PUBLIC_URL=http://dashboard.arkhitekton.local
       # The fully qualified name, and not the short one: the presigned write URLs are minted with this
-      # host then handed to the pipelines, which run in `mstore-pipelines`. The short name does not
+      # host then handed to the pipelines, which run in another namespace. The short name does not
       # resolve there — publication failed on "Could not resolve host", after tests that nonetheless
       # passed.
       - MINIO_ENDPOINT=arkhitekton-minio.arkhitekton.svc.cluster.local:9000
       - MINIO_USE_SSL=false
-      # `us-east-1` is the production instance's region. Locally, MinIO accepts any region provided
-      # the client signs with the same one; keeping `us-east-1` here makes it visible that the
-      # production value is not exercised, rather than letting one believe the opposite.
+      # Locally, MinIO accepts any region provided the client signs with the same one: a success here
+      # says nothing of a production service's region.
       - MINIO_REGION=us-east-1
       # The kind cluster's registry, served over HTTP: where plugins are published to be installed.
       - PLUGIN_PLAIN_HTTP_REGISTRIES=kind-registry:5000

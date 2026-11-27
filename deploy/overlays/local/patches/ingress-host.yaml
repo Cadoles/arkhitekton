@@ -1,6 +1,5 @@
-# The base's host is `dashboard.invalid`, unusable by construction. This one follows the
-# convention already in place on kind (`*.arkhitekton.local`), resolved to the address MetalLB assigns to
-# the ingress controller.
+# The base's host is `dashboard.invalid`, unusable by construction. This one is a local name,
+# resolved to the address the kind cluster's load balancer assigns to the ingress controller.
 #
 # `rules` has no merge key: the list is replaced as a block, not merged. The rule must therefore
 # be given again in full.

@@ -1,11 +1,11 @@
 # A development MinIO — never deployed elsewhere.
 #
-# An instance specific to the dashboard, and not `mstore-dev`'s: the `arkhitekton` bucket must stay
-# distinct from `mstore-pipeline` so that retention and permissions are independent. Sharing the
-# application's instance would also make an unfortunate `mc rb` able to take both away.
+# An instance specific to the dashboard, and not the pipelines': the `arkhitekton` bucket must stay
+# distinct from the one the pipelines publish to, so that retention and permissions are
+# independent. Sharing an instance would also make an unfortunate `mc rb` able to take both away.
 #
-# A reminder: MinIO locally handles SigV4 natively, which says nothing about
-# `s3.example.org`. A success here is not a validation of the target.
+# A reminder: MinIO locally handles SigV4 natively, which says nothing about a production S3
+# service. A success here is not a validation of the target.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

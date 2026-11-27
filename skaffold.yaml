@@ -45,7 +45,7 @@ deploy:
   # A cluster guard rail: this configuration builds unpublished code and injects it into the
   # nodes. Restricting it to kind is what stops a `skaffold run` launched with the wrong context
   # reaching a real environment — a forced namespace would have protected nothing against that.
-  kubeContext: kind-mstore
+  kubeContext: kind-arkhitekton
 
   # The wait for readiness is explicit: without it, Skaffold would return before the schema was
   # applied, and the first calls would fail on missing tables.
@@ -57,7 +57,7 @@ deploy:
 
   kubectl:
     # No `defaultNamespace`: it would pass `--namespace` to kubectl, which then refuses any object
-    # declaring another namespace. The overlay covers three — arkhitekton, mstore-pipelines,
+    # declaring another namespace. The overlay covers three: arkhitekton, arkhitekton-pipelines,
     # and one cluster-scoped object — because each manifest carries its own.
     #
     # It is the same reason that forbids a `namespace:` transformer in `deploy/base`: there it would

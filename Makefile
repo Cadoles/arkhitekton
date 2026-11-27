@@ -10,7 +10,7 @@ GO     ?= go
 GO_PKGS := ./app/... ./cmd/... ./host/... ./internal/... ./sdk/... ./rpc/...
 GO_DIRS := app cmd host internal sdk rpc
 
-# A personal registry during development: the dashboard's images do not go into `team`
+# A personal registry during development: the dashboard's images do not go into a shared project
 # until the project is deliverable.
 IMAGE_REPO ?= reg.cadoles.com/vcarroy/arkhitekton
 # The tag carries the commit: republishing under the same tag would not be enough to make the
@@ -21,12 +21,12 @@ IMAGE      := $(IMAGE_REPO):$(IMAGE_TAG)
 # The tag the local overlay consumes. Distinct from IMAGE_TAG: locally the image is injected
 # straight into the kind nodes, without going through a registry.
 LOCAL_IMAGE := $(IMAGE_REPO):dev
-KIND_CLUSTER ?= mstore
+KIND_CLUSTER ?= arkhitekton
 OVERLAY ?= deploy/overlays/local
 
 # The namespace where the Secrets the pipelines mount live — among them the per-project deploy
 # keys. Distinct from the dashboard's.
-TEKTON_NAMESPACE ?= mstore-pipelines
+TEKTON_NAMESPACE ?= arkhitekton-pipelines
 
 # The instance's configuration is read and written by the worker, which has the database, the
 # installed plugins, the catalogue and the sealing key. The image has no shell: everything goes
@@ -37,7 +37,7 @@ CONFIG_STREAM = find $(DIR) -name '*.yaml' | sort | while read -r file; do echo 
 
 PG_TEST_NAME := pg-arkhitekton-test
 PG_TEST_PORT := 15432
-PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/mstore?sslmode=disable
+PG_TEST_DSN  := postgres://postgres:t3st@127.0.0.1:$(PG_TEST_PORT)/arkhitekton?sslmode=disable
 # A throwaway server, as in CI: durability only slows the tests down, and autovacuum workers make
 # dropping a test's database wait for them.
 PG_TEST_FLAGS := postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c autovacuum=off
@@ -114,7 +114,7 @@ test-live: ## Checks against the real instances (REDMINE_LIVE=1, GITEA_LIVE=1)
 # -count=1 disables the cache: a "cached" integration test checked nothing.
 test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 	@docker rm -f $(PG_TEST_NAME) $(MINIO_TEST_NAME) >/dev/null 2>&1 || true
-	@docker run -d --name $(PG_TEST_NAME) -e POSTGRES_PASSWORD=t3st -e POSTGRES_DB=mstore \
+	@docker run -d --name $(PG_TEST_NAME) -e POSTGRES_PASSWORD=t3st -e POSTGRES_DB=arkhitekton \
 		-p $(PG_TEST_PORT):5432 postgres:17-alpine $(PG_TEST_FLAGS) >/dev/null
 	@docker run -d --name $(MINIO_TEST_NAME) -p $(MINIO_TEST_PORT):9000 \
 		-e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
@@ -125,7 +125,7 @@ test-integration: ## Tests with a throwaway PostgreSQL and MinIO
 	@# pg_isready answers "ready" on initdb's temporary server, before the final
 	@# server accepts TCP connections. Waiting for a real query on the target
 	@# database is the only reliable signal.
-	@until docker exec $(PG_TEST_NAME) psql -U postgres -d mstore -c 'select 1' >/dev/null 2>&1; do sleep 0.5; done
+	@until docker exec $(PG_TEST_NAME) psql -U postgres -d arkhitekton -c 'select 1' >/dev/null 2>&1; do sleep 0.5; done
 	@TEST_DATABASE_URL=$(PG_TEST_DSN) \
 		TEST_MINIO_ENDPOINT=127.0.0.1:$(MINIO_TEST_PORT) \
 		TEST_MINIO_BUCKET=$(MINIO_TEST_BUCKET) \
@@ -291,9 +291,8 @@ pipeline-credentials: ## Prepares the credentials the pipelines will use (local)
 	@# Builds the three files the local overlay mounts as secrets, in the
 	@# PipelineRuns' namespace. None of them is versioned.
 	@#
-	@# They are distinct from `mstore-pipelines`'s, which target the real application:
-	@# there the key is a deploy key of `team/mstore`, and the registry account has
-	@# `push` on `team` only.
+	@# They are distinct from a real application's, whose deploy key opens only
+	@# its own repository and whose registry account pushes only to its project.
 	@set -eu; \
 	mkdir -p $(SECRETS_DIR); \
 	if [ ! -f $(SECRETS_DIR)/pipeline-ssh-key ]; then \
