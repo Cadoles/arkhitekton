@@ -3,7 +3,7 @@ module github.com/Cadoles/arkhitekton
 go 1.26.4
 
 require (
-	github.com/Cadoles/arkhitekton/sdk v0.13.0
+	github.com/Cadoles/arkhitekton/sdk v0.14.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/google/go-containerregistry v0.21.3
 	github.com/hashicorp/go-hclog v1.6.3
@@ -42,7 +42,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.2 // indirect
-	github.com/Cadoles/arkhitekton/rpc v0.8.0
+	github.com/Cadoles/arkhitekton/rpc v0.9.0
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

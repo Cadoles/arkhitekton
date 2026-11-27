@@ -3,7 +3,7 @@ module github.com/Cadoles/arkhitekton/rpc
 go 1.26.4
 
 require (
-	github.com/Cadoles/arkhitekton/sdk v0.8.0
+	github.com/Cadoles/arkhitekton/sdk v0.14.0
 	github.com/hashicorp/go-plugin v1.8.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800
 	google.golang.org/grpc v1.84.0
