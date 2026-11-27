@@ -258,8 +258,8 @@ function StatusRow({
 /**
  * Versions dont plusieurs noms se réduisent au même numéro.
  *
- * Ce n'est pas une erreur du dashboard mais un fait du projet — `Mstore 3.1.2` et
- * `v3.1.2` coexistent — et c'est pourtant lui qui empêche de rattacher une release
+ * Ce n'est pas une erreur du dashboard mais un fait du projet (`SHOP 3.1.2` et
+ * `v3.1.2` coexistent), et c'est pourtant lui qui empêche de rattacher une release
  * automatiquement. D'où l'affichage explicite plutôt qu'un choix arbitraire.
  */
 function AmbiguousVersions({ data }: { data: SyncAdmin }) {

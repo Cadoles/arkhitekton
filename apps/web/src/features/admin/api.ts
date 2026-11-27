@@ -122,7 +122,7 @@ type ProjectsResponse = {
 /** Ce qu'un formulaire envoie. Le dépôt n'est modifiable qu'à la déclaration. */
 export type ProjectDraft = {
   /**
-   * Nom du projet dans les URL : `/projects/mstore/releases/1.8.0`. Vide à la
+   * Nom du projet dans les URL : `/projects/shop/releases/1.8.0`. Vide à la
    * création, l'API le dérive du dépôt. Modifiable ensuite — ces adresses
    * finissent en favori, et un nom qu'on ne peut pas corriger est un nom subi.
    */

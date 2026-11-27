@@ -16,7 +16,7 @@ import (
  *
  * # A single prefix, and no more setting
  *
- * The prefixes were configurable, and the Mstore deployment declared `Mstore ` besides `v`. That prefix
+ * The prefixes were configurable, and one deployment declared `SHOP ` besides `v`. That prefix
  * attached only closed versions with no release, and created with their `v` twins ambiguities the
  * adoption then had to settle. It was removed, and the setting with it: `v` comes from semantic
  * versioning and assumes nothing about a project.

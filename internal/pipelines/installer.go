@@ -20,8 +20,8 @@ import (
  * The same ownership rule as the deploy-key secrets, for the same reason: the dashboard installs
  * only what it **names**, marks what it owns, and **never adopts** what already exists.
  *
- * Here the rule has a happy consequence rather than a constraint. On a cluster where `mstore-pipelines`
- * has already installed `php-unit-tests`, the dashboard sees that the name is taken and
+ * Here the rule has a happy consequence rather than a constraint. On a cluster where a pipelines
+ * repository has already installed `php-unit-tests`, the dashboard sees that the name is taken and
  * withdraws: it does not overwrite a definition someone else maintains, and does not conflict
  * with the kustomization that reapplies it.
  *
@@ -121,8 +121,8 @@ func (i *Installer) apply(ctx context.Context, resource Resource) (string, error
 		return "", fmt.Errorf("reading %s %q: %w", resource.Kind, resource.Name, err)
 	}
 	if existing.GetLabels()["app.kubernetes.io/managed-by"] != ManagedBy {
-		// The refusal to adopt. `mstore-pipelines` may maintain this definition, and overwriting it would make
-		// it diverge from its repository at every start-up.
+		// The refusal to adopt. A pipelines repository may maintain this definition, and overwriting
+		// it would make it diverge from its repository at every start-up.
 		return "skipped", nil
 	}
 

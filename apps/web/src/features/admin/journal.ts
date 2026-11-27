@@ -117,7 +117,7 @@ export const EVENT_LABEL: Record<string, string> = {
   'release.built': 'Construction conclue',
   'release.verified': 'Vérifications conclues',
   'pipeline.finished': 'Exécution terminée',
-  /* Devenu `mstore.release.promoted` quand la promotion est passée au plugin (doc 16). */
+  /* Devenu `deploy.release.promoted` quand la promotion est passée au plugin (doc 16). */
   'release.promoted': 'Promotion aboutie',
 }
 

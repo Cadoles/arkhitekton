@@ -98,7 +98,7 @@ function ScoreCard({
                 Score calculé sans {score.redistributed.length} pipeline(s) lancé(s) mais pas
                 encore mesuré(s) :{' '}
                 {/* Les libellés viennent des cases elles-mêmes : `redistributed`
-                    porte des **clés** — `pipeline:mstore/e2e-tests` — qu'afficher en
+                    porte des **clés**, `pipeline:deploy/e2e-tests`, qu'afficher en
                     brut rendrait illisibles. */}
                 {score.redistributed
                   .map((key) => score.signals.find((entry) => entry.key === key)?.label ?? key)

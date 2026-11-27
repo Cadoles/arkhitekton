@@ -28,8 +28,8 @@ export type TestResult = {
 }
 
 export type SignalScore = {
-  /** Identifie la case : le pipeline lancé — `pipeline:mstore/e2e-tests` —, ou le
-   *  groupe pour un résultat qui ne nomme pas son pipeline — `group:unit`. */
+  /** Identifie la case : le pipeline lancé (`pipeline:deploy/e2e-tests`), ou le
+   *  groupe pour un résultat qui ne nomme pas son pipeline (`group:unit`). */
   key: string
   /** Le nom du composant, dans les mots de qui l'a déclaré. */
   label: string

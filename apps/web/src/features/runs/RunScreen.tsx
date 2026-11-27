@@ -64,8 +64,8 @@ export function RunScreen() {
               </Link>
             }
           >
-            {/* Un run purgé n'est pas une panne : les CronJobs de nettoyage de
-                `mstore-pipelines` en suppriment régulièrement. */}
+            {/* Un run purgé n'est pas une panne : les CronJobs de nettoyage du
+                dépôt des pipelines en suppriment régulièrement. */}
             Cette exécution n'existe plus. Elle a pu être purgée du cluster.
           </EmptyState>
         ) : (

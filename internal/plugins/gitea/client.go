@@ -84,7 +84,7 @@ type Options struct {
 	URL string
 	// Token is a forge API token. It must appear in no log, no error message and no URL.
 	Token string
-	// Repository au format `owner/nom`, par exemple `team/mstore`.
+	// Repository au format `owner/nom`, par exemple `team/shop`.
 	Repository string
 	Timeout    time.Duration
 }

@@ -3,7 +3,7 @@
  *
  * Une release et une version n'existent que **dans** un projet : le tag `1.8.0`
  * n'est unique qu'en son sein. Les routes de l'API le portent donc dans leur
- * chemin — `/projects/mstore/releases/1.8.0` — et toute URL composée ici passe par
+ * chemin (`/projects/shop/releases/1.8.0`) et toute URL composée ici passe par
  * `projectPath`.
  *
  * La liste vient de `/me`, seul endroit qu'une personne connectée peut lire quel

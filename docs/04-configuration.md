@@ -38,7 +38,7 @@ status carries back to the dashboard.
 
 Nothing shares `DATABASE_MAX_CONNS` between processes: each `api` replica and the worker open their
 own pool. A plugin that keeps tables opens one more in each of these processes, outside this
-variable; the Mstore plugin bounds its own to 4. The reference deployment can therefore hold
+variable; the deploy plugin bounds its own to 4. The reference deployment can therefore hold
 `(2 api + 1 worker) × (10 + 4) = 42` connections, a pod more during a rolling update, plus what the
 short-lived roles (`migrate`, `config`, `reprocess`) open. Keep that total under PostgreSQL's
 `max_connections`, less its reserved connections. `10` is a starting value, not a measured one: the
@@ -83,7 +83,7 @@ pool only needs to grow if requests wait for a connection.
 | `PIPELINE_GIT_SECRET` | `git-credentials` | | Secret holding the deployment's git credentials, for the repositories that are not a project's own (the end-to-end campaign's). A project's repository is cloned with its own deploy key. Must exist in `TEKTON_NAMESPACE` |
 | `PIPELINE_REGISTRY_SECRET` | `regcred` | | Secret holding the registry credentials the pipelines push with. Must exist in `TEKTON_NAMESPACE` |
 | `PIPELINE_IMAGE_PULL_SECRET` | `regcred` | | Pull secret of the pipelines' tooling images. Must exist in `TEKTON_NAMESPACE` |
-| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty. Today, `mstore/integration-tests` and `mstore/security-audit`, from the Mstore plugin; the other pipelines publish through the dashboard and need neither variable |
+| `PIPELINE_MINIO_HOST` | — | | Object store as pipelines reach it (`minio.host`). A pipeline requiring it is refused while empty. Today, `deploy/integration-tests` and `deploy/security-audit`, from the deploy plugin; the other pipelines publish through the dashboard and need neither variable |
 | `PIPELINE_MINIO_BUCKET` | — | | Bucket those pipelines write to (`minio.pipelineBucket`), likewise. It is not `MINIO_BUCKET`: the dashboard neither reads nor purges it, and its retention is the store's lifecycle rules |
 | `FORGE_TEKTON_REPO_URL` | — | | Repository of the pipelines' definitions (`forge.tekton.repoUrl`). When set, a fresh instance seeds a project for it, with no image; no shipped pipeline reads it |
 | `FORGE_SSH_PORT` | `2222` | | SSH port used to build a project's clone URL. It cannot be derived from an HTTPS forge URL |
@@ -200,7 +200,6 @@ deployment running with a setting it believes it applied.
 |---|---|
 | `GITEA_URL`, `GITEA_TOKEN`, `GITEA_REPO`, `GITEA_TIMEOUT` | `FORGE_*` |
 | `REDMINE_URL`, `REDMINE_API_KEY`, `REDMINE_PROJECT`, `REDMINE_TIMEOUT`, `REDMINE_REVIEW_STATUSES` | `TRACKER_*` |
-| `FORGE_MSTORE_REPO_URL`, `MSTORE_DOCKERFILE`, `MSTORE_BUILD_CONTEXT` | `FORGE_REPO_URL`, `PROJECT_DOCKERFILE`, `PROJECT_BUILD_CONTEXT` |
 | `DATABASE_URL` | `DATABASE_DSN`. Plugins still read `DATABASE_URL`, which the dashboard sets for them |
 | `PIPELINE_GIT_PUBLIC_KEY` | Removed: the shared deploy key no longer exists, each project has its own |
 

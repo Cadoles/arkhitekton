@@ -91,7 +91,7 @@ Optional, each degrading gracefully when absent: an issue tracker (Redmine), a f
 | Term | Meaning |
 |---|---|
 | **capability** | What a plugin brings: a pipeline, a tracker, a forge, probes, actions, or a module. |
-| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `mstore/security-audit`, …). The core names none: a pipeline producing an image or binaries builds, and one declaring how it promotes, a Docker build, is re-tagged rather than rebuilt for a final. |
+| **kind** | A pipeline the catalogue can launch, named by the capability it binds (`docker/build`, `php/unit-tests`, `deploy/security-audit`, …). The core names none: a pipeline producing an image or binaries builds, and one declaring how it promotes, a Docker build, is re-tagged rather than rebuilt for a final. |
 | **catalogue** | The YAML file that binds the plugins' pipelines to this instance: which Secret fills a need, which account deploys, timeouts, volumes. See [05](05-pipeline-catalogue.md). |
 | **step** | One pipeline or action inside a plan stage (`gestes` in a stored plan). |
 | **fact** | An event normalised to a type a reaction can match. |

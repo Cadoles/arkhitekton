@@ -188,10 +188,10 @@ spec:
   plugins:
     gitea:
       config: {url: https://forge.example, token: {env: ARK_GITEA_TOKEN}}
-    mstore:
-      install: {reference: forge.example/mstore-plugin}
-  queueLimits: {mstore/integration-tests: 1}
-  scoreWeights: {mstore/rgaa-audit: 0}   # out of the score; absent, a pipeline weighs its nature's
+    deploy:
+      install: {reference: forge.example/deploy-plugin}
+  queueLimits: {deploy/integration-tests: 1}
+  scoreWeights: {deploy/rgaa-audit: 0}   # out of the score; absent, a pipeline weighs its nature's
   access:
     users:                      # by account name, or by the provider's subject
       vcarroy: {role: admin}
@@ -206,9 +206,9 @@ spec:
   repository: team/portal
   plugins:
     docker: {config: {dockerfile: ./misc/Dockerfile}}  # the build's Dockerfile and context
-    mstore: {config: {deployer: flux}}       # promotions through Flux
+    deploy: {config: {deployer: flux}}    # promotions through Flux
     redmine: {config: {project: portal}}  # the project in the tracker
-  pipelines: {mstore/e2e-tests: false}
+  pipelines: {deploy/e2e-tests: false}
   releaseAutomation:
     statuses: true              # each pipeline reported on the release's commit
     stages:
@@ -223,7 +223,7 @@ spec:
       cron: "0 8,12,16 * * 1-5"
       timezone: Europe/Paris
       ref: main
-      plan: {stages: [{gestes: [{kind: pipeline, ref: mstore/integration-tests}]}]}
+      plan: {stages: [{gestes: [{kind: pipeline, ref: deploy/integration-tests}]}]}
 ```
 
 A reaction on a pull request's fact builds and verifies its head the way a release's plan does,

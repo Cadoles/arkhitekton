@@ -30,7 +30,7 @@ type TrackedVersion struct {
 	// none.
 	Tool string
 	// ExternalID is its identifier in that tool, as text: one tracker numbers, another
-	// writes `MSTORE-1234`.
+	// writes `SHOP-1234`.
 	ExternalID string
 	// ProjectID is the repository tracking this version. The external identifier is
 	// unique only within it: two projects may track two instances, or two projects of

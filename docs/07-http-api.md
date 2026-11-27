@@ -16,8 +16,8 @@ Titles and details are human-readable English strings: the interface displays th
 arrive. `401` means no session or an expired one; `403`, no role granted, a missing permission or
 a missing CSRF token.
 
-**Authentication.** OIDC authorization code flow. A session cookie (`mstore_session`,
-HttpOnly, SameSite=Lax) carries the session; a second cookie (`mstore_csrf`) carries a token
+**Authentication.** OIDC authorization code flow. A session cookie (`arkhitekton_session`,
+HttpOnly, SameSite=Lax) carries the session; a second cookie (`arkhitekton_csrf`) carries a token
 that every unsafe method must echo in `X-CSRF-Token`. SameSite covers cross-site
 navigation, not a cross-site request issued by a script, which is what the token is for.
 
@@ -118,7 +118,7 @@ input is refused with its name (`400`); a draft answers `409`. `verify/{kind}` r
 verification with nothing but what the release fills, and stays for compatibility.
 
 A release's deliverables are a plugin's routes, under `/projects/{project}/plugins/{plugin}/…`:
-the Mstore plugin's delivery note is produced with `release:export`, the permission a plugin route
+the deploy plugin's delivery note is produced with `release:export`, the permission a plugin route
 names for it.
 
 ## 7.6 Results

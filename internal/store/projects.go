@@ -30,7 +30,7 @@ import (
 // Project describes a driven repository.
 type Project struct {
 	ID int64
-	// Slug names the project in a URL: `/projects/mstore/releases/1.8.0`. A usage name and
+	// Slug names the project in a URL: `/projects/shop/releases/1.8.0`. A usage name and
 	// not an identity — that stays the identifier, and the slug can change without
 	// anything coming loose.
 	Slug       string

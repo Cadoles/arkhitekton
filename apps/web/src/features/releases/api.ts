@@ -25,8 +25,8 @@ export type ReleaseState =
 /**
  * La nature d'une release, telle que **le projet la déclare**.
  *
- * Une chaîne libre et non une union : `pre | final | patch` était le cycle du
- * Mstore, et un projet en `alpha` / `beta` / `ga` n'entrait dans aucune des trois
+ * Une chaîne libre et non une union : `pre | final | patch` était le cycle d'un
+ * seul projet, et un projet en `alpha` / `beta` / `ga` n'entrait dans aucune des trois
  * cases. Le jeu vient désormais de l'API (doc 12 §12.4).
  */
 export type ReleaseKind = string
@@ -468,7 +468,7 @@ export function useRebuild(tag: string) {
  */
 export type NoteEntry = {
   /** Identifiant de la demande dans le suivi, en texte : Redmine numérote, un
-   *  autre outil peut écrire `MSTORE-1234`. */
+   *  autre outil peut écrire `SHOP-1234`. */
   external_id: string
   subject?: string
   tracker?: string

@@ -8,8 +8,8 @@
 //
 // It installs only resources it **names**, marked `managed-by`, and **never adopts** what already
 // exists. It is the same rule as for the deploy-key secrets, and it has a happy consequence here:
-// on a cluster where `mstore-pipelines` has already installed its pipelines, the dashboard observes and
-// withdraws, instead of overwriting definitions someone else maintains.
+// on a cluster where a pipelines repository has already installed its pipelines, the dashboard
+// observes and withdraws, instead of overwriting definitions someone else maintains.
 //
 // This mechanism therefore serves **autonomy**: an instance that needed no pre-existing pipeline
 // repository.

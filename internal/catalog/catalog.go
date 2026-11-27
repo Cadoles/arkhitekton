@@ -275,7 +275,7 @@ type Param struct {
 	// list instead of an empty field.
 	//
 	// Declared here rather than inferred from the parameter's name: `revision`,
-	// `app-revision` and `mstore-revision` mean the same thing under three names, and
+	// `app-revision` and `shop-revision` mean the same thing under three names, and
 	// coding that correspondence in Go would diverge from the catalogue at the first
 	// pipeline added.
 	//

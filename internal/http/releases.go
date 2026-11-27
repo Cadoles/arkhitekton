@@ -1510,7 +1510,7 @@ func (h *ReleasesHandler) Notes(w http.ResponseWriter, r *http.Request) {
 // issueReference reads the issue identifier the URL carries.
 //
 // The identifier comes from the tracker and the dashboard does not make it up: one
-// tracker numbers, another writes `MSTORE-1234`. An integer therefore cannot be required
+// tracker numbers, another writes `SHOP-1234`. An integer therefore cannot be required
 // — but what resembles no identifier at all is refused, so the mistake shows here
 // rather than in the database as an orphaned row.
 var issueReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)

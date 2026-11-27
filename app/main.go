@@ -349,7 +349,7 @@ func runAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		// and a switched-off plugin is not asked.
 		WithDeployments(answers.deployments()).
 		WithPromotions(answers.promotions()).
-		// The files a plugin commits before a release's tag: Mstore's version file.
+		// The files a plugin commits before a release's tag: a deploy plugin's version file.
 		WithReleaseFiles(answers.releaseFiles()).
 		WithTrackers(connections).
 		// The release is anchored on a commit and tagged through the project's forge plugin. With

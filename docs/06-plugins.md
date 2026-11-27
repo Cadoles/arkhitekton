@@ -91,7 +91,7 @@ and a screen. Any set may also carry **attachments**, the files kept with it, an
 parser: the dashboard stores an archive's member as an object of its own, streamed rather than
 loaded, and hands the interpreter where it is; an interpreter can only attach what the
 dashboard kept for that run. `go/build` keeps its binaries and `SHA256SUMS` this way; an
-end-to-end capability, such as the Mstore plugin's, keeps each spec's video and each failure's
+end-to-end capability, such as the deploy plugin's, keeps each spec's video and each failure's
 screenshot, the latter shown under the case it illustrates.
 
 Each stored result names the plugin version that read it, its shape and its group, so it stays
@@ -101,9 +101,9 @@ refuses a run that another version read, unless asked.
 The built-in plugins are `docker` (build, re-tag, image scan), `php` (static analysis, unit
 tests), `go` (binaries, unit tests, static analysis, vulnerabilities), `k6` (load campaigns,
 observed rather than launched), `review` (an AI review of a pull request), `redmine` (tracker), `gitea` (forge) and `rocketchat` (a plan's
-messages to a channel). The merged security audit is the Mstore plugin's.
+messages to a channel). The merged security audit is the deploy plugin's.
 A deliverable such as a delivery note belongs to the plugin of the deployment that delivers it:
-the Mstore plugin produces the Mstore one, from the release's dossier (below).
+the deploy plugin produces its own, from the release's dossier (below).
 
 **Building.** A pipeline that produces an image or binaries builds: its step goes in a plan's
 `build` stage, its failure marks the release, and a release produced from its source, a final,
@@ -445,8 +445,8 @@ What changes becomes a **core fact**, like `version.created`: `pull_request.open
 `pull_request.merged`, `pull_request.reopened` and `pull_request.ready` (no longer a draft). They
 carry `number`, `title`, `author`, `source_branch`, `target_branch`, `url`, `pull_request_id`,
 `draft` (`true` or `false`: a reaction matches `draft: "false"` to leave drafts alone), one
-`trailer.<key>` for each `Key: value` line of the request's description (`mstore-deploy: feature/x`
-gives `trailer.mstore-deploy`, keys lowercased), and the three keys a release's plan reads
+`trailer.<key>` for each `Key: value` line of the request's description (`shop-deploy: feature/x`
+gives `trailer.shop-deploy`, keys lowercased), and the three keys a release's plan reads
 its subject from: `revision` (the head), `tag` (`pr-<number>-<commit>`) and `registry`. A plan a
 reaction opens on one of them therefore builds and tests the head as a release's plan builds the
 release, and its jobs, results and artifacts belong to the request. `synchronized` carries the head
@@ -542,7 +542,7 @@ unknown. Besides the fact's payload and `{artifacts.<step>.<name>}`, a run reads
 | `<plugin>.<field>` | a built-in plugin's setting resolved for the project, sensitive ones excepted: `{docker.dockerfile}` and `{docker.buildContext}`, with their defaults, for a build step that builds as the project declares |
 
 The `release.*` variables need a run bearing on a release: a release's plan, or a reaction to a
-fact whose `release_id` names a release of its project (`mstore.release.promoted`, for instance).
+fact whose `release_id` names a release of its project (`deploy.release.promoted`, for instance).
 
 ## 6.9 Modules
 
@@ -565,7 +565,7 @@ core's schema never mentions them.
 The core knows a project's **environments**, declared per project in the catalogue (doc 05
 §5.5) with their rank, namespace, visibility, observability and sensitivity, and the
 `deploy:<environment>` permission they derive (doc 09 §9.3). It does not deploy anything
-itself: a plugin that deploys re-tags an image, `docker/retag` for the Mstore plugin.
+itself: a plugin that deploys re-tags an image, `docker/retag` for the deploy plugin.
 
 How a promotion reaches an environment, how the dashboard learns what an environment actually
 runs, and who signs a release off are one way of deploying, brought by an installed plugin
@@ -884,7 +884,7 @@ kind: Screen
 metadata: { name: release }          # no prefix: a contribution to the core's screen
 spec:
   blocks:
-    - id: mstore.deployment
+    - id: deploy.deployment
       after: core.artifacts
       data: { deployment: { source: plugin, path: "releases/{route.tag}/deployment" } }
       widget:
@@ -908,7 +908,7 @@ spec:
                       confirm: { text: "Promouvoir {route.tag} vers {label} ?", challenge: "{id}" }
                       invalidates: [deployment]
     - id: core.header
-      slots: { badges: [{ id: mstore.deployed, component: mstore/deployed-badges }] }
+      slots: { badges: [{ id: deploy.deployed, component: deploy/deployed-badges }] }
 ---
 apiVersion: ui.arkhitekton/v1
 kind: Navigation
@@ -916,7 +916,7 @@ metadata: { name: main }
 spec:
   home: /environments
   items:
-    - { id: mstore.environments, before: core.versions, label: Environnements, icon: server, to: /environments }
+    - { id: deploy.environments, before: core.versions, label: Environnements, icon: server, to: /environments }
 ```
 
 **Merging.** Resources merge by name, the way Kubernetes merges an object two managers apply:

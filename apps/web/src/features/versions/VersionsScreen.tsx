@@ -55,7 +55,7 @@ export function VersionsScreen() {
  * Versions actives d'abord, historique replié.
  *
  * Seules les versions non closes comptent pour le pilotage. Les seize closes du projet
- * viennent d'un ancien système de versionnement — `MSTORE3-1.5`, `Mstore 3.1.0` — et les
+ * viennent d'un ancien système de versionnement (`SHOP3-1.5`, `SHOP 3.1.0`), et les
  * mêler aux quatre actives noyait ces dernières dans une liste où rien ne distinguait
  * l'historique du courant.
  *

@@ -144,7 +144,7 @@ func decodeIssues(body []byte) ([]provider.Issue, int, error) {
 	issues := make([]provider.Issue, 0, len(payload.Issues))
 	for _, raw := range payload.Issues {
 		issue := provider.Issue{
-			// Redmine numbers; the boundary speaks in text, so that a tool writing `MSTORE-1234` can cross it
+			// Redmine numbers; the boundary speaks in text, so that a tool writing `SHOP-1234` can cross it
 			// too.
 			ID: strconv.FormatInt(raw.ID, 10), Subject: raw.Subject,
 			Tracker:      raw.Tracker.Name,

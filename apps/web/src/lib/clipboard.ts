@@ -2,9 +2,9 @@
  * Copie dans le presse-papiers.
  *
  * `navigator.clipboard` n'existe qu'en **contexte sécurisé** : HTTPS, ou
- * `localhost`. Le dashboard est servi en clair sur son propre nom d'hôte —
+ * `localhost`. Le dashboard est servi en clair sur son propre nom d'hôte,
  * `http://dashboard.arkhitekton.local` en local, et rien ne garantit le contraire
- * ailleurs — donc l'objet y est purement absent. Lire `.writeText` dessus lève
+ * ailleurs, donc l'objet y est purement absent. Lire `.writeText` dessus lève
  * une `TypeError` **avant** toute promesse, ce qu'un `.catch()` ne rattrape pas :
  * le bouton ne copiait rien et ne le disait pas.
  *

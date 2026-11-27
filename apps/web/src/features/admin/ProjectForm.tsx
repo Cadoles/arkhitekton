@@ -89,7 +89,7 @@ export function ProjectForm({
           <input
             value={form.repository}
             onChange={(event) => set('repository', event.target.value)}
-            placeholder="team/mstore"
+            placeholder="team/shop"
             className="w-56 rounded-md border border-zinc-300 bg-white px-2 py-1 font-mono text-sm text-zinc-900"
           />
         </label>
@@ -116,7 +116,7 @@ export function ProjectForm({
       </div>
 
       {/* Le nom du projet dans les URL. Laissé vide à la création, l'API le dérive
-          du dépôt — `vcarroy/mstore` donne `mstore`. Modifiable, parce que ces adresses
+          du dépôt : `team/shop` donne `shop`. Modifiable, parce que ces adresses
           sont mises en favori et collées dans des tickets. */}
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-zinc-700">Nom dans les URL</span>

@@ -46,7 +46,7 @@ const MODE_HINTS: Record<string, string> = {
 /*
  * Ce que ce formulaire ne calcule plus.
  *
- * Il composait le tag proposé lui-même : il retirait les préfixes `v` et `Mstore `,
+ * Il composait le tag proposé lui-même : il retirait les préfixes `v` et `SHOP `,
  * puis suffixait `-rc<N>` en cherchant le rang le plus haut. Deux règles que le
  * serveur possède — la convention de nommage est configurable depuis le
  * chantier 5, la forme des pré-releases appartient au schéma de version depuis

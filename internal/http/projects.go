@@ -101,7 +101,7 @@ type projectPayload struct {
 	Label      string `json:"label"`
 	ForgeURL   string `json:"forge_url"`
 	URL        string `json:"url"`
-	// Slug names the project in URLs: `/projects/mstore/releases/1.8.0`. Returned and
+	// Slug names the project in URLs: `/projects/shop/releases/1.8.0`. Returned and
 	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
 	// one endures.
 	Slug string `json:"slug"`
@@ -197,7 +197,7 @@ type projectRequest struct {
 	Repository string `json:"repository"`
 	Label      string `json:"label"`
 	ForgeURL   string `json:"forge_url"`
-	// Slug names the project in URLs: `/projects/mstore/releases/1.8.0`. Returned and
+	// Slug names the project in URLs: `/projects/shop/releases/1.8.0`. Returned and
 	// editable — these addresses end up bookmarked, and a name one cannot correct is a name
 	// one endures.
 	Slug string `json:"slug"`

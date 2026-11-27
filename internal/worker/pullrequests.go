@@ -193,7 +193,7 @@ func (p pullRequestProbe) transitions(
 // request's head the way a release's plan builds the release.
 //
 // `draft` says whether the request is still a draft, and each `Key: value` line of its body becomes
-// `trailer.<key>`: a reaction matches `draft: "false"`, a step reads `{trailer.mstore-deploy}`.
+// `trailer.<key>`: a reaction matches `draft: "false"`, a step reads `{trailer.shop-deploy}`.
 func PullRequestPayload(pull store.PullRequest) map[string]string {
 	payload := map[string]string{
 		"number": strconv.FormatInt(pull.Number, 10), "title": pull.Title, "author": pull.Author,

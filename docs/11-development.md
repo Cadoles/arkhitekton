@@ -124,9 +124,11 @@ that reads it.
 
 ## 11.5 Local cluster
 
-It needs a kind cluster named `mstore` (context `kind-mstore`) where mstore-pipelines is installed: the
-overlay runs the pipelines in `mstore-pipelines`, uses its MinIO bucket `mstore-pipeline`, its
-registry and the ingress host `dashboard.arkhitekton.local`. Copy
+It needs a kind cluster named `arkhitekton` (`KIND_CLUSTER`) with Tekton installed: the overlay
+runs the pipelines in `arkhitekton-pipelines`, serves the dashboard at
+`dashboard.arkhitekton.local`, and trusts the plain-HTTP registry `kind-registry:5000` for
+plugins. An overlay of your own can build on it to change any of these, as a deployment's
+repository does for its environment. Copy
 `deploy/overlays/local/secrets/dashboard.env.example` to `dashboard.env` and fill it in, then
 build the pipelines' credentials once:
 

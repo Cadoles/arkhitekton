@@ -77,8 +77,8 @@ func (s *runSink) WithInstance(id string) *runSink {
 // disown cuts the attachment of a run launched by another database.
 //
 // The `job-id` label alone is not enough to identify a job: the identifiers start again at 1
-// on a fresh database, whereas PipelineRuns survive in the cluster. Observed —
-// `mstore-static-tests-7`, failed the day before under a previous database, concluded as failed
+// on a fresh database, whereas PipelineRuns survive in the cluster. Observed:
+// `ark-static-tests-7`, failed the day before under a previous database, concluded as failed
 // job 7 of a database created since, which had not even been launched yet. The run stays
 // projected, it is simply no longer held to be this job's run.
 func (s *runSink) disown(run tekton.Run) tekton.Run {

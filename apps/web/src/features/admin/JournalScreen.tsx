@@ -216,8 +216,8 @@ function EventLine({ entry }: { entry: JournalEntry }) {
       </span>
       {entry.subject && <span className="font-mono text-zinc-600">{entry.subject}</span>}
       {outcome && <OutcomeBadge outcome={outcome} />}
-      {/* Le plugin qui l'a constaté, distinct du projet : `mstore` est un plugin et un
-          projet sur la même instance. */}
+      {/* Le plugin qui l'a constaté, distinct du projet : un même nom peut désigner un
+          plugin et un projet sur la même instance. */}
       {entry.source && <span className="text-xs text-zinc-500">via {entry.source}</span>}
       {entry.recorded_at && (
         <span className="text-xs text-zinc-400">constaté le {formatDateTime(entry.recorded_at)}</span>

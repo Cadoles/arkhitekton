@@ -2,7 +2,7 @@
 //
 // The dashboard reads three sources it does not drive: a **tracker** of versions and requests, a
 // **forge** of repositories and references, and an **attestation** of what is really running.
-// Each has a single implementation today — Redmine, Gitea, the `AppData` CRD — and this
+// Each has a single implementation today: Redmine, Gitea, the application's data state. This
 // package does not seek to add any.
 //
 // What it brings is more modest and more useful: one place that says what being one of these
@@ -99,8 +99,8 @@ type Tracker interface {
 
 // Version is a version declared in the tracker.
 //
-// `Name` is kept as it is. A tracker often carries several conventions at once — `MSTORE3-1.5`,
-// `Mstore 3.1.0`, `v3.2.0` at Mstore's — and normalising at write time would lose the information
+// `Name` is kept as it is. A tracker often carries several conventions at once, such as
+// `SHOP3-1.5`, `SHOP 3.1.0` and `v3.2.0`, and normalising at write time would lose the information
 // without solving anything. The identity is `ID`, never the name.
 type Version struct {
 	// ID is the identifier in the tracker, as **text**, for the same reason as a request's: nothing
@@ -122,7 +122,7 @@ type Version struct {
 // dashboard links back to the tracker to consult it. Not copying what one does not need is the
 // simplest way of not having to protect it.
 type Issue struct {
-	// ID is the identifier in the tracker, as **text**: Redmine numbers, Jira writes `MSTORE-1234`. An
+	// ID is the identifier in the tracker, as **text**: Redmine numbers, Jira writes `SHOP-1234`. An
 	// integer closed the door on the second with no error saying so.
 	ID string
 	// VersionID names the version targeted, by its identifier in the tracker.
