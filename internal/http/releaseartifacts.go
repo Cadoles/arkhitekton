@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	imagenames "forge.cadoles.com/vcarroy/arkhitekton/internal/images"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	imagenames "github.com/Cadoles/arkhitekton/internal/images"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

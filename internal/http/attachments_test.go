@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // attachmentStore serves release 3 and the files given, each belonging to the release it names.

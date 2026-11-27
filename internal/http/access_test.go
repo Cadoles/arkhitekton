@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 func project1() *int64 { id := int64(1); return &id }

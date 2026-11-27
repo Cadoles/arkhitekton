@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
 )
 
 /*

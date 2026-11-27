@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 var received = time.Date(2026, 10, 30, 14, 0, 0, 0, time.UTC)

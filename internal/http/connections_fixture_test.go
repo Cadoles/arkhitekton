@@ -3,9 +3,9 @@ package http
 import (
 	"context"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/connect"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // fixedTracker is a project's tracker, whatever the project: a plugin of this identifier whose

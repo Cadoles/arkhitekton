@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 /*

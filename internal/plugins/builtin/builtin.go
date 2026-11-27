@@ -5,16 +5,16 @@
 package builtin
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/docker"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/gitea"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/golang"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/k6"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/php"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/redmine"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/review"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/rocketchat"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/plugins/docker"
+	"github.com/Cadoles/arkhitekton/internal/plugins/gitea"
+	"github.com/Cadoles/arkhitekton/internal/plugins/golang"
+	"github.com/Cadoles/arkhitekton/internal/plugins/k6"
+	"github.com/Cadoles/arkhitekton/internal/plugins/php"
+	"github.com/Cadoles/arkhitekton/internal/plugins/redmine"
+	"github.com/Cadoles/arkhitekton/internal/plugins/review"
+	"github.com/Cadoles/arkhitekton/internal/plugins/rocketchat"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // Plugins are the plugins compiled into the binary.

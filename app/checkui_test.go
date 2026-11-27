@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 func pluginWithInterface(t *testing.T, resources string) string {

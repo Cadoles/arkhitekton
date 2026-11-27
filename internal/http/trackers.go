@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/connect"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // Trackers names a project's tracker plugin: the one enabled for it that brings a tracker.

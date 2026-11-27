@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
 )
 
 // Request describes the run to create.

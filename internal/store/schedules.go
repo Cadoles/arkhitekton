@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/schedule"
+	"github.com/Cadoles/arkhitekton/internal/schedule"
 )
 
 /*

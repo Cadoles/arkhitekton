@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/auth"
 )
 
 var update = flag.Bool("update", false, "rewrites the golden interface")

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/auth"
 )
 
 // stubExchanger replaces the identity provider: it is the only point of the flow that

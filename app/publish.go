@@ -15,7 +15,7 @@ import (
 
 	"oras.land/oras-go/v2/registry"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/installed"
 )
 
 // runPublishPlugin packs a plugin's directory, pushes it to a registry under a tag and signs it the

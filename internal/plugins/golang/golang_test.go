@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // The manifests are extracted from what actually runs. If one disappears from the embedding (a

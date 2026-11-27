@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
+	"github.com/Cadoles/arkhitekton/rpc/extension"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // k6Metric covers both forms of summary k6 produces.

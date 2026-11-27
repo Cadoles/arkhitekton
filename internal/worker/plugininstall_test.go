@@ -8,9 +8,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	dashhttp "github.com/Cadoles/arkhitekton/internal/http"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // readingPlugin is an installable plugin whose runs are read by declaration.

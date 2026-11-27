@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // tracker connects the dashboard to a Redmine instance.

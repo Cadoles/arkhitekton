@@ -3,7 +3,7 @@ package ui
 import (
 	"strings"
 
-	schema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	schema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 // Viewer is who the interface is filtered for, in a project.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/plan"
 )
 
 func valid() Schedule {

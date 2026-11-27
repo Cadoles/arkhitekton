@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/records"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc/records"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // readTimeout bounds the reading of one run by a plugin's program.

@@ -13,7 +13,7 @@ import (
 // The contract imports only the standard library and itself: whatever it imports, every plugin
 // imports too.
 func TestTheContractImportsOnlyTheStandardLibrary(t *testing.T) {
-	const module = "forge.cadoles.com/vcarroy/arkhitekton/sdk"
+	const module = "github.com/Cadoles/arkhitekton/sdk"
 
 	files := token.NewFileSet()
 	read := 0

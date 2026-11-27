@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 const valid = `{

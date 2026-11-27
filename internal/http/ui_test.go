@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/ui"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 const deployInterface = `

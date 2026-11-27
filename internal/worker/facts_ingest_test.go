@@ -12,13 +12,13 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/interpret"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 type factStore struct {

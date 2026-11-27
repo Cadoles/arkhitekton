@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/internal/parsers"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // parsed reads one of the reference reports the interpreters are recorded against.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"github.com/Cadoles/arkhitekton/internal/logs"
 )
 
 // LogReader is what the handlers need from the log reader.

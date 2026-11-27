@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/config"
 )
 
 // A test against a real registry. What it checks — the effective authentication

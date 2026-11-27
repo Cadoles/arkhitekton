@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/schedule"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/schedule"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // scheduleStore keeps what is saved, with its next firing.

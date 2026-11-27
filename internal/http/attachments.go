@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

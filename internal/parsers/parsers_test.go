@@ -3,7 +3,7 @@ package parsers
 import (
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // The record keeps the class name and the suite path both: which one names the case is the

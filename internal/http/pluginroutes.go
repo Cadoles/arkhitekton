@@ -14,11 +14,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/native"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 /*

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/plan"
 )
 
 // Schedule runs a plan at the times a cron expression names.

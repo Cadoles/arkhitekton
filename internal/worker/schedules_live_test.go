@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/schedule"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/connect"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/schedule"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // branchForge resolves branches the way a forge would, and records what it was asked.

@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse/security"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse/security"
 )
 
 // Wire is a parse.Record as it travels: the payload as JSON, the bytes of a `raw` artifact in

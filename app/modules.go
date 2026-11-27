@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/plugins/builtin"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // moduleTick bounds how long switching a module on or off, or editing its settings, takes to

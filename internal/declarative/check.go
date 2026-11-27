@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/internal/parsers"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 /*

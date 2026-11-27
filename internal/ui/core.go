@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	schema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	schema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 //go:embed resources/*.yaml

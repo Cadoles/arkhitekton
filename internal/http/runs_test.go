@@ -3,7 +3,7 @@ package http
 import (
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // Tekton creates a TaskRun only when a task starts: an eight-stage pipeline therefore

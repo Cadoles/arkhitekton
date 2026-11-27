@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 var _ provider.FileWriter = (*Writer)(nil)

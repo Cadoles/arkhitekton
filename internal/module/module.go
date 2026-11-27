@@ -20,7 +20,7 @@ import (
 	"sort"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // Module is a plugin's loop run by the dashboard.

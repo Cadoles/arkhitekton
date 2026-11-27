@@ -15,7 +15,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/config"
 )
 
 // MigrationSet is a plugin's migrations, kept in a version table of its own.

@@ -8,8 +8,8 @@ package parsers
 import (
 	"encoding/json"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse/security"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse/security"
 )
 
 // Parser decodes an artifact's bytes into its record payload.

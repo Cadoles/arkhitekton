@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/pipelines"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/pipelines"
 )
 
 // installingCluster holds a Pipeline only once the installer has put it there.

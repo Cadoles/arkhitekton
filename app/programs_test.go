@@ -8,10 +8,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/host/hosttest"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/host/hosttest"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // A plugin's migrations are applied in its own version table, and its schema is checked against

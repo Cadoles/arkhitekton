@@ -12,11 +12,11 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/tekton"
 )
 
 // tickInterval bounds the wait between two rounds of the loop.

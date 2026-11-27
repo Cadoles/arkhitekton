@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // wireTestStore serves one release with one report and its cases.

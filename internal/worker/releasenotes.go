@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 /*

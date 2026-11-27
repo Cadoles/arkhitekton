@@ -17,8 +17,8 @@ import (
 	"slices"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
-	schema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
+	schema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 // Contribution is what one installed plugin brings: its resources, and the routes its blocks may

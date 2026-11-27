@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
 )
 
 // A replaced snapshot is what every source reads at its next operation, registry and catalogue

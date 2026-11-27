@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/tekton"
 )
 
 // fakeVerificationStore keeps what is queued after a build.

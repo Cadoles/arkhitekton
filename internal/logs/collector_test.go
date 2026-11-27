@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/config"
 )
 
 // These tests require a real MinIO. What they check — durable chunking, sealing

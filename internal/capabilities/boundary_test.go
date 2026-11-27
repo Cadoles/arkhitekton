@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const module = "forge.cadoles.com/vcarroy/arkhitekton/"
+const module = "github.com/Cadoles/arkhitekton/"
 
 // Plugins depend on the contract and nothing else of the dashboard.
 //

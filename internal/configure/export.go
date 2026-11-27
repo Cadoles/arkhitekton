@@ -10,13 +10,13 @@ import (
 	"slices"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/internal/plugin"
+	"github.com/Cadoles/arkhitekton/internal/reaction"
+	"github.com/Cadoles/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // ExportStore is what reading a configuration back needs from the database.

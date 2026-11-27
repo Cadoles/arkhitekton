@@ -7,9 +7,9 @@ package php
 import (
 	"embed"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // ID is the plugin's identifier.

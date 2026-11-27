@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/internal/event"
 )
 
 /*

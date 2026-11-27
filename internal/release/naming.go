@@ -3,7 +3,7 @@ package release
 import (
 	"strings"
 
-	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	versionpkg "github.com/Cadoles/arkhitekton/internal/version"
 )
 
 /*

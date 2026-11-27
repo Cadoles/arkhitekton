@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	dashhttp "github.com/Cadoles/arkhitekton/internal/http"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 type fakeForge struct {

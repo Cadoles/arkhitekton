@@ -14,10 +14,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/oauth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	dashhttp "github.com/Cadoles/arkhitekton/internal/http"
+	"github.com/Cadoles/arkhitekton/internal/oauth"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // tokens maps a bearer token to its agent.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 type mochawesomeReport struct {

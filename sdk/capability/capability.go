@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // Kind is what a capability is. It qualifies a capability, not a plugin: one plugin may bring a

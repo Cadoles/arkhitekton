@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
 )
 
 // Host is what the dashboard lends a plugin: its data, its queue, its audit log and its

@@ -1,6 +1,6 @@
 package catalog
 
-import "forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+import "github.com/Cadoles/arkhitekton/internal/auth"
 
 // EnvironmentPolicies returns the promotion requirements the catalogue declares, per project.
 //

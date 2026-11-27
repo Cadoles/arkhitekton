@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 // chunkWriter accumulates a step's lines and writes them in chunks.

@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/tekton"
+	"github.com/Cadoles/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/reaction"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/tekton"
 )
 
 // A received fact is routed once, by the worker, and only a received one: a fact a probe or the

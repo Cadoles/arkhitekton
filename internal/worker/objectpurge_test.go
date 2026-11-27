@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 type references struct{ runs, attachments, plugins map[string]bool }

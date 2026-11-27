@@ -10,8 +10,8 @@ package live
 import (
 	"sync/atomic"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
 )
 
 // Snapshot is the capabilities in force at one moment.

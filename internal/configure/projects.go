@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/version"
 )
 
 // ProjectStore is what declaring a project needs from the database.

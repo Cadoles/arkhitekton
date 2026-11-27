@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

@@ -16,19 +16,19 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/parsers"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/declarative"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/parsers"
+	"github.com/Cadoles/arkhitekton/internal/plugins/builtin"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/ui"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // Logger discards what it is given.

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/testdb"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/testdb"
 )
 
 // migratedBare returns a database of its own at the current schema. Every test in this file

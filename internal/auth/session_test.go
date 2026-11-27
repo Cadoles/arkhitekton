@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // Sessions and roles live in the database: faking them would prove nothing about

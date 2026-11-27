@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 	"net/url"
 	"regexp"
 	"strings"

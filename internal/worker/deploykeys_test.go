@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/deploykeys"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 type fakeKeyStore struct {

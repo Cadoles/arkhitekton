@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

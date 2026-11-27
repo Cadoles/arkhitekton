@@ -52,7 +52,7 @@ Optional, each degrading one feature rather than blocking start-up: an issue tra
 ## Installing
 
 ```bash
-git clone https://forge.cadoles.com/vcarroy/arkhitekton.git
+git clone https://github.com/Cadoles/arkhitekton.git
 cd arkhitekton
 cp -r deploy/overlays/local deploy/overlays/mysite
 cp deploy/overlays/mysite/secrets/dashboard.env.example \

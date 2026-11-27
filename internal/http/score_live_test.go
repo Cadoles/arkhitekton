@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/plugins/builtin"
+	"github.com/Cadoles/arkhitekton/internal/results"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

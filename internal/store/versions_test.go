@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/release"
 )
 
 // redmineVersion writes a real version, as synchronisation would.

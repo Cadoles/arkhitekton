@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/native"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // Dossier composes what a release's screen shows, for a plugin that produces a deliverable from

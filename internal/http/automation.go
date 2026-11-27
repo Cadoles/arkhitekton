@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/configure"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

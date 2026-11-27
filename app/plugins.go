@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugin"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/secrets"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/plugin"
+	"github.com/Cadoles/arkhitekton/internal/secrets"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

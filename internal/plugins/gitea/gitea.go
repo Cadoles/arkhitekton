@@ -5,8 +5,8 @@ package gitea
 import (
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // ID is the plugin's identifier.

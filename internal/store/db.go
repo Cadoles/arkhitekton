@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/config"
 )
 
 // DB wraps the PostgreSQL connection pool.

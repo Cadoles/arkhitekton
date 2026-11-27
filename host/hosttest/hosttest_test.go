@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // A catalogue binding an installed plugin's capability loads with the plugin.

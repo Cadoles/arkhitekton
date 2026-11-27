@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // ProjectPipelineStore is what a project's pipeline switches need from the database.

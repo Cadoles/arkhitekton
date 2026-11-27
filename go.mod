@@ -1,9 +1,9 @@
-module forge.cadoles.com/vcarroy/arkhitekton
+module github.com/Cadoles/arkhitekton
 
 go 1.26.4
 
 require (
-	forge.cadoles.com/vcarroy/arkhitekton/sdk v0.13.0
+	github.com/Cadoles/arkhitekton/sdk v0.13.0
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/google/go-containerregistry v0.21.3
 	github.com/hashicorp/go-hclog v1.6.3
@@ -42,7 +42,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.2 // indirect
-	forge.cadoles.com/vcarroy/arkhitekton/rpc v0.8.0
+	github.com/Cadoles/arkhitekton/rpc v0.8.0
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -133,6 +133,6 @@ require (
 // The plugin contract and the native plugins' wire are modules of their own, kept in this
 // repository. A module requiring arkhitekton does not follow these replaces: it resolves the
 // versions above, from the tags sdk/vX.Y.Z and rpc/vX.Y.Z.
-replace forge.cadoles.com/vcarroy/arkhitekton/sdk => ./sdk
+replace github.com/Cadoles/arkhitekton/sdk => ./sdk
 
-replace forge.cadoles.com/vcarroy/arkhitekton/rpc => ./rpc
+replace github.com/Cadoles/arkhitekton/rpc => ./rpc

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 const withProgram = `apiVersion: arkhitekton.plugin/v2

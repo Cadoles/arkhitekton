@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 // maxArtifactBytes bounds what a report may weigh once decompressed.

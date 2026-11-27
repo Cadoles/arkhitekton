@@ -13,7 +13,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
-	schema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	schema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 // Read reads the resources of a YAML file, one per document.

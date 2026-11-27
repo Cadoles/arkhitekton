@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/declare"
+	"github.com/Cadoles/arkhitekton/sdk/declare"
 )
 
 // Validate checks the resource's structure, each problem named by its path. Whether it may create

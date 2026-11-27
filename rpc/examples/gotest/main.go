@@ -20,11 +20,11 @@ import (
 	"encoding/json"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/rpc/extension"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/interpret"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // The tool as the capability's artifact names it, and the task that runs it.

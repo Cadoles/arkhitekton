@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
 )
 
 func openPull(projectID, number int64, head string, updated time.Time) PullRequest {

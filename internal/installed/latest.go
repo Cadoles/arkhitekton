@@ -8,7 +8,7 @@ import (
 
 	"oras.land/oras-go/v2/registry"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/internal/version"
 )
 
 /*

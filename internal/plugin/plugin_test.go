@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // tracker declares settings shaped like a real tracker's: a connection at both scopes, a required

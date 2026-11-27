@@ -12,8 +12,8 @@ import (
 	"slices"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/web"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/web"
 )
 
 // ReadinessCheck returns an error when the dependency is unusable. The name appears as it is

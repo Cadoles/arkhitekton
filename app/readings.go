@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/declarative"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/native"
+	"github.com/Cadoles/arkhitekton/rpc"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // runCheckReading checks a declared reading, or a plugin's program, against recorded cases, without a database nor a cluster: what a plugin author runs

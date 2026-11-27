@@ -24,7 +24,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/config"
 )
 
 // Migrate brings an empty database to the schema the tests expect.

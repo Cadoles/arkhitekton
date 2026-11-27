@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"strconv"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/internal/reaction"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

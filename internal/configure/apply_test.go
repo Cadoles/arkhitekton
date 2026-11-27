@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/catalog"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/catalog"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 func (i instance) applier(env map[string]string) Applier {

@@ -8,7 +8,7 @@ syntax = "proto3";
 
 package arkhitekton.plugin.v1;
 
-option go_package = "forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1;pluginv1";
+option go_package = "github.com/Cadoles/arkhitekton/rpc/pluginv1;pluginv1";
 
 service Plugin {
   // Init hands the plugin the broker id of the Host service and the role it is launched in. Called

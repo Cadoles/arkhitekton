@@ -26,7 +26,7 @@ import (
 	orasregistry "oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // registryHost serves a registry in memory, reached over plain HTTP.

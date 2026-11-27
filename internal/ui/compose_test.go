@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
-	schema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
+	schema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 const coreYAML = `

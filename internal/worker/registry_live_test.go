@@ -1,11 +1,11 @@
 package worker
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plugins/builtin"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/action"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/plugins/builtin"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // liveRegistry is the binary's own registry: the live tests drive a real deployment, and the

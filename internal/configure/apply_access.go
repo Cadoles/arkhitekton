@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

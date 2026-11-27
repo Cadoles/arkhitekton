@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/plan"
 )
 
 // Reaction is the declaration of a chained run.

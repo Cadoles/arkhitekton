@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
+	"github.com/Cadoles/arkhitekton/internal/declarative"
 )
 
 // The cases recorded for the built-in readings read as recorded: they are the examples a plugin

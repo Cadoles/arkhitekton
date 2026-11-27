@@ -2,11 +2,11 @@ package configure
 
 import (
 	"context"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/store"
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
 )
 
 func TestTheExportWritesWhatWasConfigured(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"io"
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // KindPluginPurge is the `kind` of the jobs that purge the tables an uninstalled plugin left.

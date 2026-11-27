@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/oauth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/oauth"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

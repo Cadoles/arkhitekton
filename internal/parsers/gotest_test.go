@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // A real `go test -json` stream: a passing, a failing and a skipped test, a table with a failing

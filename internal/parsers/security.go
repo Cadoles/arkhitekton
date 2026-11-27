@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse/security"
+	"github.com/Cadoles/arkhitekton/sdk/parse/security"
 )
 
 // UnmarshalFindings reads a findings file.

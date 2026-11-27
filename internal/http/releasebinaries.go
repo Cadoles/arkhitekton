@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
+	"github.com/Cadoles/arkhitekton/internal/results"
 )
 
 // binaryPayload is a file a release's build kept: a binary, its checksums.

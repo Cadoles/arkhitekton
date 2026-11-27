@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/plan"
+	"github.com/Cadoles/arkhitekton/internal/plan"
 )
 
 func planForTest() plan.Plan {

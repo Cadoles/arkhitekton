@@ -7,14 +7,14 @@ import (
 	"maps"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/event"
+	dashhttp "github.com/Cadoles/arkhitekton/internal/http"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/native"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	versionpkg "github.com/Cadoles/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 /*

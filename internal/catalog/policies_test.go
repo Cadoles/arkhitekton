@@ -3,7 +3,7 @@ package catalog
 import (
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/auth"
 )
 
 // Sensitivity comes from the project's section, and an environment that does not declare it is

@@ -25,8 +25,8 @@ import (
 
 	goplugin "github.com/hashicorp/go-plugin"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
 )
 
 // Spec names one installed version of a plugin's program.

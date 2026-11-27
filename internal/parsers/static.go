@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 type phpstanReport struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/reaction"
+	"github.com/Cadoles/arkhitekton/internal/reaction"
 )
 
 /*

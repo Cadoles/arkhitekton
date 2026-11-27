@@ -13,7 +13,7 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
 )
 
 // ProtocolVersion is the version of the contract. A plugin built against another one is refused at

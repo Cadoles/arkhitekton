@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/internal/version"
 )
 
 // The historical cycle must describe exactly what the database enumeration

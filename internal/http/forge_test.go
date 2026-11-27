@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/connect"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/connect"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // listingForge lists one branch and one tag.

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 type junitSuites struct {

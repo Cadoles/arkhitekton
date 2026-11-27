@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/internal/event"
 )
 
 /*

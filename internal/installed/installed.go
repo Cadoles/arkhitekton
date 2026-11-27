@@ -24,16 +24,16 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/providers"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
-	uischema "forge.cadoles.com/vcarroy/arkhitekton/sdk/ui"
+	"github.com/Cadoles/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/internal/ui"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc/providers"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
+	uischema "github.com/Cadoles/arkhitekton/sdk/ui"
 )
 
 // ReadManifest reads and checks the manifest at the root of a plugin's directory.

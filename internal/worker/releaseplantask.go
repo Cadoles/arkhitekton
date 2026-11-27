@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // KindReleasePlan is the kind of job that opens a release's plan.

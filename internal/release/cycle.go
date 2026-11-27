@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/internal/version"
 )
 
 /*

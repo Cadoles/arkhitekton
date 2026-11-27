@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/declarative"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/event"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/declarative"
+	"github.com/Cadoles/arkhitekton/internal/event"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // ErrVersionDrift refuses to read a run with another interpretation than the one that read it.

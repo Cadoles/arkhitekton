@@ -35,7 +35,7 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // Field declares a parameter an action expects.

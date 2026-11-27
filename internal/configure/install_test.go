@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 const pinned = "registry.example/deploy@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

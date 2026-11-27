@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/deploykeys"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 type recordedSecrets struct {

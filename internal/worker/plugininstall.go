@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // KindPluginInstall is the `kind` of the jobs that install a plugin an administrator asked for.

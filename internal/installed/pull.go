@@ -25,8 +25,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/credentials"
 	"sigs.k8s.io/yaml"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/version"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 /*

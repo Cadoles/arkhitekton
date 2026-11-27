@@ -38,7 +38,7 @@ capability.Plugin{
 ```
 
 The types a plugin compiles against form the **contract**, a Go module of its own:
-`forge.cadoles.com/vcarroy/arkhitekton/sdk`, kept in this repository and replaced locally by
+`github.com/Cadoles/arkhitekton/sdk`, kept in this repository and replaced locally by
 `go.mod`. It imports only the standard library:
 
 | Package | What it holds |
@@ -342,7 +342,7 @@ probes and an executor are the sdk's own interfaces, as a compiled plugin declar
 ```go
 package main
 
-import "forge.cadoles.com/vcarroy/arkhitekton/rpc/extension"
+import "github.com/Cadoles/arkhitekton/rpc/extension"
 
 func main() {
     extension.Serve(func(ctx context.Context, runtime extension.Runtime) (extension.Hooks, error) {

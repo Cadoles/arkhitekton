@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 // Flush defaults.

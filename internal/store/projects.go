@@ -12,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/release"
+	"github.com/Cadoles/arkhitekton/internal/release"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/deploykeys"
+	"github.com/Cadoles/arkhitekton/internal/deploykeys"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 

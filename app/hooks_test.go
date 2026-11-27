@@ -12,15 +12,15 @@ import (
 	"testing/fstest"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/module"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/native"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/module"
+	"github.com/Cadoles/arkhitekton/internal/native"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	versionpkg "github.com/Cadoles/arkhitekton/internal/version"
+	"github.com/Cadoles/arkhitekton/rpc"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // hookedDB switches the plugin on everywhere but project 8.

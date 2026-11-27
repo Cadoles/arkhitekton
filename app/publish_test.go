@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/registry"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/installed"
 )
 
 // The example plugin, built and published as its author would, installs: pulled by the digest the

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/ui"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/ui"
 )
 
 // runCheckUI checks that a plugin's interface composes with the core's, as its installation will,

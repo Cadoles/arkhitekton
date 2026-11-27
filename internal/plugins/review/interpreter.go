@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/interpret"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/interpret"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // reviewTask is the pipeline's task whose exit code says whether the review was written.

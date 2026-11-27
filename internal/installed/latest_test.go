@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/manifest"
+	"github.com/Cadoles/arkhitekton/sdk/manifest"
 )
 
 // publishVersion publishes the example plugin as a version, under that version's tag.

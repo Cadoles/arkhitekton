@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 func pullJSON(number int, state string, merged bool, updated time.Time) string {

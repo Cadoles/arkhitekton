@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // KindLabel names each kind of capability for the interface.

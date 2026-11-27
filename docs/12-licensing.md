@@ -51,7 +51,7 @@ Three deliberate limits:
 
 ## 12.4 Third-party plugins
 
-The plugin API is the `sdk` module (`forge.cadoles.com/vcarroy/arkhitekton/sdk`), kept in this
+The plugin API is the `sdk` module (`github.com/Cadoles/arkhitekton/sdk`), kept in this
 repository but outside `internal/`, with its own `go.mod` and a version, `sdk.APIVersion`, that
 every plugin declares and the dashboard checks. It imports only the standard library, and the
 plugins shipped with the dashboard import nothing of the dashboard but it

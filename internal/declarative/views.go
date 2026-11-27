@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strconv"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // Row is one line of a view: field names to values.

@@ -14,10 +14,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/providers"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/rpc/providers"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 // connectionsKept bounds the connections kept, one per kind and distinct target.

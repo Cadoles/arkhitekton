@@ -22,8 +22,8 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	dashhttp "forge.cadoles.com/vcarroy/arkhitekton/internal/http"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/oauth"
+	dashhttp "github.com/Cadoles/arkhitekton/internal/http"
+	"github.com/Cadoles/arkhitekton/internal/oauth"
 )
 
 // Verifier resolves a bearer token into the agent holding it.

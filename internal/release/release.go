@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	versionpkg "forge.cadoles.com/vcarroy/arkhitekton/internal/version"
+	versionpkg "github.com/Cadoles/arkhitekton/internal/version"
 )
 
 // State is a release's state.

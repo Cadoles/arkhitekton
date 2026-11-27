@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/installed"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/installed"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // The job that pulls a plugin, and the parameter naming the installation it pulls.

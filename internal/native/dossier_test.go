@@ -7,9 +7,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/results"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1"
+	"github.com/Cadoles/arkhitekton/internal/results"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/rpc/pluginv1"
 )
 
 func TestARoleWithoutDossiersSaysSo(t *testing.T) {

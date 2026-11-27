@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/bench"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/bench"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 // BenchStore is what the load handlers need from the database.

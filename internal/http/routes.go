@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/auth"
+	"github.com/Cadoles/arkhitekton/internal/auth"
 )
 
 // NewAPIRouter mounts the application routes.

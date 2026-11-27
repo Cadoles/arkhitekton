@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 /*

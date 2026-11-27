@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/provider"
+	"github.com/Cadoles/arkhitekton/sdk/provider"
 )
 
 /*

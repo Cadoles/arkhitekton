@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/parse"
+	"github.com/Cadoles/arkhitekton/sdk/parse"
 )
 
 // goTestOutputLimit bounds what a case keeps of its output: the end, where a failure is told.

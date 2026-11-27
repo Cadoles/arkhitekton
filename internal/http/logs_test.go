@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/logs"
+	"github.com/Cadoles/arkhitekton/internal/logs"
 )
 
 /*

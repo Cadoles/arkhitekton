@@ -4263,7 +4263,7 @@ const file_arkhitekton_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x0eResolvedPlugin\x12!.arkhitekton.plugin.v1.ProjectRef\x1a%.arkhitekton.plugin.v1.PluginSettings\x12Y\n" +
 	"\fEnvironments\x12!.arkhitekton.plugin.v1.ProjectRef\x1a&.arkhitekton.plugin.v1.EnvironmentList\x12R\n" +
 	"\tAuthorize\x12$.arkhitekton.plugin.v1.Authorization\x1a\x1f.arkhitekton.plugin.v1.Decision\x12_\n" +
-	"\x11GetReleaseDossier\x12#.arkhitekton.plugin.v1.ReleaseByTag\x1a%.arkhitekton.plugin.v1.ReleaseDossierB=Z;forge.cadoles.com/vcarroy/arkhitekton/rpc/pluginv1;pluginv1b\x06proto3"
+	"\x11GetReleaseDossier\x12#.arkhitekton.plugin.v1.ReleaseByTag\x1a%.arkhitekton.plugin.v1.ReleaseDossierB6Z4github.com/Cadoles/arkhitekton/rpc/pluginv1;pluginv1b\x06proto3"
 
 var (
 	file_arkhitekton_plugin_v1_plugin_proto_rawDescOnce sync.Once

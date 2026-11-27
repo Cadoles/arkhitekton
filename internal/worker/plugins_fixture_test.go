@@ -1,10 +1,10 @@
 package worker
 
 import (
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/action"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/capabilities"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk"
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/capability"
+	"github.com/Cadoles/arkhitekton/internal/action"
+	"github.com/Cadoles/arkhitekton/internal/capabilities"
+	"github.com/Cadoles/arkhitekton/sdk"
+	"github.com/Cadoles/arkhitekton/sdk/capability"
 )
 
 // forgeRegistry declares the forge and the tracker as their plugins do: the fields that are sealed,

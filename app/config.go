@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/config"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configfile"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/live"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/config"
+	"github.com/Cadoles/arkhitekton/internal/configfile"
+	"github.com/Cadoles/arkhitekton/internal/configure"
+	"github.com/Cadoles/arkhitekton/internal/live"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

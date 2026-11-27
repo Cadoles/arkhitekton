@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/sdk/facts"
+	"github.com/Cadoles/arkhitekton/sdk/facts"
 )
 
 // APIVersion is the schema version a declaration states.

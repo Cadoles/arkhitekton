@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/configure"
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/store"
+	"github.com/Cadoles/arkhitekton/internal/configure"
+	"github.com/Cadoles/arkhitekton/internal/store"
 )
 
 /*

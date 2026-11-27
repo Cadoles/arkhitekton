@@ -8,7 +8,7 @@ import (
 	"io"
 	"sort"
 
-	"forge.cadoles.com/vcarroy/arkhitekton/internal/blob"
+	"github.com/Cadoles/arkhitekton/internal/blob"
 )
 
 // DefaultTail is how much is read by default when no offset is asked for.
